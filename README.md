@@ -104,9 +104,16 @@ Avsändaradressen måste ligga på en domän som är verifierad hos leverantöre
 ## Tester
 
 ```bash
+npm ci
+npx playwright install chromium
+
 php tests/server-test.php   # 146 assertions: validering, villkor, routing, mail, rendering, import
 npx playwright test         # 64 tester i riktig webbläsare, desktop och mobil
 ```
+
+Har du redan en Chromium på maskinen som Playwright inte installerat själv, peka ut den med `CHROMIUM_PATH=/sökväg/till/chrome npx playwright test`. Utan variabeln används Playwrights egen.
+
+IDN-testet (`kontakt@räksmörgås.se`) hoppas över om PHP-tillägget `intl` saknas, eftersom motorn hoppar över punycode-översättningen i samma läge. CI installerar `intl`, så den vägen testas där.
 
 Demon som webbläsartesterna körs mot genereras av den riktiga renderaren via reflektion (`php tests/build-demo.php`). Den kan alltså inte glida ifrån koden.
 

@@ -134,7 +134,19 @@ check( 'felaktigt telefonnummer fångas', isset( $bad_tel['errors']['telefon'] )
 
 echo "\nE-postvalidering\n";
 
-$good_emails = [ 'anna@exempel.se', 'anna.andersson@sub.exempel.co.uk', 'a+tagg@exempel.nu', 'Anna.Andersson@Exempel.SE', 'kontakt@räksmörgås.se' ];
+$good_emails = [ 'anna@exempel.se', 'anna.andersson@sub.exempel.co.uk', 'a+tagg@exempel.nu', 'Anna.Andersson@Exempel.SE' ];
+
+/*
+ * IDN-adressen kräver PHP-tillägget intl. Motorn hoppar över punycode-
+ * översättningen när tillägget saknas, alltså ska testet göra det också –
+ * annars mäter det serverns uppsättning i stället för koden. CI installerar
+ * intl, så den riktiga vägen testas där.
+ */
+if ( function_exists( 'idn_to_ascii' ) ) {
+	$good_emails[] = 'kontakt@räksmörgås.se';
+} else {
+	echo "  --   hoppar över IDN-test: PHP-tillägget intl saknas\n";
+}
 $bad_emails  = [ 'anna@', '@exempel.se', 'anna@exempel', 'anna..a@exempel.se', 'anna.@exempel.se', 'anna@.exempel.se', 'anna@exempel.s', 'anna exempel.se', 'anna@exempel..se', '' ];
 
 foreach ( $good_emails as $email ) {

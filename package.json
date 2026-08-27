@@ -21,9 +21,5 @@
   "devDependencies": {
     "@playwright/test": "^1.55.0"
   },
-  "dependencies": {
-    "playwright": "^1.62.1",
-    "playwright-core": "^1.62.1"
-  },
   "description": "Formulärmotor för WordPress."
 }

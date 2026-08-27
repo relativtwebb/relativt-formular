@@ -38,7 +38,7 @@ if ( ! defined( 'RELATIVT_FORM_VERSION' ) ) {
  * repot borta hittar uppdateraren ingenting – den är tyst, aldrig fatal.
  */
 if ( ! defined( 'RELATIVT_FORM_REPO' ) ) {
-	define( 'RELATIVT_FORM_REPO', 'relativtwebb/relativt-formular' );
+	define( 'RELATIVT_FORM_REPO', 'relativt/relativt-formular' );
 }
 
 /*
