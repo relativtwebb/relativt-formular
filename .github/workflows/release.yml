@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Bygg och publicera
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.0'
+          coverage: none
+
+      # Taggen och Version-headern MÅSTE stämma överens.
+      #
+      # Gör de inte det går det illa på ett tyst sätt: uppdateraren jämför
+      # taggen mot den installerade versionen, så en sajt som installerat
+      # v1.0.1 medan filen inuti säger 1.0.0 blir erbjuden samma uppdatering
+      # om och om igen, i all evighet. Bättre att releasen faller här.
+      - name: Kontrollera att taggen matchar pluginheadern
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          HEADER=$(grep -m1 -oP '^\s*\*\s*Version:\s*\K\S+' relativt-formular.php)
+
+          if [ "$TAG" != "$HEADER" ]; then
+            echo "::error::Taggen är v$TAG men Version i relativt-formular.php är $HEADER."
+            exit 1
+          fi
+
+          echo "Version $HEADER bekräftad."
+
+      - name: Servertester
+        run: php tests/server-test.php
+
+      - name: Bygg zip
+        run: php build/build.php
+
+      # Zippen bifogas som release-tillgång. Utan den faller uppdateraren
+      # tillbaka på GitHubs zipball, som packar upp till "repo-1.0.1/" i
+      # stället för "relativt-formular/".
+      - name: Publicera release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES=$(awk '/^## \[/{ if (seen++) exit; next } seen' CHANGELOG.md)
+
+          gh release create "$GITHUB_REF_NAME" \
+            dist/*.zip \
+            --title "$GITHUB_REF_NAME" \
+            --notes "${NOTES:-Se CHANGELOG.md}"

@@ -1,0 +1,29 @@
+{
+  "name": "relativt-formular",
+  "version": "1.0.0",
+  "main": "assets/js/relativt-formular.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "php tests/server-test.php && php tests/build-demo.php && playwright test",
+    "test:server": "php tests/server-test.php",
+    "test:browser": "php tests/build-demo.php && playwright test",
+    "build": "php build/build.php"
+  },
+  "keywords": [
+    "wordpress",
+    "forms",
+    "acf"
+  ],
+  "author": "Relativt",
+  "license": "GPL-2.0-or-later",
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  },
+  "dependencies": {
+    "playwright": "^1.62.1",
+    "playwright-core": "^1.62.1"
+  },
+  "description": "Formulärmotor för WordPress."
+}

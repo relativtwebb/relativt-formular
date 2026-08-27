@@ -1,0 +1,503 @@
+/* =============================================================================
+   Relativt Formulär
+   Laddas av pluginet från assets/css/. Kan stängas av med filtret relativt_form_enqueue_css.
+
+   Markupen genereras av PHP och kan inte byggas i en sidbyggares UI, så
+   designen ligger här. Allt stylas på FÄLTTYPSNIVÅ – lägger man till ett nytt
+   fält i byggaren ärver det designen automatiskt.
+
+   Färgerna nedan är medvetet neutrala platshållare. Justera variablerna i
+   blocket "JUSTERA HÄR" per sajt, eller stäng av hela stilmallen med filtret
+   relativt_form_enqueue_css och styla formuläret i temat i stället.
+
+   Geometrikritiska deklarationer bär !important eftersom Oxygen skriver
+   id-regler så fort man rör Layout på ett element, och de slår klass-CSS.
+   ========================================================================== */
+
+.relativt-form {
+	/* ===== JUSTERA HÄR ===== */
+	--xf-gap: 20px;              /* avstånd mellan fält */
+	--xf-gap-row: 22px;
+	--xf-radius: 2px;
+	--xf-field-bg: #f5f5f4;      /* fältbakgrund */
+	--xf-field-bg-focus: #efeeec;
+	--xf-field-pad-y: 16px;
+	--xf-field-pad-x: 18px;
+	--xf-text: #2b2a28;
+	--xf-placeholder: #b6b4b0;
+	--xf-label: #2b2a28;
+	--xf-label-size: 13px;
+	--xf-label-spacing: 0.08em;
+	--xf-input-size: 16px;
+	--xf-active-bg: #2b2a28;     /* vald val-knapp */
+	--xf-active-text: #ffffff;
+	--xf-accent: #2b2a28;        /* knappens bakgrund */
+	--xf-accent-text: #ffffff;   /* knappens text och ikon */
+	--xf-icon-size: 22px;        /* pilen i knappen */
+	--xf-error: #b32d2e;
+	--xf-focus-ring: #2b2a28;
+	--xf-breakpoint: 768px;      /* under denna: en kolumn */
+	/* ======================= */
+
+	width: 100%;
+}
+
+/* Oxygens .ct-div-block är flex column med align-items: flex-start, och rör man
+   Layout på ett element skriver Oxygen en id-regel som kan göra föräldern till
+   flex ROW. Då blir formuläret ett krympbart flex-item och trycks ihop till
+   innehållets bredd. Dubbel klass för specificitet, flex-shrink: 0 mot krympet.
+
+   OBS: sätt aldrig flex-basis här. I en flex column styr basis HÖJDEN, och
+   `flex: 0 0 100%` skulle ge formuläret 100 % höjd av föräldern. */
+.relativt-form.relativt-form {
+	width: 100% !important;
+	max-width: 100% !important;
+	flex-shrink: 0 !important;
+	box-sizing: border-box;
+}
+
+.relativt-form *,
+.relativt-form *::before,
+.relativt-form *::after {
+	box-sizing: border-box;
+}
+
+/* -----------------------------------------------------------------------------
+   Rutnät
+   -------------------------------------------------------------------------- */
+
+.relativt-form .xf-grid {
+	display: grid !important;
+	grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+	column-gap: var(--xf-gap);
+	row-gap: var(--xf-gap-row);
+	width: 100% !important;
+	align-items: start;
+}
+
+.relativt-form .xf-field {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	grid-column: 1 / -1;
+}
+
+.relativt-form .xf-field--half {
+	grid-column: span 1;
+}
+
+.relativt-form .xf-field[hidden] {
+	display: none !important;
+}
+
+@media (max-width: 768px) {
+	.relativt-form .xf-grid {
+		grid-template-columns: minmax(0, 1fr) !important;
+	}
+	.relativt-form .xf-field--half {
+		grid-column: 1 / -1;
+	}
+}
+
+/* -----------------------------------------------------------------------------
+   Etiketter och hjälptexter
+   -------------------------------------------------------------------------- */
+
+.relativt-form .xf-label {
+	display: block;
+	margin: 0 0 8px;
+	font-size: var(--xf-label-size);
+	line-height: 1.3;
+	letter-spacing: var(--xf-label-spacing);
+	text-transform: uppercase;
+	color: var(--xf-label);
+}
+
+/* Designen visar ingen asterisk. Markupen innehåller den ändå, så den kan
+   tändas utan kodändring – byt display till inline nedan. Obligatoriska fält
+   är oavsett märkta med required för skärmläsare. ===== JUSTERA HÄR ===== */
+.relativt-form .xf-req {
+	display: none;
+	margin-left: 2px;
+}
+
+.relativt-form .xf-heading {
+	margin: 8px 0 0;
+	font-size: 18px;
+	line-height: 1.4;
+	color: var(--xf-text);
+}
+
+.relativt-form .xf-help {
+	margin: 6px 0 0;
+	font-size: 13px;
+	line-height: 1.5;
+	color: #8a8880;
+}
+
+.relativt-form .xf-error {
+	margin: 6px 0 0;
+	font-size: 13px;
+	line-height: 1.4;
+	color: var(--xf-error);
+	min-height: 0;
+}
+
+.relativt-form .xf-error:empty {
+	display: none;
+}
+
+.relativt-form .xf-form-error {
+	margin: 16px 0 0;
+	font-size: 14px;
+	color: var(--xf-error);
+}
+
+.relativt-form .xf-form-error:empty {
+	display: none;
+}
+
+/* -----------------------------------------------------------------------------
+   Inmatningsfält – stylas per TYP, inte per fält
+   -------------------------------------------------------------------------- */
+
+.relativt-form .xf-input {
+	width: 100% !important;
+	padding: var(--xf-field-pad-y) var(--xf-field-pad-x);
+	border: 1px solid transparent;
+	border-radius: var(--xf-radius);
+	background: var(--xf-field-bg);
+	color: var(--xf-text);
+	font-family: inherit;
+	font-size: var(--xf-input-size);
+	line-height: 1.4;
+	appearance: none;
+	-webkit-appearance: none;
+	transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+
+.relativt-form .xf-input::placeholder {
+	color: var(--xf-placeholder);
+	opacity: 1;
+}
+
+.relativt-form .xf-input:hover {
+	background: var(--xf-field-bg-focus);
+}
+
+.relativt-form .xf-input:focus,
+.relativt-form .xf-input:focus-visible {
+	outline: none;
+	background: var(--xf-field-bg-focus);
+	border-color: var(--xf-focus-ring);
+}
+
+.relativt-form .has-error .xf-input {
+	border-color: var(--xf-error);
+}
+
+.relativt-form .xf-textarea {
+	min-height: 210px;
+	resize: vertical;
+}
+
+/* Rullista med egen pil */
+.relativt-form .xf-select-wrap {
+	position: relative;
+	display: block;
+	width: 100%;
+}
+
+.relativt-form .xf-select {
+	padding-right: calc(var(--xf-field-pad-x) + 28px);
+	cursor: pointer;
+}
+
+.relativt-form .xf-select-arrow {
+	position: absolute;
+	top: 50%;
+	right: var(--xf-field-pad-x);
+	width: 12px;
+	height: 12px;
+	margin-top: -7px;
+	border-right: 2px solid var(--xf-text);
+	border-bottom: 2px solid var(--xf-text);
+	transform: rotate(45deg);
+	pointer-events: none;
+}
+
+/* Dolda fält får aldrig ta plats */
+.relativt-form .xf-type-hidden {
+	display: none !important;
+}
+
+/* -----------------------------------------------------------------------------
+   Val-knappar (segmenterade) – fälttypen som renderar "JAG ÄR"
+   -------------------------------------------------------------------------- */
+
+.relativt-form .xf-buttons {
+	display: grid !important;
+	grid-auto-flow: column;
+	grid-auto-columns: 1fr;
+	gap: var(--xf-gap);
+	width: 100% !important;
+}
+
+/* Två val ligger kvar sida vid sida även på telefon – staplade tar de för mycket
+   höjd och trycker ner resten av formuläret. Först vid fler än tre alternativ,
+   eller riktigt smala skärmar, staplas de. */
+@media (max-width: 768px) {
+	.relativt-form .xf-buttons {
+		gap: 10px;
+	}
+	.relativt-form .xf-buttons .xf-choice-label {
+		min-height: 64px;
+		padding: 12px 14px;
+		font-size: 15px;
+	}
+}
+
+@media (max-width: 360px) {
+	.relativt-form .xf-buttons {
+		grid-auto-flow: row;
+	}
+}
+
+.relativt-form .xf-buttons .xf-choice-input {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+.relativt-form .xf-buttons .xf-choice-label {
+	display: flex !important;
+	align-items: center;
+	justify-content: center;
+	min-height: 88px;
+	padding: 16px 20px;
+	border-radius: var(--xf-radius);
+	background: var(--xf-field-bg);
+	color: var(--xf-text);
+	font-size: var(--xf-input-size);
+	line-height: 1.3;
+	text-align: center;
+	cursor: pointer;
+	transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.relativt-form .xf-buttons .xf-choice-label:hover {
+	background: var(--xf-field-bg-focus);
+}
+
+.relativt-form .xf-buttons .xf-choice-input:checked + .xf-choice-label {
+	background: var(--xf-active-bg);
+	color: var(--xf-active-text);
+}
+
+.relativt-form .xf-buttons .xf-choice-input:focus-visible + .xf-choice-label {
+	outline: 2px solid var(--xf-focus-ring);
+	outline-offset: 2px;
+}
+
+/* -----------------------------------------------------------------------------
+   Radioknappar och kryssrutor
+   -------------------------------------------------------------------------- */
+
+.relativt-form .xf-radios,
+.relativt-form .xf-checks {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.relativt-form .xf-radios .xf-choice-label,
+.relativt-form .xf-check {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	font-size: 15px;
+	line-height: 1.5;
+	color: var(--xf-text);
+	cursor: pointer;
+}
+
+.relativt-form .xf-radios .xf-choice-input,
+.relativt-form .xf-check-input {
+	flex: 0 0 auto;
+	width: 18px;
+	height: 18px;
+	margin: 2px 0 0;
+	accent-color: var(--xf-active-bg);
+	cursor: pointer;
+}
+
+.relativt-form .xf-check-box {
+	display: none;
+}
+
+.relativt-form .xf-check-text a {
+	color: inherit;
+	text-decoration: underline;
+}
+
+/* -----------------------------------------------------------------------------
+   Knapp
+   -------------------------------------------------------------------------- */
+
+.relativt-form .xf-actions {
+	margin-top: 28px;
+	width: 100%;
+}
+
+/* Struktur – ligger kvar oavsett hur .btn stylas i Oxygen */
+.relativt-form .xf-submit {
+	display: inline-flex !important;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	width: 100% !important;
+	cursor: pointer;
+	font-family: inherit;
+}
+
+.relativt-form .xf-submit-icon {
+	display: inline-flex;
+	align-items: center;
+	line-height: 0;
+}
+
+.relativt-form .xf-submit-icon svg {
+	width: var(--xf-icon-size);
+	height: var(--xf-icon-size);
+	display: block;
+	fill: currentColor;
+}
+
+.relativt-form.is-sending .xf-submit {
+	opacity: 0.6;
+	pointer-events: none;
+}
+
+/* ===== JUSTERA HÄR: knappens utseende =======================================
+   Ta bort hela blocket om .btn redan är stylad i Oxygens UI – då ärver
+   knappen den stylingen istället och de här reglerna bara krockar.
+   -------------------------------------------------------------------------- */
+.relativt-form .xf-submit {
+	padding: 22px 28px;
+	border: 0;
+	border-radius: var(--xf-radius);
+	background: var(--xf-accent);
+	color: var(--xf-accent-text);
+	font-size: 14px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	transition: filter 0.18s ease;
+}
+
+.relativt-form .xf-submit:hover {
+	filter: brightness(0.96);
+}
+/* ===== SLUT justerbart block ============================================== */
+
+/* -----------------------------------------------------------------------------
+   Samtycke och tack
+   -------------------------------------------------------------------------- */
+
+.relativt-form .xf-consent {
+	margin-top: 16px;
+	font-size: 13px;
+	line-height: 1.6;
+	color: #6f6d67;
+}
+
+.relativt-form .xf-consent p {
+	margin: 0;
+}
+
+.relativt-form .xf-consent a {
+	color: inherit;
+	text-decoration: underline;
+}
+
+.relativt-form .xf-thanks {
+	padding: 40px 0;
+}
+
+.relativt-form .xf-thanks-title {
+	margin: 0 0 8px;
+	font-size: 22px;
+	line-height: 1.3;
+	color: var(--xf-text);
+}
+
+.relativt-form .xf-thanks-text {
+	margin: 0;
+	font-size: 16px;
+	line-height: 1.6;
+	color: #6f6d67;
+}
+
+/* -----------------------------------------------------------------------------
+   Honungsfälla – osynlig för människor, ifylld av bottar.
+   Aldrig display:none: en del bottar hoppar över dolda fält.
+   -------------------------------------------------------------------------- */
+
+.relativt-form .xf-hp {
+	position: absolute !important;
+	left: -9999px !important;
+	top: auto !important;
+	width: 1px !important;
+	height: 1px !important;
+	overflow: hidden !important;
+}
+
+/* -----------------------------------------------------------------------------
+   I modalen
+   -------------------------------------------------------------------------- */
+
+.site-modal .relativt-form .xf-actions {
+	margin-top: 22px;
+}
+
+.site-modal .relativt-form .xf-textarea {
+	min-height: 140px;
+}
+
+.site-modal .relativt-form .xf-buttons .xf-choice-label {
+	min-height: 64px;
+}
+
+/* -----------------------------------------------------------------------------
+   I Oxygens builder ska formuläret vara ett vanligt, synligt block:
+   inget döljs av villkor eftersom JS inte körs där.
+   -------------------------------------------------------------------------- */
+
+body.oxygen-builder-body .relativt-form .xf-field[hidden],
+body.oxygen-builder-body .relativt-form .xf-thanks[hidden] {
+	display: flex !important;
+	opacity: 0.6;
+}
+
+/* -----------------------------------------------------------------------------
+   Notis till inloggade när shortcoden pekar fel
+   -------------------------------------------------------------------------- */
+
+.relativt-form-notice {
+	padding: 14px 18px;
+	border-left: 3px solid var(--xf-error, #b32d2e);
+	background: #fdf3f3;
+	font-size: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.relativt-form * {
+		transition: none !important;
+	}
+}

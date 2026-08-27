@@ -1,0 +1,70 @@
+name: Tester
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  server:
+    name: Servertester (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # Matrisen är inte pynt: den BEVISAR "Requires PHP: 8.0" i pluginheadern.
+      # Släpar en 8.0-inkompatibel konstruktion in i koden faller 8.0-jobbet,
+      # inte en kundsajt.
+      matrix:
+        php: ['8.0', '8.2', '8.4']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      - name: Syntaxkontroll
+        run: find . -name '*.php' -not -path './node_modules/*' -print0 | xargs -0 -n1 php -l
+
+      - name: Servertester
+        run: php tests/server-test.php
+
+  browser:
+    name: Webbläsartester
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      # Demon genereras av den riktiga renderaren, så webbläsartesterna kör
+      # mot samma markup som en kundsajt får.
+      - name: Bygg demon
+        run: php tests/build-demo.php
+
+      - name: Playwright
+        run: npx playwright test
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-rapport
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
