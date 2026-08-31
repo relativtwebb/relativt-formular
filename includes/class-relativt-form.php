@@ -30,7 +30,6 @@ if ( ! class_exists( 'Relativt_Form', false ) ) :
 
 final class Relativt_Form {
 
-	public const VERSION      = '1.0.0';
 	public const CPT_FORM     = 'relativt_form';
 	public const CPT_ENTRY    = 'relativt_entry';
 	public const REST_NS      = 'relativt-form/v1';
@@ -49,6 +48,16 @@ final class Relativt_Form {
 
 	/** Fälttyper som inte tar emot användarinmatning. */
 	private const STATIC_TYPES = [ 'heading' ];
+
+	/**
+	 * Max antal länkar i en textruta innan inskicket avvisas. Länkspam är den
+	 * vanligaste sortens skräp som tar sig förbi honungsfälla och tidsspärr.
+	 * Justeras med filtret relativt_form_max_links; 0 stänger av kontrollen.
+	 */
+	private const MAX_LINKS = 3;
+
+	/** Formulärdefinitioner per formulär-id, cachade för sidladdningen. */
+	private static array $fields_cache = [];
 
 	private static ?self $instance = null;
 
@@ -82,6 +91,7 @@ final class Relativt_Form {
 		add_action( 'manage_' . self::CPT_ENTRY . '_posts_custom_column', [ $this, 'entry_column' ], 10, 2 );
 		add_action( 'restrict_manage_posts', [ $this, 'entry_filter_dropdown' ] );
 		add_action( 'admin_post_relativt_form_export', [ $this, 'export_csv' ] );
+		add_action( 'admin_notices', [ $this, 'mail_failure_notice' ] );
 
 		// Gallring.
 		add_action( 'after_switch_theme', [ $this, 'schedule_cleanup' ] );
@@ -100,10 +110,46 @@ final class Relativt_Form {
 	public function register_assets(): void {
 		$url = defined( 'RELATIVT_FORM_URL' ) ? RELATIVT_FORM_URL : '';
 
+		/*
+		 * Versionen kommer från huvudfilens konstant – EN källa, inte en egen
+		 * klasskonstant som kan glömmas vid release. Den cache-bustar CSS/JS:
+		 * släpar den efter serveras gammal JS ur webbläsarcachen efter en
+		 * uppdatering. release.yml vägrar tagga om konstanten inte stämmer.
+		 */
+		$version = defined( 'RELATIVT_FORM_VERSION' ) ? RELATIVT_FORM_VERSION : null;
+
 		if ( apply_filters( 'relativt_form_enqueue_css', true ) ) {
-			wp_register_style( 'relativt-formular', $url . 'assets/css/relativt-formular.css', [], self::VERSION );
+			wp_register_style( 'relativt-formular', $url . 'assets/css/relativt-formular.css', [], $version );
 		}
-		wp_register_script( 'relativt-formular', $url . 'assets/js/relativt-formular.js', [], self::VERSION, true );
+		wp_register_script( 'relativt-formular', $url . 'assets/js/relativt-formular.js', [], $version, true );
+
+		/*
+		 * Konfiguration till skriptet. Meddelandena delas med PHP-valideringen
+		 * så att klient och server aldrig säger olika saker, och maxLinks
+		 * speglar serverns länkspärr av samma skäl.
+		 *
+		 * rccCookie skickas bara med när Relativt Cookie Consent är aktivt på
+		 * sajten. Namnet på samtyckescookien är filtrerbart där, så JS kan inte
+		 * gissa det – och att avgöra "finns samtyckesverktyget?" i PHP slipper
+		 * kapplöpningen om vilken skriptfil som råkar köras först.
+		 */
+		$config = [
+			'utmCookie' => (string) apply_filters( 'relativt_form_utm_cookie', 'auto' ),
+			'maxLinks'  => (int) apply_filters( 'relativt_form_max_links', self::MAX_LINKS ),
+			'messages'  => $this->messages(),
+		];
+
+		if ( defined( 'RCC_VERSION' ) ) {
+			$config['rccCookie'] = function_exists( 'rcc_cookie_name' )
+				? (string) rcc_cookie_name()
+				: 'relativt_cookie_consent';
+		}
+
+		wp_add_inline_script(
+			'relativt-formular',
+			'window.relativtFormConfig = ' . wp_json_encode( $config ) . ';',
+			'before'
+		);
 
 		/*
 		 * Standard är att ladda överallt. Renderas formuläret i en modal som
@@ -125,7 +171,7 @@ final class Relativt_Form {
 		wp_enqueue_script( 'relativt-formular' );
 	}
 
-	/** Filtrerar inskickslistan i wp-admin på valt formulär. */
+	/** Filtrerar inskickslistan i wp-admin på valt formulär och/eller mailstatus. */
 	public function filter_entry_list( $query ): void {
 		if ( ! is_admin() || ! method_exists( $query, 'is_main_query' ) || ! $query->is_main_query() ) {
 			return;
@@ -133,11 +179,56 @@ final class Relativt_Form {
 		if ( ( $query->get( 'post_type' ) ?: '' ) !== self::CPT_ENTRY ) {
 			return;
 		}
+
+		$meta    = [];
 		$form_id = (int) ( $_GET['xf_form'] ?? 0 );
 		if ( $form_id ) {
-			$query->set( 'meta_key', '_xf_form_id' );
-			$query->set( 'meta_value', $form_id );
+			$meta[] = [ 'key' => '_xf_form_id', 'value' => $form_id ];
 		}
+		// Notisen om misslyckade mail länkar hit.
+		if ( 'failed' === (string) ( $_GET['xf_mail'] ?? '' ) ) {
+			$meta[] = [ 'key' => '_xf_mail_ok', 'value' => '0' ];
+		}
+		if ( $meta ) {
+			$query->set( 'meta_query', $meta );
+		}
+	}
+
+	/**
+	 * Alla besökartexter som motorn kan behöva säga, på ett ställe. Samma
+	 * lista skickas till JS via relativtFormConfig, så klient och server
+	 * använder ordagrant samma formuleringar. Filtret relativt_form_messages
+	 * låter en sajt byta ut dem – t.ex. till engelska – utan språkfiler.
+	 *
+	 * @return array<string,string>
+	 */
+	public function messages(): array {
+		$defaults = [
+			'required' => 'Fyll i detta fält.',
+			'email'    => 'Kontrollera e-postadressen.',
+			'tel'      => 'Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.',
+			'number'   => 'Ange ett nummer.',
+			'date'     => 'Kontrollera datumet.',
+			'choice'   => 'Ogiltigt val.',
+			'links'    => 'Meddelandet innehåller för många länkar.',
+			'consent'  => 'Du behöver godkänna villkoren.',
+			'toofast'  => 'Det gick lite för snabbt. Vänta en sekund och försök igen.',
+			'nonce'    => 'Sessionen har gått ut. Ladda om sidan och försök igen.',
+			'rate'     => 'Du har skickat flera meddelanden på kort tid. Vänta en stund och försök igen.',
+			'generic'  => 'Något gick fel. Försök igen om en liten stund.',
+		];
+
+		$filtered = apply_filters( 'relativt_form_messages', $defaults );
+
+		// Bara kända nycklar, och alltid strängar – ett halvtrasigt filter ska
+		// inte kunna tysta ett felmeddelande.
+		$out = $defaults;
+		foreach ( is_array( $filtered ) ? $filtered : [] as $key => $text ) {
+			if ( isset( $defaults[ $key ] ) && is_string( $text ) && '' !== $text ) {
+				$out[ $key ] = $text;
+			}
+		}
+		return $out;
 	}
 
 	/* ---------------------------------------------------------------------
@@ -279,10 +370,23 @@ final class Relativt_Form {
 							'label'   => 'Platshållare',
 							'name'    => 'placeholder',
 							'type'    => 'text',
-							'wrapper' => [ 'width' => '100' ],
+							'wrapper' => [ 'width' => '50' ],
 							'conditional_logic' => [ [
 								[ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'heading' ],
 							] ],
+						],
+						/*
+						 * Hjälptexten fanns i renderaren redan i 1.0 men saknade
+						 * sitt byggarfält. Under fältet på sajten; under
+						 * rubriken för typen Rubrik / avdelare.
+						 */
+						[
+							'key'          => 'field_xf_f_help',
+							'label'        => 'Hjälptext',
+							'name'         => 'help',
+							'type'         => 'text',
+							'wrapper'      => [ 'width' => '50' ],
+							'instructions' => 'Valfri. Visas i mindre stil under fältet.',
 						],
 						[
 							'key'          => 'field_xf_f_choices',
@@ -605,9 +709,18 @@ final class Relativt_Form {
 	 * Läsning av formulärdefinitionen
 	 * ------------------------------------------------------------------ */
 
+	/**
+	 * Tömmer definitionscachen. Behövs när en definition ändras under samma
+	 * körning – i praktiken av testerna, som annars mäter cachen i stället
+	 * för koden.
+	 */
+	public static function flush_fields_cache(): void {
+		self::$fields_cache = [];
+	}
+
 	/** @return array<int,array<string,mixed>> */
 	public function get_fields( int $form_id ): array {
-		static $cache = [];
+		$cache = &self::$fields_cache;
 		if ( isset( $cache[ $form_id ] ) ) {
 			return $cache[ $form_id ];
 		}
@@ -830,7 +943,8 @@ final class Relativt_Form {
 				</div>
 			</form>
 
-			<div class="xf-thanks" role="status" aria-live="polite" hidden>
+			<?php // tabindex="-1" så att JS kan flytta fokus hit vid tack-läget – utan det är focus() en tyst no-op på en div. ?>
+			<div class="xf-thanks" role="status" aria-live="polite" tabindex="-1" hidden>
 				<p class="xf-thanks-title"><?php echo esc_html( $this->setting( $form_id, 'xf_thanks_title', 'Tack!' ) ); ?></p>
 				<p class="xf-thanks-text"><?php echo esc_html( $this->setting( $form_id, 'xf_thanks_text', '' ) ); ?></p>
 			</div>
@@ -852,6 +966,15 @@ final class Relativt_Form {
 			'class'      => implode( ' ', $wrap_classes ),
 			'data-xf-key'=> $key,
 		];
+		/*
+		 * JS läser flaggan för klientvalideringen. required-ATTRIBUTET räcker
+		 * inte: en flervalsgrupp kan inte bära det (då kräver webbläsaren ALLA
+		 * rutor), så utan flaggan validerades obligatoriska flerval bara på
+		 * servern – en extra rundresa för besökaren.
+		 */
+		if ( $f['required'] && ! in_array( $type, self::STATIC_TYPES, true ) ) {
+			$attrs['data-xf-required'] = '1';
+		}
 		if ( '' !== $f['cond_field'] ) {
 			$attrs['data-xf-cond-field'] = $f['cond_field'];
 			$attrs['data-xf-cond-value'] = $f['cond_value'];
@@ -894,10 +1017,19 @@ final class Relativt_Form {
 
 		echo '<div' . $attr_str . '>'; // phpcs:ignore
 
+		/*
+		 * Gruppfälten (val-knappar, radio, flerval) kan inte använda <label for>
+		 * för själva gruppen. Etiketten får därför ett id, och gruppens wrapper
+		 * pekar tillbaka med aria-labelledby – annars presenterar skärmläsaren
+		 * en namnlös grupp.
+		 */
 		$group_label = in_array( $type, [ 'buttons', 'radio', 'checkboxes' ], true );
+		$label_id    = $group_label && '' !== $f['label'] ? $id . '-label' : '';
+		$labelledby  = '' !== $label_id ? ' aria-labelledby="' . esc_attr( $label_id ) . '"' : '';
+
 		if ( 'checkbox' !== $type && '' !== $f['label'] ) {
 			echo $group_label // phpcs:ignore
-				? '<span class="xf-label">' . esc_html( $f['label'] ) . ( $f['required'] ? '<span class="xf-req" aria-hidden="true">*</span>' : '' ) . '</span>'
+				? '<span class="xf-label" id="' . esc_attr( $label_id ) . '">' . esc_html( $f['label'] ) . ( $f['required'] ? '<span class="xf-req" aria-hidden="true">*</span>' : '' ) . '</span>'
 				: '<label class="xf-label" for="' . esc_attr( $id ) . '">' . esc_html( $f['label'] ) . ( $f['required'] ? '<span class="xf-req" aria-hidden="true">*</span>' : '' ) . '</label>';
 		}
 
@@ -924,7 +1056,7 @@ final class Relativt_Form {
 			case 'buttons':
 			case 'radio':
 				$wrapper = 'buttons' === $type ? 'xf-buttons' : 'xf-radios';
-				echo '<div class="' . esc_attr( $wrapper ) . '" role="radiogroup">';
+				echo '<div class="' . esc_attr( $wrapper ) . '" role="radiogroup"' . $labelledby . '>'; // phpcs:ignore
 				$i = 0;
 				foreach ( $f['choices'] as $val => $label ) {
 					$oid = $id . '-' . $i++;
@@ -939,7 +1071,7 @@ final class Relativt_Form {
 				break;
 
 			case 'checkboxes':
-				echo '<div class="xf-checks">';
+				echo '<div class="xf-checks" role="group"' . $labelledby . '>'; // phpcs:ignore
 				$selected = array_map( 'trim', explode( ',', $value ) );
 				$i        = 0;
 				foreach ( $f['choices'] as $val => $label ) {
@@ -978,11 +1110,16 @@ final class Relativt_Form {
 				);
 		}
 
+		/*
+		 * Hjälptexten och felraden bär id:n så att JS kan koppla ihop dem med
+		 * fältet via aria-describedby – skärmläsaren läser då upp både hjälpen
+		 * och felet i samband med fältet, inte som lösryckta rader.
+		 */
 		if ( '' !== $f['help'] && 'heading' !== $type ) {
-			echo '<p class="xf-help">' . esc_html( $f['help'] ) . '</p>';
+			echo '<p class="xf-help" id="' . esc_attr( $id . '-help' ) . '">' . esc_html( $f['help'] ) . '</p>';
 		}
 
-		echo '<p class="xf-error" data-xf-error="' . esc_attr( $key ) . '" role="alert"></p>';
+		echo '<p class="xf-error" id="' . esc_attr( $id . '-error' ) . '" data-xf-error="' . esc_attr( $key ) . '" role="alert"></p>';
 		echo '</div>';
 
 		return (string) ob_get_clean();
@@ -1028,6 +1165,7 @@ final class Relativt_Form {
 	public function rest_submit( WP_REST_Request $request ) {
 		$body    = $request->get_json_params() ?: $request->get_params();
 		$form_id = (int) ( $body['form'] ?? 0 );
+		$msg     = $this->messages();
 
 		if ( get_post_type( $form_id ) !== self::CPT_FORM ) {
 			return $this->fail( 'Okänt formulär.', 404 );
@@ -1041,7 +1179,7 @@ final class Relativt_Form {
 		// 2. Nonce.
 		$nonce = (string) ( $body['nonce'] ?? '' );
 		if ( ! wp_verify_nonce( $nonce, self::NONCE_ACTION . '_' . $form_id ) ) {
-			return $this->fail( 'Sessionen har gått ut. Ladda om sidan och försök igen.', 403, [ 'code' => 'nonce' ] );
+			return $this->fail( $msg['nonce'], 403, [ 'code' => 'nonce' ] );
 		}
 
 		// 3. Tidsspärr – signerad så den inte kan förfalskas.
@@ -1050,13 +1188,27 @@ final class Relativt_Form {
 		if ( ! hash_equals( $this->sign( $form_id . '|' . $ts ), $sig ) ) {
 			return $this->fail( 'Ogiltig begäran.', 400, [ 'code' => 'sig' ] );
 		}
-		if ( ( time() - $ts ) < self::MIN_SECONDS ) {
-			return $this->fake_success( $form_id );
+
+		/*
+		 * För snabbt inskick. I 1.0 svarade den här spärren med fejkad succé,
+		 * som honungsfällan – men det åt riktiga inskick: token hämtas vid
+		 * första fokus, och en besökare med autofyll fyller allt på en sekund
+		 * och klickar Skicka. Då försvann leadet SPÅRLÖST, med "Tack!" på
+		 * skärmen. Nu svarar spärren med ett mjukt fel som JS tyst gör om
+		 * efter väntetiden – besökaren märker ingenting, medan en bot som
+		 * postar direkt mot REST-rutten får ett fel i stället för en succé.
+		 */
+		$elapsed = time() - $ts;
+		if ( $elapsed < self::MIN_SECONDS ) {
+			return $this->fail( $msg['toofast'], 425, [
+				'code'        => 'toofast',
+				'retry_after' => max( 1, self::MIN_SECONDS - $elapsed ),
+			] );
 		}
 
 		// 4. Frekvensspärr.
 		if ( $this->rate_limited() ) {
-			return $this->fail( 'Du har skickat flera meddelanden på kort tid. Vänta en stund och försök igen.', 429, [ 'code' => 'rate' ] );
+			return $this->fail( $msg['rate'], 429, [ 'code' => 'rate' ] );
 		}
 
 		// 5. Validering.
@@ -1068,7 +1220,7 @@ final class Relativt_Form {
 		}
 
 		if ( $this->setting( $form_id, 'xf_consent_box' ) && empty( $body['xf_consent'] ) ) {
-			return new WP_REST_Response( [ 'ok' => false, 'errors' => [ 'xf_consent' => 'Du behöver godkänna villkoren.' ] ], 422 );
+			return new WP_REST_Response( [ 'ok' => false, 'errors' => [ 'xf_consent' => $msg['consent'] ] ], 422 );
 		}
 
 		$values = $result['values'];
@@ -1138,6 +1290,7 @@ final class Relativt_Form {
 	 */
 	public function validate( int $form_id, array $raw ): array {
 		$fields  = $this->get_fields( $form_id );
+		$msg     = $this->messages();
 		$flat    = [];
 		$errors  = [];
 		$values  = [];
@@ -1185,7 +1338,7 @@ final class Relativt_Form {
 			} elseif ( in_array( $type, self::CHOICE_TYPES, true ) ) {
 				$store = (string) $this->flatten( $value );
 				if ( '' !== $store && ! isset( $f['choices'][ $store ] ) ) {
-					$errors[ $key ] = 'Ogiltigt val.';
+					$errors[ $key ] = $msg['choice'];
 					continue;
 				}
 				$store = '' !== $store ? ( $f['choices'][ $store ] ?? $store ) : '';
@@ -1202,31 +1355,49 @@ final class Relativt_Form {
 			}
 
 			if ( $f['required'] && $empty ) {
-				$errors[ $key ] = 'Fyll i detta fält.';
+				$errors[ $key ] = $msg['required'];
 				continue;
 			}
 
 			if ( ! $empty ) {
 				if ( 'email' === $type && ! $this->valid_email( $store ) ) {
-					$errors[ $key ] = 'Kontrollera e-postadressen.';
+					$errors[ $key ] = $msg['email'];
 					continue;
 				}
 				if ( 'tel' === $type ) {
 					$normalized = $this->normalize_phone( $store );
 					if ( null === $normalized ) {
-						$errors[ $key ] = 'Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.';
+						$errors[ $key ] = $msg['tel'];
 						continue;
 					}
 					// Sparas normaliserat så numret går att ringa rakt ur mailet.
 					$store = $normalized;
 				}
 				if ( 'number' === $type && ! is_numeric( $store ) ) {
-					$errors[ $key ] = 'Ange ett nummer.';
+					$errors[ $key ] = $msg['number'];
 					continue;
 				}
-				if ( 'date' === $type && ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $store ) ) {
-					$errors[ $key ] = 'Kontrollera datumet.';
-					continue;
+				// Formatet räcker inte: 2026-13-45 matchar regexen. checkdate()
+				// avgör om datumet faktiskt finns i kalendern.
+				if ( 'date' === $type ) {
+					$is_date = preg_match( '/^(\d{4})-(\d{2})-(\d{2})$/', $store, $dm )
+						&& checkdate( (int) $dm[2], (int) $dm[3], (int) $dm[1] );
+					if ( ! $is_date ) {
+						$errors[ $key ] = $msg['date'];
+						continue;
+					}
+				}
+				/*
+				 * Länkspärren. Länkspam är den vanligaste sortens skräp som tar
+				 * sig förbi honungsfälla och tidsspärr – ett riktigt B2B-ärende
+				 * innehåller sällan mer än någon enstaka länk. Speglas i JS.
+				 */
+				if ( 'textarea' === $type ) {
+					$max_links = (int) apply_filters( 'relativt_form_max_links', self::MAX_LINKS );
+					if ( $max_links > 0 && preg_match_all( '/https?:\/\/|www\./i', $store ) > $max_links ) {
+						$errors[ $key ] = $msg['links'];
+						continue;
+					}
 				}
 			}
 
@@ -1455,8 +1626,21 @@ final class Relativt_Form {
 		];
 	}
 
+	/**
+	 * Besökarens IP. Bakom Cloudflare eller annan proxy är REMOTE_ADDR
+	 * proxyns adress – då delar ALLA besökare samma frekvensspärr (fem inskick
+	 * per tio minuter för hela sajten) och IP-loggen blir meningslös. Sådana
+	 * sajter pekar om via filtret:
+	 *
+	 *     add_filter( 'relativt_form_client_ip',
+	 *         fn( $ip ) => $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $ip );
+	 *
+	 * Filtrera ALDRIG in X-Forwarded-For rakt av på en sajt utan betrodd
+	 * proxy – den headern kan vem som helst skicka, och då väljer spammaren
+	 * sin egen frekvensspärr.
+	 */
 	private function client_ip(): string {
-		$ip = (string) ( $_SERVER['REMOTE_ADDR'] ?? '' );
+		$ip = (string) apply_filters( 'relativt_form_client_ip', (string) ( $_SERVER['REMOTE_ADDR'] ?? '' ) );
 		return filter_var( $ip, FILTER_VALIDATE_IP ) ? $ip : '';
 	}
 
@@ -1711,6 +1895,46 @@ final class Relativt_Form {
 		});
 		</script>
 		<?php
+	}
+
+	/**
+	 * Varnar i formulär- och inskicksvyerna när mail inte kunnat skickas.
+	 *
+	 * Kolumnen "Misslyckades" fanns redan i 1.0, men ingen tittar i en lista
+	 * man inte vet att man borde öppna. Ett trasigt SMTP ska synas samma dag,
+	 * inte upptäckas veckan efter när kunden undrar var alla leads tog vägen.
+	 */
+	public function mail_failure_notice(): void {
+		if ( ! function_exists( 'get_current_screen' ) || ! current_user_can( 'edit_pages' ) ) {
+			return;
+		}
+
+		$screen = get_current_screen();
+		if ( ! $screen || 'edit' !== ( $screen->base ?? '' )
+			|| ! in_array( $screen->post_type ?? '', [ self::CPT_FORM, self::CPT_ENTRY ], true ) ) {
+			return;
+		}
+
+		$failed = new WP_Query( [
+			'post_type'      => self::CPT_ENTRY,
+			'posts_per_page' => 1,
+			'fields'         => 'ids',
+			'meta_key'       => '_xf_mail_ok',
+			'meta_value'     => '0',
+			'no_found_rows'  => false,
+		] );
+
+		$count = (int) $failed->found_posts;
+		if ( $count < 1 ) {
+			return;
+		}
+
+		printf(
+			'<div class="notice notice-error"><p><strong>Relativt Formulär:</strong> %s <a href="%s">Visa %s</a> – inskicken finns sparade, men mottagaren har inte fått något mail. Kontrollera SMTP-inställningarna.</p></div>',
+			esc_html( 1 === $count ? 'Ett inskick har ett mail som inte kunde skickas.' : sprintf( '%d inskick har mail som inte kunde skickas.', $count ) ),
+			esc_url( admin_url( 'edit.php?post_type=' . self::CPT_ENTRY . '&xf_mail=failed' ) ),
+			esc_html( 1 === $count ? 'inskicket' : 'inskicken' )
+		);
 	}
 
 	public function add_meta_boxes(): void {
@@ -2042,12 +2266,22 @@ final class Relativt_Form {
 
 		$out = fopen( 'php://output', 'w' );
 		fprintf( $out, chr( 0xEF ) . chr( 0xBB ) . chr( 0xBF ) ); // BOM så Excel läser å ä ö.
-		fputcsv( $out, $columns, ';' );
+		fputcsv( $out, array_map( [ self::class, 'csv_guard' ], $columns ), ';' );
 		foreach ( $rows as $row ) {
-			fputcsv( $out, array_map( fn( $c ) => $row[ $c ] ?? '', $columns ), ';' );
+			fputcsv( $out, array_map( fn( $c ) => self::csv_guard( (string) ( $row[ $c ] ?? '' ) ), $columns ), ';' );
 		}
 		fclose( $out );
 		exit;
+	}
+
+	/**
+	 * Skydd mot formelinjektion i kalkylprogram. Ett inskick som börjar med
+	 * = + - eller @ tolkas som FORMEL när kunden öppnar CSV:n i Excel –
+	 * =HYPERLINK() och värre. Cellen är besökardata och ska aldrig exekveras;
+	 * den inledande apostrofen tvingar Excel att läsa den som text.
+	 */
+	private static function csv_guard( string $value ): string {
+		return preg_match( '/^[=+\-@\t\r]/', $value ) ? "'" . $value : $value;
 	}
 
 	/* ---------------------------------------------------------------------
@@ -2069,17 +2303,29 @@ final class Relativt_Form {
 				continue;
 			}
 
-			$old = get_posts( [
-				'post_type'      => self::CPT_ENTRY,
-				'posts_per_page' => 200,
-				'fields'         => 'ids',
-				'meta_key'       => '_xf_form_id',
-				'meta_value'     => $form_id,
-				'date_query'     => [ [ 'before' => $days . ' days ago' ] ],
-			] );
+			/*
+			 * Batchvis tills det är tomt, med ett tak. Ett fast tak på 200 per
+			 * dygn lät en stor backlog – t.ex. gallring som slås på för ett
+			 * formulär med tusentals gamla inskick – ta veckor att beta av.
+			 * Taket finns kvar som skyddsnät mot en skenande cron-körning.
+			 */
+			for ( $batch = 0; $batch < 25; $batch++ ) {
+				$old = get_posts( [
+					'post_type'      => self::CPT_ENTRY,
+					'posts_per_page' => 200,
+					'fields'         => 'ids',
+					'meta_key'       => '_xf_form_id',
+					'meta_value'     => $form_id,
+					'date_query'     => [ [ 'before' => $days . ' days ago' ] ],
+				] );
 
-			foreach ( $old as $entry_id ) {
-				wp_delete_post( $entry_id, true );
+				foreach ( $old as $entry_id ) {
+					wp_delete_post( $entry_id, true );
+				}
+
+				if ( count( $old ) < 200 ) {
+					break;
+				}
 			}
 		}
 	}

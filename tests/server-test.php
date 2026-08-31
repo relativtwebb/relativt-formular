@@ -92,7 +92,13 @@ check( 'nyckelfältet finns kvar i fältgruppen', null !== $key_field );
 check( 'nyckelfältet är dolt via wrapper-klass', str_contains( $key_field['wrapper']['class'] ?? '', 'xf-hidden-key' ) );
 check( 'nyckelfältet är skrivskyddat', ! empty( $key_field['readonly'] ) );
 
-check( 'hjälptextfältet är borttaget', null === sub_field_def( 'field_xf_f_help' ) );
+/*
+ * 1.1.0: hjälptexten är TILLBAKA. Renderaren stödde den hela tiden – 1.0
+ * tog bara bort byggarfältet, och det här testet låste fast borttagningen.
+ */
+$help_field = sub_field_def( 'field_xf_f_help' );
+check( 'hjälptextfältet finns i byggaren', null !== $help_field );
+check( 'och skriver till kolumnen help', ( $help_field['name'] ?? '' ) === 'help' );
 check( 'etikett och typ finns kvar', null !== sub_field_def( 'field_xf_f_label' ) && null !== sub_field_def( 'field_xf_f_type' ) );
 check( 'fälttyperna delas mellan byggaren och kartan', sub_field_def( 'field_xf_f_type' )['choices'] === Relativt_Form::field_type_labels() );
 
@@ -214,11 +220,17 @@ $kandidat = $engine->validate( 12, [
 check( 'omvänt villkor släpper igenom rätt fält', value_of( $kandidat['values'], 'onskemal' ) === 'Spontanansökan' );
 check( 'och stänger ute det andra', value_of( $kandidat['values'], 'behov' ) === null );
 
-// Kunden skriver etiketten i wp-admin istället för det tekniska värdet.
+/*
+ * Kunden skriver etiketten i wp-admin istället för det tekniska värdet.
+ * OBS flush: utan den mäter testet definitionscachen från tidigare anrop,
+ * inte den ändrade definitionen – och går grönt av fel skäl.
+ */
 $GLOBALS['__form']['xf_fields'][5]['cond_value'] = 'Företag';
+Relativt_Form::flush_fields_cache();
 $label_cond = $engine->validate( 12, [ 'jagar' => 'foretag', 'namn' => 'Anna', 'epost' => 'a@b.se', 'behov' => 'Interim' ] );
 check( 'villkor skrivet med den synliga etiketten fungerar', value_of( $label_cond['values'], 'behov' ) === 'Interim' );
 $GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
 
 echo "\nSäkerhet\n";
 
@@ -358,7 +370,15 @@ check( 'knappen bär bara sin egen klass som standard', str_contains( $html, 'cl
 check( 'inga temaklasser läcker in i standardmarkeringen', ! str_contains( $html, 'ct-text-block' ) && ! str_contains( $html, 'ct-fancy-icon' ) );
 check( 'ikonen ritas ut', str_contains( $html, '<svg' ) && str_contains( $html, 'xf-submit-icon' ) );
 check( 'REST-roten ligger på roten', str_contains( $html, 'data-xf-rest=' ) );
-check( 'tack-rutan är dold från start', str_contains( $html, 'class="xf-thanks" role="status" aria-live="polite" hidden' ) );
+check( 'tack-rutan är dold från start och fokuserbar för JS', str_contains( $html, 'class="xf-thanks" role="status" aria-live="polite" tabindex="-1" hidden' ) );
+
+echo "\nTillgänglighet i markupen\n";
+
+check( 'obligatoriska fält bär data-xf-required', str_contains( $html, 'data-xf-key="namn" data-xf-required="1"' ) );
+check( 'valfria fält gör det inte', ! str_contains( $html, 'data-xf-key="foretag" data-xf-required' ) );
+check( 'val-knappsgruppen får sitt namn via aria-labelledby', (bool) preg_match( '/role="radiogroup" aria-labelledby="[^"]+-jagar-label"/', $html ) );
+check( 'hjälptexten renderas med id', (bool) preg_match( '/class="xf-help" id="[^"]+-meddelande-help">Berätta gärna kort/', $html ) );
+check( 'felraden renderas med id', (bool) preg_match( '/class="xf-error" id="[^"]+-namn-error"/', $html ) );
 
 /* =============================================================================
  * Paketeringen
@@ -393,6 +413,165 @@ add_filter( 'relativt_form_submit_icon', static fn() => '' );
 check( 'ikonen kan tas bort helt', ! str_contains( $render->invoke( $engine, 12, [], '' ), 'xf-submit-icon' ) );
 remove_all_filters( 'relativt_form_submit_icon' );
 
+echo "\nLänkspärr\n";
+
+/*
+ * Länkspam är den vanligaste sortens skräp som tar sig förbi honungsfälla
+ * och tidsspärr. Tre länkar är okej – ett riktigt ärende kan innehålla någon
+ * enstaka – men fyra avvisas. Filtret kan höja eller stänga av taket.
+ */
+$base = [ 'jagar' => 'foretag', 'namn' => 'Anna', 'epost' => 'a@b.se' ];
+
+$spam = $engine->validate( 12, $base + [ 'meddelande' => 'Kolla https://a.se https://b.se www.c.se och https://d.se' ] );
+check( 'fyra länkar i meddelandet avvisas', isset( $spam['errors']['meddelande'] ) );
+
+$ok_links = $engine->validate( 12, $base + [ 'meddelande' => 'Se https://a.se, https://b.se och www.c.se för exempel.' ] );
+check( 'tre länkar släpps igenom', ! isset( $ok_links['errors']['meddelande'] ) );
+
+add_filter( 'relativt_form_max_links', static fn() => 0 );
+$off = $engine->validate( 12, $base + [ 'meddelande' => 'https://a.se https://b.se https://c.se https://d.se https://e.se' ] );
+check( 'taket kan stängas av med filtret', ! isset( $off['errors']['meddelande'] ) );
+remove_all_filters( 'relativt_form_max_links' );
+
+echo "\nDatum\n";
+
+/*
+ * Formatet räcker inte: 2026-13-45 matchar \d{4}-\d{2}-\d{2}. Webbläsarens
+ * datumfält skickar aldrig sådant, men REST-rutten är öppen för vem som helst.
+ */
+$GLOBALS['__form']['xf_fields'][] = [ 'type' => 'date', 'key' => 'datum', 'label' => 'Datum' ];
+Relativt_Form::flush_fields_cache();
+
+check( 'datum som inte finns i kalendern avvisas', isset( $engine->validate( 12, $base + [ 'datum' => '2026-13-45' ] )['errors']['datum'] ) );
+check( '30 februari likaså', isset( $engine->validate( 12, $base + [ 'datum' => '2026-02-30' ] )['errors']['datum'] ) );
+$ok_date = $engine->validate( 12, $base + [ 'datum' => '2026-02-27' ] );
+check( 'riktiga datum släpps igenom', ! isset( $ok_date['errors']['datum'] ) && value_of( $ok_date['values'], 'datum' ) === '2026-02-27' );
+
+$GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
+
+echo "\nBesökartexterna\n";
+
+check( 'standardtexterna finns', $engine->messages()['required'] === 'Fyll i detta fält.' );
+
+add_filter( 'relativt_form_messages', static fn( $m ) => array_merge( $m, [ 'required' => 'This field is required.' ] ) );
+check( 'filtrerad text används i valideringen', ( $engine->validate( 12, [ 'jagar' => 'foretag' ] )['errors']['namn'] ?? '' ) === 'This field is required.' );
+
+// Ett halvtrasigt filter får inte kunna tysta ett meddelande.
+add_filter( 'relativt_form_messages', static fn( $m ) => array_merge( $m, [ 'email' => '', 'okand_nyckel' => 'x' ] ) );
+$msgs = $engine->messages();
+check( 'tom text ur filtret ignoreras', $msgs['email'] === 'Kontrollera e-postadressen.' );
+check( 'okända nycklar släpps inte in', ! isset( $msgs['okand_nyckel'] ) );
+remove_all_filters( 'relativt_form_messages' );
+
+echo "\nCSV-exporten\n";
+
+/*
+ * Formelinjektion: en cell som börjar med = + - @ exekveras som formel när
+ * kunden öppnar filen i Excel. Cellen är besökardata och ska läsas som text.
+ */
+$guard = new ReflectionMethod( Relativt_Form::class, 'csv_guard' );
+$guard->setAccessible( true );
+
+check( 'formelceller ofarliggörs', $guard->invoke( null, '=HYPERLINK("https://ond.se")' ) === "'" . '=HYPERLINK("https://ond.se")' );
+check( 'plus, minus och snabel-a likaså', $guard->invoke( null, '+46701234567' ) === "'+46701234567" && $guard->invoke( null, '-1' ) === "'-1" && $guard->invoke( null, '@evil' ) === "'@evil" );
+check( 'vanlig text lämnas orörd', $guard->invoke( null, 'Anna Andersson' ) === 'Anna Andersson' );
+check( 'även svenska tecken', $guard->invoke( null, 'Örjan Ärlig' ) === 'Örjan Ärlig' );
+
+echo "\nKonfiguration till JS\n";
+
+/*
+ * Skriptet får sina texter, sitt länktak och sitt samtyckesläge från PHP via
+ * relativtFormConfig – det är så klient och server hålls i takt.
+ */
+/** Registrerar om och plockar ut den avkodade konfigurationen ur inline-skriptet. */
+function xf_read_config(): array {
+	$GLOBALS['__assets'] = [];
+	Relativt_Form::instance()->register_assets();
+	$inline = implode( "\n", $GLOBALS['__assets']['inline:relativt-formular'] ?? [] );
+	preg_match( '/window\.relativtFormConfig = (\{.*\});/s', $inline, $m );
+	$config = json_decode( $m[1] ?? '', true );
+	return is_array( $config ) ? $config : [];
+}
+
+$config = xf_read_config();
+
+check( 'konfigurationen skrivs före skriptet', [] !== $config );
+check( 'meddelandena följer med till JS', ( $config['messages']['required'] ?? '' ) === 'Fyll i detta fält.' );
+check( 'länktaket följer med', 3 === ( $config['maxLinks'] ?? 0 ) );
+check( 'standardläget för kampanjkakan är auto', 'auto' === ( $config['utmCookie'] ?? '' ) );
+check( 'utan cookie-plugin skickas ingen rccCookie', ! isset( $config['rccCookie'] ) );
+
+add_filter( 'relativt_form_utm_cookie', static fn() => 'never' );
+check( 'samtyckesläget kan filtreras', 'never' === ( xf_read_config()['utmCookie'] ?? '' ) );
+remove_all_filters( 'relativt_form_utm_cookie' );
+
+echo "\nREST-inskicksflödet\n";
+
+/** En komplett, giltig nyttolast – testerna byter ut det de vill bryta. */
+function xf_submit_body( array $extra = [] ): array {
+	$engine = Relativt_Form::instance();
+	$ts     = time() - 10;
+
+	return array_merge( [
+		'form'       => 12,
+		'fields'     => [ 'jagar' => 'foretag', 'namn' => 'Anna Andersson', 'epost' => 'anna@exempel.se' ],
+		'nonce'      => 'giltig',
+		'ts'         => $ts,
+		'sig'        => call( $engine, 'sign', [ '12|' . $ts ] ),
+		'xf_website' => '',
+		'utm'        => [ 'utm_source' => 'google' ],
+		'page'       => 'https://exempel.se/kontakt/',
+	], $extra );
+}
+
+$GLOBALS['__transients'] = [];
+$GLOBALS['__mail']       = [];
+$GLOBALS['__posts']      = [];
+$_SERVER['REMOTE_ADDR']  = '203.0.113.9';
+
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+check( 'giltigt inskick svarar 200 ok', 200 === $res->status && true === ( $res->data['ok'] ?? false ) );
+check( 'inskicket sparas', 1 === count( $GLOBALS['__posts'] ) );
+check( 'mailet skickas', 1 === count( $GLOBALS['__mail'] ) );
+check( 'tacktexten följer med i svaret', ( $res->data['title'] ?? '' ) === 'Tack för ditt meddelande!' );
+
+/*
+ * Regression 1.1.0: för snabbt inskick fick tidigare FEJKAD SUCCÉ – besökaren
+ * såg "Tack!" men ingenting skickades och ingenting sparades. Med autofyll
+ * var en riktig besökare lätt så snabb, och leadet försvann spårlöst. Nu ska
+ * spärren svara med ett mjukt fel som JS tyst gör om – aldrig svälja data.
+ */
+$GLOBALS['__mail']  = [];
+$GLOBALS['__posts'] = [];
+$fast_ts = time() - 1;
+$res     = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'ts' => $fast_ts, 'sig' => call( $engine, 'sign', [ '12|' . $fast_ts ] ) ] ) ) );
+check( 'för snabbt inskick får ett FEL, ingen fejkad succé', 425 === $res->status && false === ( $res->data['ok'] ?? true ) );
+check( 'felet bär koden toofast och en väntetid', 'toofast' === ( $res->data['code'] ?? '' ) && ( $res->data['retry_after'] ?? 0 ) >= 1 );
+check( 'ingenting sparas och inget mail går ut', [] === $GLOBALS['__posts'] && [] === $GLOBALS['__mail'] );
+
+// Honungsfällan ska däremot FORTFARANDE luras – en bot ska tro att det gick bra.
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'xf_website' => 'https://spam.example' ] ) ) );
+check( 'honungsfällan får fejkad succé', 200 === $res->status && true === ( $res->data['ok'] ?? false ) );
+check( 'men ingenting sparas och inget mail går ut', [] === $GLOBALS['__posts'] && [] === $GLOBALS['__mail'] );
+
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'sig' => 'fejkad' ] ) ) );
+check( 'förfalskad signatur avvisas', 400 === $res->status );
+
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'nonce' => 'fel' ] ) ) );
+check( 'ogiltig nonce svarar 403 med kod så JS kan hämta ny och göra om', 403 === $res->status && 'nonce' === ( $res->data['code'] ?? '' ) );
+
+$GLOBALS['__transients'][ 'xf_rl_' . md5( '203.0.113.9' ) ] = 5;
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+check( 'frekvensspärren svarar 429', 429 === $res->status && 'rate' === ( $res->data['code'] ?? '' ) );
+$GLOBALS['__transients'] = [];
+
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'fields' => [ 'jagar' => 'foretag' ] ] ) ) );
+check( 'valideringsfel svarar 422 per fält', 422 === $res->status && isset( $res->data['errors']['namn'], $res->data['errors']['epost'] ) );
+
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'form' => 999 ] ) ) );
+check( 'okänt formulär svarar 404', 404 === $res->status );
+
 echo "\nExport och import\n";
 
 $port    = Relativt_Form_Portability::instance();
@@ -404,6 +583,7 @@ check( 'titeln följer med', ( $payload['title'] ?? '' ) === 'Kontaktformulär' 
 check( 'fälten följer med', count( $payload['settings']['xf_fields'] ?? [] ) === 8 );
 check( 'mottagarreglerna följer med', count( $payload['settings']['xf_rules'] ?? [] ) === 1 );
 check( 'mottagaradressen följer med', ( $payload['settings']['xf_to'] ?? '' ) === 'info@exempel.se' );
+check( 'hjälptexten följer med', ( $payload['settings']['xf_fields'][7]['help'] ?? '' ) === 'Berätta gärna kort vad det gäller.' );
 
 /*
  * Inskicken är personuppgifter och får ALDRIG följa med en definitionsexport

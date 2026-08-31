@@ -20,23 +20,32 @@ jobs:
           php-version: '8.0'
           coverage: none
 
-      # Taggen och Version-headern MÅSTE stämma överens.
+      # Taggen och ALLA versionsangivelser MÅSTE stämma överens.
       #
-      # Gör de inte det går det illa på ett tyst sätt: uppdateraren jämför
-      # taggen mot den installerade versionen, så en sajt som installerat
-      # v1.0.1 medan filen inuti säger 1.0.0 blir erbjuden samma uppdatering
-      # om och om igen, i all evighet. Bättre att releasen faller här.
-      - name: Kontrollera att taggen matchar pluginheadern
+      # Header: uppdateraren jämför taggen mot den installerade versionen, så
+      # en sajt som installerat v1.0.1 medan filen inuti säger 1.0.0 blir
+      # erbjuden samma uppdatering om och om igen, i all evighet.
+      # Konstanten: den cache-bustar CSS/JS – släpar den efter serveras gammal
+      # JS ur webbläsarcachen efter en uppdatering, och felet ser slumpmässigt
+      # ut eftersom det bara drabbar återkommande besökare.
+      # Stable tag: readme.txt ska inte ljuga för den som läser den.
+      # Bättre att releasen faller här än att något av det ovan sker tyst.
+      - name: Kontrollera att taggen matchar alla versionsangivelser
         run: |
+          # || true: hittar grep ingenting ska jämförelsen nedan ge ett
+          # BEGRIPLIGT fel, inte en tyst abort från set -e.
           TAG="${GITHUB_REF_NAME#v}"
-          HEADER=$(grep -m1 -oP '^\s*\*\s*Version:\s*\K\S+' relativt-formular.php)
+          HEADER=$(grep -m1 -oP '^\s*\*\s*Version:\s*\K\S+' relativt-formular.php || true)
+          KONSTANT=$(grep -m1 -oP "define\(\s*'RELATIVT_FORM_VERSION',\s*'\K[^']+" relativt-formular.php || true)
+          STABLE=$(grep -m1 -oP '^Stable tag:\s*\K\S+' readme.txt || true)
 
-          if [ "$TAG" != "$HEADER" ]; then
-            echo "::error::Taggen är v$TAG men Version i relativt-formular.php är $HEADER."
-            exit 1
-          fi
+          FEL=0
+          [ "$TAG" != "$HEADER" ]   && { echo "::error::Taggen är v$TAG men Version-headern i relativt-formular.php är $HEADER."; FEL=1; }
+          [ "$TAG" != "$KONSTANT" ] && { echo "::error::Taggen är v$TAG men RELATIVT_FORM_VERSION i relativt-formular.php är $KONSTANT."; FEL=1; }
+          [ "$TAG" != "$STABLE" ]   && { echo "::error::Taggen är v$TAG men Stable tag i readme.txt är $STABLE."; FEL=1; }
+          [ "$FEL" -eq 1 ] && exit 1
 
-          echo "Version $HEADER bekräftad."
+          echo "Version $HEADER bekräftad i header, konstant och readme.txt."
 
       - name: Servertester
         run: php tests/server-test.php

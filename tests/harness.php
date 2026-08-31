@@ -139,6 +139,53 @@ function wp_mail( $to, $subject, $body, $headers = [] ) {
 	return true;
 }
 
+// --- REST -------------------------------------------------------------------
+/*
+ * Minsta möjliga speglingar av WordPress REST-klasser, så att HELA
+ * inskicksflödet – honungsfälla, nonce, signatur, tidsspärr, frekvensspärr,
+ * validering, lagring, mail – kan köras rakt igenom i stället för att varje
+ * spärr testas isolerat och samspelet lämnas oprövat.
+ */
+class WP_REST_Request {
+	private array $params;
+	public function __construct( array $params = [] ) { $this->params = $params; }
+	public function get_json_params(): array { return $this->params; }
+	public function get_params(): array { return $this->params; }
+	public function get_param( $key ) { return $this->params[ $key ] ?? null; }
+}
+
+class WP_REST_Response {
+	public $data;
+	public $status;
+	public function __construct( $data = null, $status = 200 ) {
+		$this->data   = $data;
+		$this->status = $status;
+	}
+}
+
+class WP_Error {
+	public $code;
+	public $message;
+	public $data;
+	public function __construct( $code = '', $message = '', $data = null ) {
+		$this->code    = $code;
+		$this->message = $message;
+		$this->data    = $data;
+	}
+}
+
+function is_wp_error( $thing ) { return $thing instanceof WP_Error; }
+
+// 'giltig' är den enda nonce riggen godkänner – testerna skickar den, eller 'fel'.
+function wp_verify_nonce( $nonce, $action = '' ) { return 'giltig' === $nonce; }
+function wp_create_nonce( $action = '' ) { return 'giltig'; }
+
+$GLOBALS['__posts'] = [];
+function wp_insert_post( $arr, $wp_error = false ) {
+	$GLOBALS['__posts'][] = $arr;
+	return 1000 + count( $GLOBALS['__posts'] );
+}
+
 // --- Formulärdefinitionen (kontaktformuläret ur designen) -------------------
 function xf_test_form(): array {
 	return [
@@ -179,6 +226,7 @@ function xf_test_form(): array {
 			[
 				'type' => 'textarea', 'key' => 'meddelande', 'label' => 'Meddelande',
 				'placeholder' => 'Skriv gärna några rader om vad ni söker…', 'width' => 'full',
+				'help' => 'Berätta gärna kort vad det gäller.',
 			],
 		],
 		'xf_rules' => [
@@ -260,6 +308,7 @@ function wp_register_style( $handle, $src = '', $deps = [], $ver = null ) { $GLO
 function wp_register_script( $handle, $src = '', $deps = [], $ver = null, $footer = false ) { $GLOBALS['__assets'][ 'script:' . $handle ] = [ 'src' => $src, 'footer' => $footer ]; return true; }
 function wp_enqueue_style( $handle ) { $GLOBALS['__assets'][ 'enq:style:' . $handle ] = true; return true; }
 function wp_enqueue_script( $handle ) { $GLOBALS['__assets'][ 'enq:script:' . $handle ] = true; return true; }
+function wp_add_inline_script( $handle, $data, $position = 'after' ) { $GLOBALS['__assets'][ 'inline:' . $handle ][] = $data; return true; }
 
 // Byggtestet laddar den GENERERADE filen i stället, och sätter konstanten
 // innan riggen dras in.

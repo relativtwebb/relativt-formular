@@ -9,10 +9,18 @@
  *     och tack-läge.
  *
  * Laddas globalt via enqueue-arrayen. Inga beroenden.
+ *
+ * Konfigurationen (window.relativtFormConfig) skrivs av PHP:s register_assets
+ * före den här filen: felmeddelanden, länkspärrens tak och samtyckesläget för
+ * kampanjkakan. Saknas objektet – som i demon – gäller standardvärdena nedan.
  */
 
 (() => {
 	'use strict';
+
+	const CONFIG = typeof window.relativtFormConfig === 'object' && window.relativtFormConfig !== null
+		? window.relativtFormConfig
+		: {};
 
 	/* =========================================================================
 	 * 1. Kampanjspårning
@@ -21,6 +29,26 @@
 	const COOKIE = 'xf_src';
 	const DAYS = 90;
 	const CAMPAIGN_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'gclid', 'fbclid'];
+
+	/*
+	 * Samtyckesläge för kakan, satt via filtret relativt_form_utm_cookie:
+	 *
+	 *   'auto'   (standard) – finns Relativt Cookie Consent på sajten skrivs
+	 *            kakan först när besökaren godkänt statistik eller
+	 *            marknadsföring. Utan samtyckesverktyg skrivs den direkt,
+	 *            som i 1.0.
+	 *   'always' – skriv alltid. För sajter som hanterar samtycket på annat
+	 *            håll och blockerar skriptet därifrån.
+	 *   'never'  – skriv aldrig. Attributionen lever då bara i minnet på
+	 *            sidan besökaren landade på.
+	 *
+	 * Att cookie-pluginet finns avgörs i PHP (rccCookie skickas bara med då) –
+	 * JS kan inte lita på window.rcc, eftersom skriptordningen inte är
+	 * garanterad. Utan beslut i banners är kakan oskriven; själva minnesposten
+	 * finns ändå, så attribution fungerar på landningssidan även före beslutet.
+	 */
+	const UTM_MODE = ['always', 'never'].includes(CONFIG.utmCookie) ? CONFIG.utmCookie : 'auto';
+	const RCC_COOKIE = typeof CONFIG.rccCookie === 'string' && CONFIG.rccCookie !== '' ? CONFIG.rccCookie : null;
 
 	const readCookie = (name) => {
 		const match = document.cookie.split('; ').find((row) => row.startsWith(`${name}=`));
@@ -38,10 +66,25 @@
 		document.cookie = `${name}=${encodeURIComponent(JSON.stringify(value))}; expires=${expires}; path=/; SameSite=Lax${secure}`;
 	};
 
+	const removeCookie = (name) => {
+		document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax`;
+	};
+
+	/** Godkänt = statistik ELLER marknadsföring – kampanjattribution rör båda. */
+	const consentGranted = (consent) => !!(consent && (consent.statistics || consent.marketing));
+
+	const mayPersistSource = () => {
+		if (UTM_MODE === 'always') return true;
+		if (UTM_MODE === 'never') return false;
+		if (!RCC_COOKIE) return true; // auto utan samtyckesverktyg: som i 1.0.
+		return consentGranted(window.rcc?.getConsent?.() ?? readCookie(RCC_COOKIE));
+	};
+
 	/**
 	 * Skrivs vid första besöket, och skrivs om när besökaren kommer tillbaka
 	 * via en NY kampanjlänk. Ett direktbesök däremellan rör aldrig posten – det
-	 * är hela poängen med att spara den.
+	 * är hela poängen med att spara den. Utan samtycke skrivs ingenting;
+	 * posten hålls i minnet och kakan skrivs först när samtycket kommer.
 	 */
 	const captureSource = () => {
 		const params = new URLSearchParams(location.search);
@@ -54,8 +97,13 @@
 
 		const existing = readCookie(COOKIE);
 		const hasCampaign = Object.keys(incoming).length > 0;
+		const allowed = mayPersistSource();
 
-		if (existing && !hasCampaign) return existing;
+		if (existing && !hasCampaign) {
+			// Städa bort kakan om samtycket dragits tillbaka sedan den skrevs.
+			if (!allowed) removeCookie(COOKIE);
+			return existing;
+		}
 
 		const referrer = document.referrer && !document.referrer.includes(location.host) ? document.referrer : '';
 
@@ -66,11 +114,26 @@
 			t: Date.now(),
 		};
 
-		writeCookie(COOKIE, record);
+		if (allowed) {
+			writeCookie(COOKIE, record);
+		} else {
+			removeCookie(COOKIE);
+		}
 		return record;
 	};
 
 	const source = captureSource();
+
+	// Samtycket kan komma – eller dras tillbaka – långt efter sidladdningen.
+	if (UTM_MODE === 'auto' && RCC_COOKIE) {
+		document.addEventListener('rcc_consent_updated', (event) => {
+			if (consentGranted(event.detail)) {
+				writeCookie(COOKIE, source);
+			} else {
+				removeCookie(COOKIE);
+			}
+		});
+	}
 
 	/* =========================================================================
 	 * 2. Formulärlogik
@@ -79,15 +142,25 @@
 	// I Oxygens builder ska formuläret vara ett vanligt redigerbart block.
 	const inBuilder = () => document.body?.classList.contains('oxygen-builder-body');
 
+	/*
+	 * Standardtexterna SPEGLAR messages() i class-relativt-form.php – på en
+	 * riktig sajt skrivs de över av samma filtrerade lista via konfigurationen,
+	 * så klient och server säger ordagrant samma sak.
+	 */
 	const MESSAGES = {
 		required: 'Fyll i detta fält.',
 		email: 'Kontrollera e-postadressen.',
 		tel: 'Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.',
 		number: 'Ange ett nummer.',
 		date: 'Kontrollera datumet.',
+		links: 'Meddelandet innehåller för många länkar.',
 		consent: 'Du behöver godkänna villkoren.',
 		generic: 'Något gick fel. Försök igen om en liten stund.',
+		...(typeof CONFIG.messages === 'object' && CONFIG.messages !== null ? CONFIG.messages : {}),
 	};
+
+	/** Speglar länkspärren i validate() – samma tak, samma räkning. 0 = av. */
+	const MAX_LINKS = Number.isFinite(Number(CONFIG.maxLinks)) ? Math.max(0, Math.trunc(Number(CONFIG.maxLinks))) : 3;
 
 	/* -------------------------------------------------------------------------
 	 * E-post och telefon
@@ -148,6 +221,21 @@
 		return null;
 	};
 
+	/**
+	 * Speglar datumkontrollen i validate(): formatet räcker inte, 2026-13-45
+	 * matchar mönstret. Date-objektet rullar över ogiltiga datum (13:e månaden
+	 * blir januari året därpå), så komponenterna jämförs efter konstruktionen.
+	 */
+	const validDate = (value) => {
+		if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+		const [y, m, d] = value.split('-').map(Number);
+		const date = new Date(y, m - 1, d);
+		return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+	};
+
+	/** Speglar länkräkningen i validate() – samma mönster, samma resultat. */
+	const countLinks = (value) => (value.match(/https?:\/\/|www\./gi) ?? []).length;
+
 	class RelativtForm {
 		constructor(root) {
 			this.root = root;
@@ -164,10 +252,28 @@
 			this.fields = [...root.querySelectorAll('[data-xf-key]')].filter((el) => el.dataset.xfKey !== '');
 
 			this.applyUrlPresets();
+			this.wireA11y();
 			this.bind();
 			this.evaluateConditions();
 
 			root.classList.add('is-ready');
+		}
+
+		/**
+		 * Kopplar hjälptext och felrad till fältet via aria-describedby, en
+		 * gång vid start. Felraden är tom tills ett fel visas – en tom
+		 * beskrivning läses inte upp, så kopplingen kan ligga kvar permanent
+		 * i stället för att växlas fram och tillbaka.
+		 */
+		wireA11y() {
+			for (const field of this.fields) {
+				const ids = [field.querySelector('.xf-help')?.id, field.querySelector('.xf-error')?.id].filter(Boolean);
+				if (!ids.length) continue;
+
+				for (const input of this.inputs(field)) {
+					input.setAttribute('aria-describedby', ids.join(' '));
+				}
+			}
 		}
 
 		/* -- Fältåtkomst ------------------------------------------------- */
@@ -314,12 +420,14 @@
 			const target = field.querySelector('.xf-error');
 			if (target) target.textContent = message;
 			field.classList.add('has-error');
+			for (const input of this.inputs(field)) input.setAttribute('aria-invalid', 'true');
 		}
 
 		clearError(field) {
 			const target = field.querySelector('.xf-error');
 			if (target) target.textContent = '';
 			field.classList.remove('has-error');
+			for (const input of this.inputs(field)) input.removeAttribute('aria-invalid');
 		}
 
 		clearAllErrors() {
@@ -340,7 +448,14 @@
 				if (type === 'heading' || type === 'hidden') continue;
 
 				const value = String(this.valueOf(key)).trim();
-				const required = this.inputs(field).some((el) => el.required);
+
+				/*
+				 * data-xf-required sätts av renderaren. required-ATTRIBUTET
+				 * räcker inte: en flervalsgrupp kan inte bära det (då kräver
+				 * webbläsaren ALLA rutor), så utan flaggan åkte obligatoriska
+				 * flerval till servern i onödan bara för att studsa där.
+				 */
+				const required = field.dataset.xfRequired === '1' || this.inputs(field).some((el) => el.required);
 
 				if (required && value === '') {
 					this.showError(field, MESSAGES.required);
@@ -358,8 +473,11 @@
 				} else if (type === 'number' && Number.isNaN(Number(value))) {
 					this.showError(field, MESSAGES.number);
 					firstBad ??= field;
-				} else if (type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+				} else if (type === 'date' && !validDate(value)) {
 					this.showError(field, MESSAGES.date);
+					firstBad ??= field;
+				} else if (type === 'textarea' && MAX_LINKS > 0 && countLinks(value) > MAX_LINKS) {
+					this.showError(field, MESSAGES.links);
 					firstBad ??= field;
 				}
 			}
@@ -468,6 +586,27 @@
 			}
 
 			this.setBusy(true);
+			try {
+				await this.send(0);
+			} finally {
+				this.setBusy(false);
+			}
+		}
+
+		/**
+		 * Själva sändningen, skild från submit() så att den kan göra om sig
+		 * själv. Två fall åtgärdas tyst i stället för att skickas tillbaka
+		 * till besökaren:
+		 *
+		 *  - "toofast": tidsspärren. Token hämtas vid första fokus, och en
+		 *    besökare med autofyll fyller allt på en sekund – hade spärren
+		 *    fått synas åt besökaren vore den ren friktion. Vi väntar ut
+		 *    serverns retry_after och skickar om. En bot som postar direkt
+		 *    mot REST-rutten kör inte den här koden och får bara felet.
+		 *  - "nonce": utgången nonce, typiskt en flik som stått öppen över
+		 *    natten. Ny token hämtas och inskicket görs om, en gång.
+		 */
+		async send(attempt) {
 			await this.fetchToken();
 
 			try {
@@ -494,17 +633,20 @@
 					return;
 				}
 
-				// Utgången nonce – hämta en ny och låt besökaren trycka igen.
-				if (data?.code === 'nonce') {
+				if (data?.code === 'toofast' && attempt < 2) {
+					const wait = Math.min(10, Math.max(1, Number(data.retry_after) || 3));
+					await new Promise((resolve) => setTimeout(resolve, wait * 1000 + 250));
+					return this.send(attempt + 1);
+				}
+
+				if (data?.code === 'nonce' && attempt < 1) {
 					this.token = null;
-					await this.fetchToken();
+					return this.send(attempt + 1);
 				}
 
 				if (this.formError) this.formError.textContent = data?.message || MESSAGES.generic;
 			} catch {
 				if (this.formError) this.formError.textContent = MESSAGES.generic;
-			} finally {
-				this.setBusy(false);
 			}
 		}
 

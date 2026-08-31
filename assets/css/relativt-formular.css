@@ -36,7 +36,9 @@
 	--xf-icon-size: 22px;        /* pilen i knappen */
 	--xf-error: #b32d2e;
 	--xf-focus-ring: #2b2a28;
-	--xf-breakpoint: 768px;      /* under denna: en kolumn */
+	/* Brytpunkten (768px) ligger hårdkodad i media-frågorna längre ned –
+	   en CSS-variabel KAN inte användas i @media, så en --xf-breakpoint här
+	   vore bara en inställning som ser ut att göra något. */
 	/* ======================= */
 
 	width: 100%;
@@ -243,9 +245,9 @@
 	width: 100% !important;
 }
 
-/* Två val ligger kvar sida vid sida även på telefon – staplade tar de för mycket
-   höjd och trycker ner resten av formuläret. Först vid fler än tre alternativ,
-   eller riktigt smala skärmar, staplas de. */
+/* Valen ligger kvar sida vid sida även på telefon – staplade tar de för mycket
+   höjd och trycker ner resten av formuläret. Först på riktigt smala skärmar
+   (≤360px, nedan) staplas de, oavsett antal. */
 @media (max-width: 768px) {
 	.relativt-form .xf-buttons {
 		gap: 10px;

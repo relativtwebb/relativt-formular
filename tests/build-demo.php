@@ -145,7 +145,10 @@ h1, h2 { font-size: 18px; margin: 0 0 20px; letter-spacing: .04em; text-transfor
    Testerna läser window.__mockCalls för att kontrollera vad som skickades.
    ========================================================================== */
 window.__mockCalls = [];
-window.__mockFail = null;   // sätt till {status, body} för att tvinga ett svar
+// Sätt till {status, payload} för att tvinga ett svar. once: true nollställer
+// mocken efter ETT svar – så retry-testerna kan låta första försöket falla
+// och det andra lyckas, precis som mot en riktig server.
+window.__mockFail = null;
 
 const realFetch = window.fetch.bind(window);
 
@@ -164,7 +167,8 @@ window.fetch = async (url, options = {}) => {
 		window.__mockCalls.push(body);
 
 		if (window.__mockFail) {
-			const { status, payload } = window.__mockFail;
+			const { status, payload, once } = window.__mockFail;
+			if (once) window.__mockFail = null;
 			return new Response(JSON.stringify(payload), {
 				status, headers: { 'Content-Type': 'application/json' },
 			});

@@ -1,9 +1,9 @@
 <?php
 /**
  * Plugin Name:       Relativt Formulär
- * Plugin URI:        https://github.com/relativt/relativt-formular
+ * Plugin URI:        https://github.com/relativtwebb/relativt-formular
  * Description:       Formulärmotor för WordPress. Bygg formulär i wp-admin, varje formulär får en egen shortcode. Villkorliga fält, mottagarregler, spamskydd, inskickslagring och UTM-attribution.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            Relativt
@@ -26,7 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * värsta fall mitt i en HTTP-header och därmed en trasig sajt.
  */
 if ( ! defined( 'RELATIVT_FORM_VERSION' ) ) {
-	define( 'RELATIVT_FORM_VERSION', '1.0.0' );
+	define( 'RELATIVT_FORM_VERSION', '1.1.0' );
 	define( 'RELATIVT_FORM_FILE', __FILE__ );
 	define( 'RELATIVT_FORM_DIR', plugin_dir_path( __FILE__ ) );
 	define( 'RELATIVT_FORM_URL', plugin_dir_url( __FILE__ ) );
@@ -34,11 +34,13 @@ if ( ! defined( 'RELATIVT_FORM_VERSION' ) ) {
 
 /**
  * Publikt GitHub-repo som uppdateringarna hämtas från, på formen ägare/repo.
- * Byt till ert eget innan pluginet rullas ut. Pekar konstanten fel eller är
- * repot borta hittar uppdateraren ingenting – den är tyst, aldrig fatal.
+ * Pekar konstanten fel eller är repot borta hittar uppdateraren ingenting –
+ * den är tyst, aldrig fatal. (1.0.0 pekade på relativt/… som inte finns, så
+ * uppdateringsflödet var dött utan att någon såg det. Release-kedjan bryr
+ * sig inte om konstanten – det är därför felet inte fångades av CI.)
  */
 if ( ! defined( 'RELATIVT_FORM_REPO' ) ) {
-	define( 'RELATIVT_FORM_REPO', 'relativt/relativt-formular' );
+	define( 'RELATIVT_FORM_REPO', 'relativtwebb/relativt-formular' );
 }
 
 /*
@@ -89,7 +91,10 @@ if ( ! defined( 'RELATIVT_FORM_BOOTED' ) ) {
 	Relativt_Form_Settings::instance();
 
 	if ( is_admin() ) {
-		new Relativt_Form_Updater( RELATIVT_FORM_FILE, RELATIVT_FORM_REPO, RELATIVT_FORM_VERSION );
+		// '8.0' = samma golv som version_compare-spärren ovan. Höjs kravet:
+		// ändra på båda ställena, annars erbjuds uppdateringen på servrar
+		// där den nya versionen bara lägger sig inaktiv.
+		new Relativt_Form_Updater( RELATIVT_FORM_FILE, RELATIVT_FORM_REPO, RELATIVT_FORM_VERSION, '8.0' );
 	}
 
 	add_action( 'admin_notices', 'relativt_form_dependency_notice' );

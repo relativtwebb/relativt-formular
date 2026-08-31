@@ -30,13 +30,22 @@ final class Relativt_Form_Updater {
 	private string $slug;
 	private string $repo;
 	private string $version;
+	private string $requires_php;
 
-	public function __construct( string $file, string $repo, string $version ) {
-		$this->file     = $file;
-		$this->basename = plugin_basename( $file );
-		$this->slug     = dirname( $this->basename );
-		$this->repo     = trim( $repo, '/ ' );
-		$this->version  = $version;
+	/**
+	 * $requires_php är minsta PHP-version som en NY release får installeras
+	 * på. Skickas med till WordPress uppdaterare, som då vägrar erbjuda
+	 * uppdateringen på en server under kravet – i stället för att installera
+	 * en version som lägger sig inaktiv. Håll den i takt med version_compare-
+	 * spärren i relativt-formular.php.
+	 */
+	public function __construct( string $file, string $repo, string $version, string $requires_php = '' ) {
+		$this->file         = $file;
+		$this->basename     = plugin_basename( $file );
+		$this->slug         = dirname( $this->basename );
+		$this->repo         = trim( $repo, '/ ' );
+		$this->version      = $version;
+		$this->requires_php = $requires_php;
 
 		add_filter( 'pre_set_site_transient_update_plugins', [ $this, 'inject_update' ] );
 		add_filter( 'plugins_api', [ $this, 'plugin_details' ], 10, 3 );
@@ -124,7 +133,7 @@ final class Relativt_Form_Updater {
 			return $transient;
 		}
 
-		$transient->response[ $this->basename ] = (object) [
+		$update = [
 			'slug'        => $this->slug,
 			'plugin'      => $this->basename,
 			'new_version' => $release['version'],
@@ -132,6 +141,12 @@ final class Relativt_Form_Updater {
 			'url'         => 'https://github.com/' . $this->repo,
 			'tested'      => get_bloginfo( 'version' ),
 		];
+
+		if ( '' !== $this->requires_php ) {
+			$update['requires_php'] = $this->requires_php;
+		}
+
+		$transient->response[ $this->basename ] = (object) $update;
 
 		return $transient;
 	}
@@ -147,7 +162,7 @@ final class Relativt_Form_Updater {
 			return $result;
 		}
 
-		return (object) [
+		$details = [
 			'name'          => 'Relativt Formulär',
 			'slug'          => $this->slug,
 			'version'       => $release['version'],
@@ -159,6 +174,12 @@ final class Relativt_Form_Updater {
 				'changelog' => wpautop( wp_kses_post( $release['notes'] ) ),
 			],
 		];
+
+		if ( '' !== $this->requires_php ) {
+			$details['requires_php'] = $this->requires_php;
+		}
+
+		return (object) $details;
 	}
 
 	/**

@@ -10,8 +10,8 @@ Byggd för byråarbete: samma motor på flera kundsajter, formulär som kan flyt
 - **Villkorliga fält** som utvärderas *på servern*. Ett fält som inte ska synas renderas dolt direkt i HTML:en — det behöver alltså inte JavaScript för att göra rätt, och en besökare med skript avstängt ser samma formulär som alla andra.
 - **Mottagarregler.** Skicka till olika adresser beroende på vad besökaren svarat. Regler får skrivas med antingen etiketten eller det tekniska värdet — båda träffar.
 - **Validering** av e-post och telefon, spegelvänd mellan PHP och JavaScript så klienten och servern aldrig är oense. Svenska nummer normaliseras till ett format, internationella släpps igenom.
-- **Spamskydd** utan CAPTCHA: honungsfälla, HMAC-signerad tidsstämpel med minsta tid, och frekvensspärr per IP.
-- **UTM-attribution** via förstapartskaka, så att inskicket bär med sig vilken kampanj besökaren kom ifrån.
+- **Spamskydd** utan CAPTCHA: honungsfälla, HMAC-signerad tidsstämpel med minsta tid, frekvensspärr per IP och länkspärr i textrutor.
+- **UTM-attribution** via förstapartskaka, så att inskicket bär med sig vilken kampanj besökaren kom ifrån. Finns [Relativt Cookie Consent](https://github.com/relativtwebb/relativt-cookie-consent) på sajten skrivs kakan först när besökaren samtyckt – se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke).
 - **Inskickslagring** med konfigurerbar gallring och CSV-export.
 - **Export och import av formulärdefinitioner** som JSON.
 
@@ -67,8 +67,41 @@ add_filter( 'relativt_form_submit_icon_class', fn( $c ) => trim( "$c ct-fancy-ic
 | `relativt_form_submit_text_class` | `''` | Extra klasser på knapptexten |
 | `relativt_form_submit_icon_class` | `''` | Extra klasser på ikonen |
 | `relativt_form_submit_icon` | pil höger | Byt ikonens SVG, eller returnera `''` för ingen ikon |
+| `relativt_form_messages` | svenska texter | Byt besökartexterna (felmeddelanden m.m.). Samma lista driver PHP och JS |
+| `relativt_form_max_links` | `3` | Max antal länkar i en textruta innan inskicket avvisas. `0` stänger av |
+| `relativt_form_utm_cookie` | `'auto'` | Kampanjkakans samtyckesläge: `auto`, `always` eller `never` |
+| `relativt_form_client_ip` | `REMOTE_ADDR` | Peka ut besökarens riktiga IP bakom proxy/CDN |
+
+**Om `relativt_form_client_ip`:** bakom Cloudflare eller annan proxy är `REMOTE_ADDR` proxyns adress – då delar alla besökare samma frekvensspärr (fem inskick per tio minuter för hela sajten) och IP-loggen blir meningslös. På en Cloudflare-sajt:
+
+```php
+add_filter( 'relativt_form_client_ip', fn( $ip ) => $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $ip );
+```
+
+Filtrera aldrig in `X-Forwarded-For` rakt av på en sajt utan betrodd proxy – den headern kan vem som helst skicka, och då väljer spammaren sin egen frekvensspärr.
+
+**Om `relativt_form_messages`:** för en engelskspråkig kundsajt räcker det att byta texterna – inga språkfiler:
+
+```php
+add_filter( 'relativt_form_messages', fn( $m ) => array_merge( $m, [
+	'required' => 'This field is required.',
+	'email'    => 'Please check the email address.',
+] ) );
+```
 
 **Om `always_enqueue`:** standard är att ladda överallt. Renderas formuläret i en modal som byggs i sidfoten — vilket är fallet i de flesta sidbyggare — hinner en villkorlig laddning inte med, och stilmallen skulle hamna efter sidan ritats. Vet sajten att formuläret bara finns i innehållet går det att stänga av.
+
+## Kampanjkakan och samtycke
+
+Attributionen sparas i förstapartskakan **`xf_src`** (90 dagar): UTM-parametrar, `gclid`/`fbclid`, landningssida och hänvisande sida. Den är inte nödvändig för att formuläret ska fungera, så den lyder under samtyckesreglerna – ta med den i sajtens cookie-policy.
+
+Läget styrs av filtret `relativt_form_utm_cookie`:
+
+- **`auto`** (standard). Är [Relativt Cookie Consent](https://github.com/relativtwebb/relativt-cookie-consent) aktivt på sajten skrivs kakan först när besökaren godkänt **statistik eller marknadsföring**, tas bort om samtycket dras tillbaka, och skrivs i efterhand om samtycket kommer senare på sidan (motorn lyssnar på `rcc_consent_updated`). Utan samtyckesverktyg skrivs kakan direkt – då är det sajtens ansvar att dokumentera den.
+- **`always`.** Skriv alltid. För sajter som hanterar samtycket på annat håll, t.ex. genom att blockera skriptet tills samtycke finns.
+- **`never`.** Skriv aldrig. Attributionen lever då bara i minnet, så den följer med inskick från landningssidan men inte mellan sidladdningar.
+
+Innan samtycket är avgjort hålls attributionen i minnet: landar besökaren på kampanjsidan och skickar formuläret där följer kampanjen med i inskicket även utan kaka.
 
 ## Event
 
@@ -101,14 +134,16 @@ Motorn anropar `wp_mail()` och bryr sig inte om vad som ligger bakom. På en saj
 
 Avsändaradressen måste ligga på en domän som är verifierad hos leverantören. Svara-till sätts alltid till besökarens adress, så mottagaren kan svara direkt ur mailet.
 
+Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varning visas i formulär- och inskicksvyerna i wp-admin, med länk till de drabbade inskicken. Ett trasigt SMTP ska synas samma dag, inte upptäckas när kunden undrar var alla leads tog vägen.
+
 ## Tester
 
 ```bash
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 146 assertions: validering, villkor, routing, mail, rendering, import
-npx playwright test         # 64 tester i riktig webbläsare, desktop och mobil
+php tests/server-test.php   # 187 assertions: validering, villkor, routing, mail, rendering, REST-flödet, import
+npx playwright test         # 82 tester i riktig webbläsare, desktop och mobil
 ```
 
 Har du redan en Chromium på maskinen som Playwright inte installerat själv, peka ut den med `CHROMIUM_PATH=/sökväg/till/chrome npx playwright test`. Utan variabeln används Playwrights egen.
@@ -122,7 +157,7 @@ Båda sviterna kör automatiskt vid varje push. Servertesterna körs mot PHP 8.0
 ## Släppa en ny version
 
 1. Ändra koden, kör testerna lokalt.
-2. Höj `Version` i `relativt-formular.php` **och** `Stable tag` i `readme.txt`.
+2. Höj versionen på **tre** ställen: `Version`-headern och konstanten `RELATIVT_FORM_VERSION` i `relativt-formular.php`, samt `Stable tag` i `readme.txt`. `release.yml` vägrar tagga om något av dem inte stämmer, så en miss stannar i CI i stället för på kundsajterna.
 3. Skriv en ny rubrik överst i `CHANGELOG.md`.
 4. Commit, push.
 5. Tagga och skjut upp taggen:
@@ -136,7 +171,7 @@ Resten sköter `release.yml`: den kontrollerar att taggen matchar Version-header
 
 Kundsajterna ser uppdateringen inom tolv timmar — uppdateraren cachar GitHub-svaret så länge. Ska den fram direkt: **Insticksprogram → Sök efter uppdateringar**, eller töm transienten `relativt_form_release_*`.
 
-**Om taggen och headern inte stämmer överens faller releasen med flit.** En sajt som installerat v1.0.1 medan filen inuti säger 1.0.0 blir annars erbjuden samma uppdatering om och om igen.
+**Om taggen inte stämmer med header, konstant och Stable tag faller releasen med flit.** En sajt som installerat v1.0.1 medan filen inuti säger 1.0.0 blir annars erbjuden samma uppdatering om och om igen — och en konstant som släpar efter serverar gammal JS ur webbläsarcachen efter uppdateringen.
 
 ## Licens
 

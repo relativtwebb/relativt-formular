@@ -354,6 +354,10 @@ test('lyckat inskick visar tack-rutan med serverns text', async ({ page }) => {
 	await expect(form.locator('.xf-thanks')).toBeVisible();
 	await expect(form.locator('.xf-thanks-title')).toHaveText('Tack för ditt meddelande!');
 	await expect(form.locator('.xf-thanks-text')).toHaveText('Vi återkommer till dig så snart vi kan.');
+
+	// tabindex="-1" i markupen gör fokusflytten möjlig – utan den är focus()
+	// en tyst no-op och skärmläsaren blir kvar i det dolda formuläret.
+	await expect(form.locator('.xf-thanks')).toBeFocused();
 });
 
 test('lyckat inskick sänder ett event som GTM kan lyssna på', async ({ page }) => {
@@ -473,4 +477,167 @@ test('formuläret initieras inte i Oxygens builder', async ({ page }) => {
 	});
 
 	await expect(page_form(page)).not.toHaveClass(/is-ready/);
+});
+
+/* -----------------------------------------------------------------------------
+ * Tyst omsändning
+ *
+ * Två serverfel ska besökaren ALDRIG behöva se: "toofast" (tidsspärren, som
+ * autofyll-användare träffar) och "nonce" (utgången nonce i en gammal flik).
+ * JS gör om inskicket självt; mockens once:true låter första försöket falla
+ * och det andra lyckas.
+ * -------------------------------------------------------------------------- */
+
+test('för snabbt inskick görs om tyst efter väntetiden', async ({ page }) => {
+	await page.goto(DEMO);
+	await page.evaluate(() => {
+		window.__mockFail = { status: 425, payload: { ok: false, code: 'toofast', retry_after: 1 }, once: true };
+	});
+
+	const form = page_form(page);
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+
+	await expect(form).toHaveClass(/is-submitted/, { timeout: 10000 });
+	expect(await page.evaluate(() => window.__mockCalls.length)).toBe(2);
+	await expect(form.locator('.xf-form-error')).toHaveText('');
+});
+
+test('utgången nonce hämtar ny token och gör om inskicket', async ({ page }) => {
+	await page.goto(DEMO);
+	await page.evaluate(() => {
+		window.__mockFail = { status: 403, payload: { ok: false, code: 'nonce', message: 'Sessionen har gått ut.' }, once: true };
+	});
+
+	const form = page_form(page);
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+
+	await expect(form).toHaveClass(/is-submitted/);
+	expect(await page.evaluate(() => window.__mockCalls.length)).toBe(2);
+});
+
+/* -----------------------------------------------------------------------------
+ * Länkspärr och tillgänglighet
+ * -------------------------------------------------------------------------- */
+
+test('fler än tre länkar i meddelandet stoppas innan servern', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = page_form(page);
+
+	await fillValid(form);
+	await field(form, 'meddelande').locator('textarea').fill('Kolla https://a.se https://b.se www.c.se och https://d.se');
+	await form.locator('.xf-submit').click();
+
+	await expect(field(form, 'meddelande')).toHaveClass(/has-error/);
+	await expect(field(form, 'meddelande').locator('.xf-error')).toHaveText('Meddelandet innehåller för många länkar.');
+	expect(await page.evaluate(() => window.__mockCalls.length)).toBe(0);
+});
+
+test('fel kopplas till fältet för skärmläsare', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = page_form(page);
+
+	await form.locator('.xf-submit').click();
+
+	const input = field(form, 'namn').locator('input');
+	await expect(input).toHaveAttribute('aria-invalid', 'true');
+
+	const errorId = await field(form, 'namn').locator('.xf-error').getAttribute('id');
+	expect(await input.getAttribute('aria-describedby')).toContain(errorId);
+
+	await input.fill('Anna');
+	await expect(input).not.toHaveAttribute('aria-invalid', /.*/);
+});
+
+test('obligatorisk grupp utan required-attribut stoppas via data-xf-required', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = page_form(page);
+
+	await fillValid(form);
+	// Flervalsgrupper kan inte bära required-attributet – flaggan på wrappern
+	// är vad klientvalideringen läser. Telefonfältet får agera testyta.
+	await page.evaluate(() => {
+		document.querySelector('#xf-page [data-xf-key="telefon"]').dataset.xfRequired = '1';
+	});
+	await form.locator('.xf-submit').click();
+
+	await expect(field(form, 'telefon')).toHaveClass(/has-error/);
+	await expect(field(form, 'telefon').locator('.xf-error')).toHaveText('Fyll i detta fält.');
+	expect(await page.evaluate(() => window.__mockCalls.length)).toBe(0);
+});
+
+test('hjälptexten renderas under fältet', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = page_form(page);
+
+	await expect(field(form, 'meddelande').locator('.xf-help')).toHaveText('Berätta gärna kort vad det gäller.');
+
+	const helpId = await field(form, 'meddelande').locator('.xf-help').getAttribute('id');
+	expect(await field(form, 'meddelande').locator('textarea').getAttribute('aria-describedby')).toContain(helpId);
+});
+
+/* -----------------------------------------------------------------------------
+ * Samtycke och kampanjkakan
+ *
+ * Demon saknar relativtFormConfig, så standardbeteendet (auto utan
+ * samtyckesverktyg = skriv som i 1.0) täcks av UTM-testerna ovan. Här
+ * simuleras en sajt MED Relativt Cookie Consent: rccCookie i konfigurationen
+ * är exakt vad PHP skickar när cookie-pluginet är aktivt.
+ * -------------------------------------------------------------------------- */
+
+test('utan samtycke skrivs ingen kampanjkaka, men attributionen följer ändå med', async ({ page }) => {
+	await page.addInitScript(() => {
+		window.relativtFormConfig = { rccCookie: 'relativt_cookie_consent' };
+		document.cookie = `relativt_cookie_consent=${encodeURIComponent(JSON.stringify({ necessary: true, statistics: false, marketing: false }))}; path=/`;
+	});
+	await page.goto(`${DEMO}?utm_source=google&utm_medium=cpc`);
+
+	expect(await page.evaluate(() => document.cookie)).not.toContain('xf_src=');
+
+	// Minnesposten finns kvar – inskick från landningssidan attribueras ändå.
+	const form = page_form(page);
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+	await expect(form).toHaveClass(/is-submitted/);
+
+	const [body] = await page.evaluate(() => window.__mockCalls);
+	expect(body.utm.utm_source).toBe('google');
+});
+
+test('kampanjkakan skrivs i efterhand när samtycket kommer', async ({ page }) => {
+	await page.addInitScript(() => {
+		window.relativtFormConfig = { rccCookie: 'relativt_cookie_consent' };
+	});
+	await page.goto(`${DEMO}?utm_source=linkedin`);
+
+	// Inget beslut i bannern ännu – ingen kaka.
+	expect(await page.evaluate(() => document.cookie)).not.toContain('xf_src=');
+
+	await page.evaluate(() => {
+		document.dispatchEvent(new CustomEvent('rcc_consent_updated', {
+			detail: { necessary: true, statistics: true, marketing: false },
+		}));
+	});
+
+	expect(await page.evaluate(() => document.cookie)).toContain('xf_src=');
+	expect(await page.evaluate(() => window.relativtForm.source().utm_source)).toBe('linkedin');
+});
+
+test('återkallat samtycke tar bort kampanjkakan', async ({ page }) => {
+	await page.addInitScript(() => {
+		window.relativtFormConfig = { rccCookie: 'relativt_cookie_consent' };
+		document.cookie = `relativt_cookie_consent=${encodeURIComponent(JSON.stringify({ necessary: true, statistics: true, marketing: true }))}; path=/`;
+	});
+	await page.goto(`${DEMO}?utm_source=google`);
+
+	expect(await page.evaluate(() => document.cookie)).toContain('xf_src=');
+
+	await page.evaluate(() => {
+		document.dispatchEvent(new CustomEvent('rcc_consent_updated', {
+			detail: { necessary: true, statistics: false, marketing: false },
+		}));
+	});
+
+	expect(await page.evaluate(() => document.cookie)).not.toContain('xf_src=');
 });

@@ -67,6 +67,7 @@ final class Relativt_Form_Portability {
 		'key'         => 'key',
 		'label'       => 'text',
 		'placeholder' => 'text',
+		'help'        => 'text',
 		'choices'     => 'multiline',
 		'default'     => 'text',
 		'required'    => 'bool',
@@ -111,6 +112,15 @@ final class Relativt_Form_Portability {
 			wp_die( 'Åtkomst nekad.' );
 		}
 
+		/*
+		 * Motorn startar medvetet utan ACF (posttyper och inskick ska förbli
+		 * åtkomliga), men exporten läser definitionen via get_field(). Utan
+		 * vakten blir det en vit sida i stället för ett begripligt besked.
+		 */
+		if ( ! function_exists( 'get_field' ) ) {
+			wp_die( 'Advanced Custom Fields Pro är inte aktiverat, så formulärdefinitionen kan inte läsas. Aktivera ACF Pro och försök igen.' );
+		}
+
 		$payload = $this->build_payload( $form_id );
 		$slug    = sanitize_title( get_the_title( $form_id ) ) ?: 'formular';
 		$name    = sprintf( 'formular-%s-%s.json', $slug, current_time( 'Y-m-d' ) );
@@ -136,7 +146,7 @@ final class Relativt_Form_Portability {
 		return [
 			'_type'           => 'relativt-formular',
 			'_schema'         => self::SCHEMA,
-			'_plugin_version' => defined( 'RELATIVT_FORM_VERSION' ) ? RELATIVT_FORM_VERSION : Relativt_Form::VERSION,
+			'_plugin_version' => defined( 'RELATIVT_FORM_VERSION' ) ? RELATIVT_FORM_VERSION : '0.0.0',
 			'_exported'       => current_time( 'c' ),
 			'title'           => get_the_title( $form_id ),
 			'settings'        => $settings,
@@ -181,6 +191,17 @@ final class Relativt_Form_Portability {
 
 	public function render_import_page(): void {
 		$notice = sanitize_text_field( (string) ( $_GET['rf_notice'] ?? '' ) );
+
+		// Importen skriver via update_field() – utan ACF Pro finns inget att importera till.
+		if ( ! function_exists( 'update_field' ) ) {
+			?>
+			<div class="wrap">
+				<h1>Importera formulär</h1>
+				<div class="notice notice-error"><p>Advanced Custom Fields Pro är inte aktiverat. Importen behöver det för att kunna skriva formulärdefinitionen.</p></div>
+			</div>
+			<?php
+			return;
+		}
 		?>
 		<div class="wrap">
 			<h1>Importera formulär</h1>
@@ -208,6 +229,11 @@ final class Relativt_Form_Portability {
 	public function handle_import(): void {
 		if ( ! current_user_can( 'edit_pages' ) || ! wp_verify_nonce( (string) ( $_POST['_wpnonce'] ?? '' ), 'relativt_form_import' ) ) {
 			wp_die( 'Åtkomst nekad.' );
+		}
+
+		// Före wp_insert_post, så inget halvfärdigt utkast skapas när ACF saknas.
+		if ( ! function_exists( 'update_field' ) ) {
+			$this->back( 'Advanced Custom Fields Pro är inte aktiverat. Importen behöver det för att kunna skriva formulärdefinitionen.' );
 		}
 
 		$file = $_FILES['rf_file'] ?? null;
