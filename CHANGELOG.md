@@ -62,6 +62,16 @@ Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
   `Relativt_Form::VERSION` är borttagen – huvudfilens konstant är enda källan,
   och det är den som cache-bustar CSS/JS.
 
+### Dokumentation
+- Nytt avsnitt **Styla formuläret** i README: tre nivåer (skriv över
+  CSS-variablerna, låt knappen ärva temats utseende, stäng av stilmallen
+  helt), komplett variabeltabell, uppdateringssäkra kodexempel och hur
+  enskilda formulär får eget utseende (`data-xf-form`-selektorn,
+  shortcodens `class`-attribut, formulär-id:t i knappfiltren).
+  CSS-filens gamla "justera här"-instruktioner är omskrivna – nu när
+  auto-uppdateringarna fungerar skrivs pluginets filer över vid varje
+  release, så all anpassning ska ske från sajtens egen CSS.
+
 ### Tester
 - 187 serverassertions (från 146) och 82 webbläsartester (från 64). Nytt:
   hela REST-inskicksflödet körs rakt igenom i riggen (honungsfälla, nonce,

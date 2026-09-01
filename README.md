@@ -48,6 +48,102 @@ Alla shortcode-attribut som matchar en fältnyckel blir förvalt värde. Ligger 
 
 Villkorliga fält rättar sig efter förvalet redan vid renderingen.
 
+Shortcoden tar också ett `class`-attribut som lägger egna klasser på formulärets rot – se [Olika utseende per formulär](#olika-utseende-per-formulär).
+
+## Styla formuläret
+
+Motorn levererar neutral markup, och pluginets CSS är ett golv – inte ett tak. Det finns tre nivåer, från minst till mest arbete. Gemensamt för alla: **redigera aldrig pluginets egna filer.** De skrivs över vid varje uppdatering, så en färg som ändrats direkt i `assets/css/relativt-formular.css` försvinner nästa gång en release rullas ut.
+
+### Nivå 1: skriv över variablerna (räcker nästan alltid)
+
+Allt utseende – färger, luft, rundning, storlekar – styrs av CSS-variabler på `.relativt-form`. Skriv över dem från sajtens egen CSS (Oxygens stylesheet, child-temat, eller **Utseende → Anpassa → Ytterligare CSS**). Den dubblade klassen gör att sajtens värden alltid vinner över pluginets standard, oavsett i vilken ordning filerna råkar laddas:
+
+```css
+.relativt-form.relativt-form {
+	--xf-accent: #0a3d62;        /* knappens bakgrund */
+	--xf-accent-text: #ffffff;   /* knappens text och ikon */
+	--xf-field-bg: #f0f4f8;      /* fältens bakgrund */
+	--xf-radius: 8px;            /* rundning på fält och knapp */
+}
+```
+
+Typsnittet behöver aldrig sättas – formuläret ärver alltid sajtens (`font-family: inherit` rakt igenom).
+
+| Variabel | Standard | Styr |
+|---|---|---|
+| `--xf-gap` | `20px` | avstånd mellan kolumner, val-knappar |
+| `--xf-gap-row` | `22px` | avstånd mellan rader |
+| `--xf-radius` | `2px` | rundning på fält och knapp |
+| `--xf-field-bg` | `#f5f5f4` | fältens bakgrund |
+| `--xf-field-bg-focus` | `#efeeec` | fältens bakgrund vid hover/fokus |
+| `--xf-field-pad-y` / `--xf-field-pad-x` | `16px` / `18px` | fältens inre luft |
+| `--xf-text` | `#2b2a28` | text i fälten |
+| `--xf-placeholder` | `#b6b4b0` | platshållartext |
+| `--xf-label` | `#2b2a28` | etiketternas färg |
+| `--xf-label-size` | `13px` | etiketternas storlek |
+| `--xf-label-spacing` | `0.08em` | etiketternas teckenavstånd |
+| `--xf-input-size` | `16px` | textstorlek i fälten |
+| `--xf-active-bg` / `--xf-active-text` | `#2b2a28` / `#fff` | vald val-knapp |
+| `--xf-accent` / `--xf-accent-text` | `#2b2a28` / `#fff` | skicka-knappen |
+| `--xf-icon-size` | `22px` | pilikonen i knappen |
+| `--xf-error` | `#b32d2e` | felmeddelanden |
+| `--xf-focus-ring` | `#2b2a28` | fokusram |
+
+Etiketterna är versaler som standard (`text-transform: uppercase`); vill sajten ha något annat skrivs regeln över på samma sätt: `.relativt-form.relativt-form .xf-label { text-transform: none; }`. Brytpunkten till en kolumn (768px) är däremot ingen variabel – CSS kan inte läsa variabler i media-frågor.
+
+### Olika utseende per formulär
+
+Grunden sätts en gång; en variant skriver bara över de variabler som skiljer. Tre sätt att peka ut vilket formulär som avviker:
+
+**Per formulär, via id.** Roten bär alltid formulärets id som `data-xf-form`, så ett enskilt formulär kan stylas utan något förarbete:
+
+```css
+.relativt-form[data-xf-form="123"] { --xf-accent: #7a1f1f; }
+```
+
+**Per placering eller som namngiven variant, via shortcoden.** `class`-attributet lägger egna klasser på roten – samma formulär kan se olika ut på två sidor, och varianten följer med om formuläret exporteras till en annan sajt (till skillnad från id:t, som blir nytt vid import):
+
+```
+[relativt_formular id="123" class="form--mork"]
+```
+
+```css
+.relativt-form.form--mork {
+	--xf-field-bg: #2b2a28;
+	--xf-text: #ffffff;
+	--xf-placeholder: #8b8985;
+}
+```
+
+**Per formulär, i knappfiltren.** Filtren får formulärets id som andra argument:
+
+```php
+add_filter( 'relativt_form_submit_class', fn( $c, $form_id ) =>
+	123 === $form_id ? trim( "$c btn-secondary" ) : $c, 10, 2 );
+```
+
+### Nivå 2: låt knappen ärva temats utseende
+
+På en sidbyggarsajt vill man ofta att skicka-knappen ska se ut och animeras exakt som temats övriga knappar. Skjut in temats klasser via filtren (exempel under [Filter](#filter) nedan). Krockar pluginets egen knappstyling med temats – t.ex. versalerna eller paddingen – skrivs den över från sajtens CSS med dubblad klass, i stället för att röra pluginfilen:
+
+```css
+.relativt-form .xf-submit.xf-submit { text-transform: none; letter-spacing: 0; padding: 14px 24px; }
+```
+
+### Nivå 3: stäng av pluginets CSS och styla allt själv
+
+```php
+add_filter( 'relativt_form_enqueue_css', '__return_false' );
+```
+
+Då levererar pluginet bara markup, och sajten stylar mot klasserna: `.xf-grid`, `.xf-field` (`--full`/`--half`), `.xf-label`, `.xf-input`, `.xf-textarea`, `.xf-select`, `.xf-buttons` med `.xf-choice-label`, `.xf-radios`, `.xf-checks`/`.xf-check`, `.xf-help`, `.xf-error`, `.xf-form-error`, `.xf-actions`/`.xf-submit`, `.xf-consent`, `.xf-thanks`.
+
+**Tre saker MÅSTE sajtens CSS då ta ansvar för**, eftersom de annars låg i stilmallen som stängdes av:
+
+1. **Honungsfällan.** `.xf-hp` måste flyttas ut ur synfältet (position absolut utanför skärmen – inte `display: none`, en del bottar hoppar över helt dolda fält). Syns den fyller riktiga besökare i den, och deras inskick tystas som spam.
+2. **Villkorsdolda fält.** Sätter sajten `display` på `.xf-field` slår det ut webbläsarens inbyggda döljning av `[hidden]` – lägg till `.xf-field[hidden] { display: none !important; }`, annars syns fält som villkoren skulle dölja.
+3. **Tack-rutan och formuläret.** Samma sak där: `.xf-form[hidden], .xf-thanks[hidden] { display: none !important; }`.
+
 ## Filter
 
 Motorn levererar neutral markup som fungerar i vilket tema som helst. Vill sajten att knappen ska ärva sitt eget utseende skjuter den in sina klasser:

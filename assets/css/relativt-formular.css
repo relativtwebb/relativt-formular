@@ -6,16 +6,22 @@
    designen ligger här. Allt stylas på FÄLTTYPSNIVÅ – lägger man till ett nytt
    fält i byggaren ärver det designen automatiskt.
 
-   Färgerna nedan är medvetet neutrala platshållare. Justera variablerna i
-   blocket "JUSTERA HÄR" per sajt, eller stäng av hela stilmallen med filtret
-   relativt_form_enqueue_css och styla formuläret i temat i stället.
+   Färgerna nedan är medvetet neutrala STANDARDVÄRDEN, inte sajtens design.
+   REDIGERA INTE DEN HÄR FILEN – den skrivs över vid varje uppdatering av
+   pluginet. Skriv i stället över variablerna från sajtens egen CSS:
+
+       .relativt-form.relativt-form { --xf-accent: #0a3d62; }
+
+   Hela receptet, med alla variabler förklarade, finns i README under
+   "Styla formuläret". Vill sajten ta över helt stängs stilmallen av med
+   filtret relativt_form_enqueue_css.
 
    Geometrikritiska deklarationer bär !important eftersom Oxygen skriver
    id-regler så fort man rör Layout på ett element, och de slår klass-CSS.
    ========================================================================== */
 
 .relativt-form {
-	/* ===== JUSTERA HÄR ===== */
+	/* ===== STANDARDVÄRDEN – skriv över från sajtens CSS, inte här ===== */
 	--xf-gap: 20px;              /* avstånd mellan fält */
 	--xf-gap-row: 22px;
 	--xf-radius: 2px;
@@ -116,8 +122,9 @@
 }
 
 /* Designen visar ingen asterisk. Markupen innehåller den ändå, så den kan
-   tändas utan kodändring – byt display till inline nedan. Obligatoriska fält
-   är oavsett märkta med required för skärmläsare. ===== JUSTERA HÄR ===== */
+   tändas från sajtens CSS utan kodändring:
+   .relativt-form.relativt-form .xf-req { display: inline; }
+   Obligatoriska fält är oavsett märkta med required för skärmläsare. */
 .relativt-form .xf-req {
 	display: none;
 	margin-left: 2px;
@@ -387,9 +394,11 @@
 	pointer-events: none;
 }
 
-/* ===== JUSTERA HÄR: knappens utseende =======================================
-   Ta bort hela blocket om .btn redan är stylad i Oxygens UI – då ärver
-   knappen den stylingen istället och de här reglerna bara krockar.
+/* ===== Knappens standardutseende ============================================
+   Ärver sajtens knappstil via filtren relativt_form_submit_class m.fl.?
+   Skriv då över det som krockar FRÅN SAJTENS CSS (ta inte bort blocket här,
+   filen skrivs över vid uppdatering):
+   .relativt-form .xf-submit.xf-submit { text-transform: none; letter-spacing: 0; }
    -------------------------------------------------------------------------- */
 .relativt-form .xf-submit {
 	padding: 22px 28px;
@@ -406,7 +415,7 @@
 .relativt-form .xf-submit:hover {
 	filter: brightness(0.96);
 }
-/* ===== SLUT justerbart block ============================================== */
+/* ===== Slut knappens standardutseende ===================================== */
 
 /* -----------------------------------------------------------------------------
    Samtycke och tack
