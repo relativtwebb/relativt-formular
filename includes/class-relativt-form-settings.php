@@ -33,6 +33,7 @@ final class Relativt_Form_Settings {
 		'xf_sending_text' => [ 'Knapptext under skick', 'text', '' ],
 		'xf_thanks_title' => [ 'Tackrubrik', 'text', '' ],
 		'xf_thanks_text'  => [ 'Tacktext', 'textarea', '' ],
+		'xf_redirect'     => [ 'Tack-sida (URL)', 'text', 'Skickar besökaren hit efter lyckat inskick i stället för att visa tack-rutan. Formulärets eget värde vinner alltid.' ],
 		'xf_error_text'   => [ 'Felmeddelande', 'textarea', 'Visas om inskicket inte går fram.' ],
 		'xf_consent'      => [ 'Samtyckestext', 'html', 'Visas under knappen. Länka till integritetspolicyn här.' ],
 	];

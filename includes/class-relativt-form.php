@@ -574,6 +574,13 @@ final class Relativt_Form {
 					'default_value'=> 'Vi återkommer till dig så snart vi kan.',
 				],
 				[
+					'key'          => 'field_xf_redirect',
+					'label'        => 'Tack-sida (URL)',
+					'name'         => 'xf_redirect',
+					'type'         => 'text',
+					'instructions' => 'Fylls den i skickas besökaren hit efter lyckat inskick, i stället för att tack-rutan visas. Skriv en sökväg (/tack/) eller fullständig adress. Bra som mål för konverteringsspårning.',
+				],
+				[
 					'key'          => 'field_xf_error_text',
 					'label'        => 'Felmeddelande',
 					'name'         => 'xf_error_text',
@@ -1240,24 +1247,38 @@ final class Relativt_Form {
 			return $this->fail( (string) $this->setting( $form_id, 'xf_error_text', 'Något gick fel.' ), 500, [ 'code' => 'mail' ] );
 		}
 
-		return new WP_REST_Response( [
-			'ok'     => true,
-			'title'  => (string) $this->setting( $form_id, 'xf_thanks_title', 'Tack!' ),
-			'text'   => (string) $this->setting( $form_id, 'xf_thanks_text', '' ),
-		], 200 );
+		return new WP_REST_Response( $this->success_payload( $form_id ), 200 );
+	}
+
+	/**
+	 * Svaret vid lyckat inskick. Är en tack-sida angiven följer adressen med,
+	 * och JS skickar besökaren dit i stället för att visa tack-rutan.
+	 */
+	private function success_payload( int $form_id ): array {
+		$payload = [
+			'ok'    => true,
+			'title' => (string) $this->setting( $form_id, 'xf_thanks_title', 'Tack!' ),
+			'text'  => (string) $this->setting( $form_id, 'xf_thanks_text', '' ),
+		];
+
+		$redirect = trim( (string) $this->setting( $form_id, 'xf_redirect', '' ) );
+		if ( '' !== $redirect ) {
+			$payload['redirect'] = esc_url_raw( $redirect );
+		}
+
+		return $payload;
 	}
 
 	private function fail( string $message, int $status, array $extra = [] ): WP_REST_Response {
 		return new WP_REST_Response( array_merge( [ 'ok' => false, 'message' => $message ], $extra ), $status );
 	}
 
-	/** Bottar ska tro att det gick bra. */
+	/**
+	 * Bottar ska tro att det gick bra – samma svar som ett riktigt inskick,
+	 * inklusive eventuell tack-sida, så svaren inte går att skilja åt.
+	 */
 	private function fake_success( int $form_id ): WP_REST_Response {
-		return new WP_REST_Response( [
-			'ok'    => true,
-			'title' => (string) $this->setting( $form_id, 'xf_thanks_title', 'Tack!' ),
-			'text'  => (string) $this->setting( $form_id, 'xf_thanks_text', '' ),
-		], 200 );
+		return new WP_REST_Response( $this->success_payload( $form_id ), 200 );
 	}
 
 	private function sign( string $payload ): string {
@@ -1614,6 +1635,13 @@ final class Relativt_Form {
 			}
 		}
 
+		/*
+		 * current_time() = sajtens tidszon under Inställningar → Allmänt.
+		 * Visar stämplarna fel klockslag står sajten kvar på UTC – det är
+		 * en sajtinställning, inte något pluginet ska tycka om (README har
+		 * felsökningen). Datumet i mail och vyer ska stämma med vad kunden
+		 * ser i resten av wp-admin.
+		 */
 		return [
 			'date'     => current_time( 'Y-m-d' ),
 			'time'     => current_time( 'H:i' ),
@@ -1804,6 +1832,8 @@ final class Relativt_Form {
 
 		$title = trim( $name ) !== '' ? $name : ( $email !== '' ? $email : 'Inskick' );
 
+		// Ingen egen post_date: WordPress stämplar i sajtens tidszon, precis
+		// som allt annat innehåll. Fel klockslag = fel tidszon på sajten.
 		$entry_id = wp_insert_post( [
 			'post_type'   => self::CPT_ENTRY,
 			'post_status' => 'publish',

@@ -149,6 +149,8 @@ window.__mockCalls = [];
 // mocken efter ETT svar – så retry-testerna kan låta första försöket falla
 // och det andra lyckas, precis som mot en riktig server.
 window.__mockFail = null;
+// Sätt till en URL för att efterlikna ett formulär med tack-sida angiven.
+window.__mockRedirect = null;
 
 const realFetch = window.fetch.bind(window);
 
@@ -193,6 +195,7 @@ window.fetch = async (url, options = {}) => {
 			ok: true,
 			title: 'Tack för ditt meddelande!',
 			text: 'Vi återkommer till dig så snart vi kan.',
+			...(window.__mockRedirect ? { redirect: window.__mockRedirect } : {}),
 		}), { status: 200, headers: { 'Content-Type': 'application/json' } });
 	}
 

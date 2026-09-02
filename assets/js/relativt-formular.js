@@ -248,6 +248,7 @@
 			this.token = null;
 			this.tokenPromise = null;
 			this.busy = false;
+			this.redirecting = false;
 
 			this.fields = [...root.querySelectorAll('[data-xf-key]')].filter((el) => el.dataset.xfKey !== '');
 
@@ -589,7 +590,9 @@
 			try {
 				await this.send(0);
 			} finally {
-				this.setBusy(false);
+				// Vid omdirigering behålls "Skickar…" tills sidbytet sker –
+				// en knapp som hinner bli klickbar igen ger dubbelinskick.
+				if (!this.redirecting) this.setBusy(false);
 			}
 		}
 
@@ -651,6 +654,26 @@
 		}
 
 		succeed(data) {
+			// Låter GTM eller annan spårning hänga på utan att vi bakar in den.
+			// Sänds FÖRE en eventuell omdirigering – men en extern förfrågan
+			// hinner sällan iväg innan sidbytet, så på sajter med tack-sida
+			// hör spårningen hemma på själva tack-sidan i stället.
+			document.dispatchEvent(
+				new CustomEvent('relativt-form:success', {
+					bubbles: true,
+					detail: { formId: this.id, root: this.root },
+				})
+			);
+
+			// Tack-sida angiven i wp-admin: skicka besökaren dit i stället
+			// för att visa tack-rutan. Adressen är satt av sajtens redaktör,
+			// aldrig av besökaren.
+			if (typeof data.redirect === 'string' && data.redirect !== '') {
+				this.redirecting = true;
+				window.location.assign(data.redirect);
+				return;
+			}
+
 			if (data.title) {
 				const title = this.thanks?.querySelector('.xf-thanks-title');
 				if (title) title.textContent = data.title;
@@ -663,14 +686,6 @@
 			this.form.hidden = true;
 			if (this.thanks) this.thanks.hidden = false;
 			this.root.classList.add('is-submitted');
-
-			// Låter GTM eller annan spårning hänga på utan att vi bakar in den.
-			document.dispatchEvent(
-				new CustomEvent('relativt-form:success', {
-					bubbles: true,
-					detail: { formId: this.id, root: this.root },
-				})
-			);
 
 			/*
 			 * Modalens tack-läge, om formuläret ligger i en. Vi letar efter

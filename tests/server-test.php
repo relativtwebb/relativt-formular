@@ -535,6 +535,7 @@ check( 'giltigt inskick svarar 200 ok', 200 === $res->status && true === ( $res-
 check( 'inskicket sparas', 1 === count( $GLOBALS['__posts'] ) );
 check( 'mailet skickas', 1 === count( $GLOBALS['__mail'] ) );
 check( 'tacktexten följer med i svaret', ( $res->data['title'] ?? '' ) === 'Tack för ditt meddelande!' );
+check( 'utan tack-sida skickas ingen redirect', ! isset( $res->data['redirect'] ) );
 
 /*
  * Regression 1.1.0: för snabbt inskick fick tidigare FEJKAD SUCCÉ – besökaren
@@ -571,6 +572,38 @@ check( 'valideringsfel svarar 422 per fält', 422 === $res->status && isset( $re
 
 $res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'form' => 999 ] ) ) );
 check( 'okänt formulär svarar 404', 404 === $res->status );
+
+echo "\nTack-sida\n";
+
+/** Plockar ut ett fält ur inställningsgruppen. */
+function xf_settings_field( string $key ): ?array {
+	foreach ( $GLOBALS['__field_groups']['group_xf_settings']['fields'] ?? [] as $field ) {
+		if ( ( $field['key'] ?? '' ) === $key ) {
+			return $field;
+		}
+	}
+	return null;
+}
+
+check( 'fältet Tack-sida finns i inställningarna', null !== xf_settings_field( 'field_xf_redirect' ) );
+
+$GLOBALS['__form']['xf_redirect'] = '/tack/';
+$GLOBALS['__transients'] = [];
+
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+check( 'tack-sidan följer med i svaret vid lyckat inskick', ( $res->data['redirect'] ?? '' ) === '/tack/' );
+
+// Honungsfällans fejkade succé ska vara omöjlig att skilja från ett riktigt svar.
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'xf_website' => 'spam' ] ) ) );
+check( 'fejkade succén bär samma tack-sida', ( $res->data['redirect'] ?? '' ) === '/tack/' );
+
+check(
+	'tack-sidan är med i exportens vitlista',
+	array_key_exists( 'xf_redirect', Relativt_Form_Portability::instance()->build_payload( 12 )['settings'] )
+);
+
+$GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
 
 echo "\nExport och import\n";
 

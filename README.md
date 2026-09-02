@@ -50,6 +50,12 @@ Villkorliga fält rättar sig efter förvalet redan vid renderingen.
 
 Shortcoden tar också ett `class`-attribut som lägger egna klasser på formulärets rot – se [Olika utseende per formulär](#olika-utseende-per-formulär).
 
+### Tack-sida i stället för tack-rutan
+
+Fyll i **Tack-sida (URL)** under formulärets flik Texter – t.ex. `/tack/` – så skickas besökaren dit efter lyckat inskick, i stället för att tack-rutan visas. Under **Formulär → Standardvärden** kan en gemensam tack-sida sättas för hela sajten; formulärets eget värde vinner alltid.
+
+Det här är rätt upplägg för konverteringsspårning: gör tack-sidan till mål i GA4 eller Google Ads, så behövs ingen event-koppling alls. Eventet `relativt-form:success` sänds visserligen även vid omdirigering (se [Event](#event)), men en event-baserad spårning hinner sällan iväg innan sidbytet – på sajter med tack-sida hör spårningen hemma på själva tack-sidan.
+
 ## Styla formuläret
 
 Motorn levererar neutral markup, och pluginets CSS är ett golv – inte ett tak. Det finns tre nivåer, från minst till mest arbete. Gemensamt för alla: **redigera aldrig pluginets egna filer.** De skrivs över vid varje uppdatering, så en färg som ändrats direkt i `assets/css/relativt-formular.css` försvinner nästa gång en release rullas ut.
@@ -224,6 +230,12 @@ Importen läser aldrig in fältnamn rakt av — allt passerar en vitlista, och d
 
 **Formulär → Standardvärden** sätter avsändare, tacktexter och samtyckestext en gång per sajt. Ett formulär som lämnar motsvarande fält tomt ärver värdet därifrån. Formulärets eget värde vinner alltid.
 
+## Tidszon
+
+Tidsstämplarna – Datum och Tid i mailen och inskicksvyn, inskickens publiceringstid, CSV-exporten – följer **sajtens tidszonsinställning**, precis som resten av WordPress.
+
+Visar inskicken rätt datum men fel klockslag står sajten nästan säkert kvar på UTC, som är standardläget på en ny WordPress-installation. Ställ **Inställningar → Allmänt → Tidszon** till *Stockholm* – gör det till en punkt i lanseringschecklistan. Redan sparade inskick behåller stämpeln de fick.
+
 ## E-post
 
 Motorn anropar `wp_mail()` och bryr sig inte om vad som ligger bakom. På en sajt utan SMTP skickar WordPress direkt från webbservern, vilket ofta landar i skräpposten — koppla på en riktig avsändartjänst innan lansering.
@@ -238,8 +250,8 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 187 assertions: validering, villkor, routing, mail, rendering, REST-flödet, import
-npx playwright test         # 82 tester i riktig webbläsare, desktop och mobil
+php tests/server-test.php   # 192 assertions: validering, villkor, routing, mail, rendering, REST-flödet, import
+npx playwright test         # 86 tester i riktig webbläsare, desktop och mobil
 ```
 
 Har du redan en Chromium på maskinen som Playwright inte installerat själv, peka ut den med `CHROMIUM_PATH=/sökväg/till/chrome npx playwright test`. Utan variabeln används Playwrights egen.

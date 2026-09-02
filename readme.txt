@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -20,6 +20,10 @@ Kräver Advanced Custom Fields Pro.
 Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
 == Changelog ==
+
+= 1.1.1 =
+Tack-sida per formulär: omdirigering vid lyckat inskick, gjord som mål
+för konverteringsspårning.
 
 = 1.1.0 =
 Kampanjkakan respekterar Relativt Cookie Consent, tidsspärren gör om inskicket

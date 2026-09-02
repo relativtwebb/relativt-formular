@@ -56,6 +56,7 @@ final class Relativt_Form_Portability {
 		'xf_consent_box'  => 'bool',
 		'xf_thanks_title' => 'text',
 		'xf_thanks_text'  => 'html',
+		'xf_redirect'     => 'text',
 		'xf_error_text'   => 'text',
 		'xf_store'        => 'bool',
 		'xf_retention'    => 'int',

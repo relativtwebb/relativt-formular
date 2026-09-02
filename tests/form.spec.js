@@ -624,6 +624,34 @@ test('kampanjkakan skrivs i efterhand när samtycket kommer', async ({ page }) =
 	expect(await page.evaluate(() => window.relativtForm.source().utm_source)).toBe('linkedin');
 });
 
+/* -----------------------------------------------------------------------------
+ * Tack-sida
+ * -------------------------------------------------------------------------- */
+
+test('tack-sida: besökaren skickas vidare vid lyckat inskick', async ({ page }) => {
+	await page.goto(DEMO);
+	await page.evaluate(() => {
+		window.__mockRedirect = '/demo-form.html?tack=1';
+	});
+
+	const form = page_form(page);
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+
+	await page.waitForURL(/tack=1/);
+});
+
+test('utan tack-sida visas tack-rutan precis som vanligt', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = page_form(page);
+
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+
+	await expect(form).toHaveClass(/is-submitted/);
+	expect(page.url()).not.toContain('tack=1');
+});
+
 test('återkallat samtycke tar bort kampanjkakan', async ({ page }) => {
 	await page.addInitScript(() => {
 		window.relativtFormConfig = { rccCookie: 'relativt_cookie_consent' };

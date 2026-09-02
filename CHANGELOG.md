@@ -3,6 +3,26 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.1.1] – 2026-09-02
+
+### Nytt
+- **Tack-sida per formulär.** Nytt fält "Tack-sida (URL)" under fliken
+  Texter: fylls det i skickas besökaren dit efter lyckat inskick i stället
+  för att tack-rutan visas – gjort för konverteringsspårning i GA4/Ads.
+  Kan även sättas som sajtgemensamt standardvärde; formulärets eget värde
+  vinner. Följer med i export/import. Knappen behåller "Skickar…" tills
+  sidbytet sker, så dubbelinskick inte hinner ske.
+
+### Dokumentation
+- Nytt README-avsnitt **Tidszon**: tidsstämplarna följer sajtens
+  tidszonsinställning, precis som resten av WordPress. Rätt datum men fel
+  klockslag betyder att sajten står kvar på UTC (standard på en ny
+  installation) – ställ Inställningar → Allmänt → Tidszon till Stockholm.
+
+### Tester
+- 192 serverassertions och 86 webbläsartester; tack-sidans hela väg från
+  inställning till omdirigering testas i riktig webbläsare.
+
 ## [1.1.0] – 2026-08-31
 
 ### Rättat
