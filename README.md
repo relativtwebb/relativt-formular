@@ -58,7 +58,9 @@ Det här är rätt upplägg för konverteringsspårning: gör tack-sidan till m�
 
 ## Styla formuläret
 
-Motorn levererar neutral markup, och pluginets CSS är ett golv – inte ett tak. Det finns tre nivåer, från minst till mest arbete. Gemensamt för alla: **redigera aldrig pluginets egna filer.** De skrivs över vid varje uppdatering, så en färg som ändrats direkt i `assets/css/relativt-formular.css` försvinner nästa gång en release rullas ut.
+Motorn levererar neutral markup, och pluginets CSS är ett golv – inte ett tak. Ingen utseende-regel använder `!important` och inga typografiska tyckanden (versaler, letter-spacing) ligger i vägen: formuläret ärver sajtens typografi, och sajtens CSS vinner med vanlig specificitet. De enda `!important` som finns är funktionsregler som aldrig ska stylas – honungsfällans döljning, villkorsdolda fält och builder-läget.
+
+Det finns tre nivåer, från minst till mest arbete. Gemensamt för alla: **redigera aldrig pluginets egna filer.** De skrivs över vid varje uppdatering, så en färg som ändrats direkt i `assets/css/relativt-formular.css` försvinner nästa gång en release rullas ut.
 
 ### Nivå 1: skriv över variablerna (räcker nästan alltid)
 
@@ -87,15 +89,14 @@ Typsnittet behöver aldrig sättas – formuläret ärver alltid sajtens (`font-
 | `--xf-placeholder` | `#b6b4b0` | platshållartext |
 | `--xf-label` | `#2b2a28` | etiketternas färg |
 | `--xf-label-size` | `13px` | etiketternas storlek |
-| `--xf-label-spacing` | `0.08em` | etiketternas teckenavstånd |
-| `--xf-input-size` | `16px` | textstorlek i fälten |
+| `--xf-input-size` | `16px` | textstorlek i fälten och på knappen |
 | `--xf-active-bg` / `--xf-active-text` | `#2b2a28` / `#fff` | vald val-knapp |
 | `--xf-accent` / `--xf-accent-text` | `#2b2a28` / `#fff` | skicka-knappen |
 | `--xf-icon-size` | `22px` | pilikonen i knappen |
 | `--xf-error` | `#b32d2e` | felmeddelanden |
 | `--xf-focus-ring` | `#2b2a28` | fokusram |
 
-Etiketterna är versaler som standard (`text-transform: uppercase`); vill sajten ha något annat skrivs regeln över på samma sätt: `.relativt-form.relativt-form .xf-label { text-transform: none; }`. Brytpunkten till en kolumn (768px) är däremot ingen variabel – CSS kan inte läsa variabler i media-frågor.
+Typografin är medvetet neutral – ingen `text-transform`, ingen `letter-spacing`. Vill sajten ha versala etiketter läggs det till på samma sätt: `.relativt-form.relativt-form .xf-label { text-transform: uppercase; letter-spacing: .08em; }`. Skicka-knappen är innehållsbred på desktop och full bredd under 768px; ska den alltid vara full bredd: `.relativt-form.relativt-form .xf-submit { width: 100%; }`. Brytpunkten (768px) är däremot ingen variabel – CSS kan inte läsa variabler i media-frågor.
 
 ### Olika utseende per formulär
 
@@ -130,10 +131,10 @@ add_filter( 'relativt_form_submit_class', fn( $c, $form_id ) =>
 
 ### Nivå 2: låt knappen ärva temats utseende
 
-På en sidbyggarsajt vill man ofta att skicka-knappen ska se ut och animeras exakt som temats övriga knappar. Skjut in temats klasser via filtren (exempel under [Filter](#filter) nedan). Krockar pluginets egen knappstyling med temats – t.ex. versalerna eller paddingen – skrivs den över från sajtens CSS med dubblad klass, i stället för att röra pluginfilen:
+På en sidbyggarsajt vill man ofta att skicka-knappen ska se ut och animeras exakt som temats övriga knappar. Skjut in temats klasser via filtren (exempel under [Filter](#filter) nedan). Krockar pluginets egen knappstyling med temats – t.ex. paddingen eller bakgrunden – skrivs den över från sajtens CSS med dubblad klass, i stället för att röra pluginfilen:
 
 ```css
-.relativt-form .xf-submit.xf-submit { text-transform: none; letter-spacing: 0; padding: 14px 24px; }
+.relativt-form .xf-submit.xf-submit { padding: 14px 24px; background: none; }
 ```
 
 ### Nivå 3: stäng av pluginets CSS och styla allt själv

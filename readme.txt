@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.1.1
+Stable tag: 1.1.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -20,6 +20,12 @@ Kräver Advanced Custom Fields Pro.
 Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
 == Changelog ==
+
+= 1.1.2 =
+Standard-CSS:en städad: ingen !important i utseende-regler, ingen påtvingad
+typografi (versaler/letter-spacing), skicka-knappen innehållsbred på desktop
+och full bredd först under 768px, kryssrutor centrerade. OBS: syns på sajter
+som förlitat sig på de gamla standardvärdena.
 
 = 1.1.1 =
 Tack-sida per formulär: omdirigering vid lyckat inskick, gjord som mål

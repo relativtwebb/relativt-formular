@@ -3,6 +3,28 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.1.2] – 2026-09-02
+
+### Ändrat – standardutseendet, SYNS på sajterna
+Standard-CSS:en har städats utifrån verklig användning på kundsajt. Sajter
+som förlitat sig på de gamla standardvärdena ser skillnad efter
+uppdateringen:
+
+- **Skicka-knappen är innehållsbred på desktop**; full bredd först under
+  768px. Alltid full bredd = `width: 100%` från sajtens CSS.
+- **Ingen `!important` i utseende-regler.** Sajtens CSS vinner nu med
+  vanlig specificitet. Kvar bara i funktionsregler som aldrig ska stylas:
+  honungsfällans döljning, villkorsdolda fält, fälttypen Dolt fält,
+  builder-läget och reducerad rörelse.
+- **Typografiska tyckanden borttagna**: ingen `text-transform: uppercase`
+  och ingen `letter-spacing` på etiketter och knapp – formuläret ärver
+  sajtens typografi rakt av. Variabeln `--xf-label-spacing` är borttagen.
+  Knappens textstorlek följer `--xf-input-size` i stället för hårdkodade
+  14px.
+- **Kryssrutor centreras mot sin text** (radioalternativ toppjusteras som
+  förut, eftersom deras etiketter kan vara långa), plus en justering för
+  Oxygen-teman som ritar egen bock med `::after`.
+
 ## [1.1.1] – 2026-09-02
 
 ### Nytt

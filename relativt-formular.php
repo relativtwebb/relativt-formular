@@ -3,7 +3,7 @@
  * Plugin Name:       Relativt Formulär
  * Plugin URI:        https://github.com/relativtwebb/relativt-formular
  * Description:       Formulärmotor för WordPress. Bygg formulär i wp-admin, varje formulär får en egen shortcode. Villkorliga fält, mottagarregler, spamskydd, inskickslagring och UTM-attribution.
- * Version:           1.1.1
+ * Version:           1.1.2
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            Relativt
@@ -26,7 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * värsta fall mitt i en HTTP-header och därmed en trasig sajt.
  */
 if ( ! defined( 'RELATIVT_FORM_VERSION' ) ) {
-	define( 'RELATIVT_FORM_VERSION', '1.1.1' );
+	define( 'RELATIVT_FORM_VERSION', '1.1.2' );
 	define( 'RELATIVT_FORM_FILE', __FILE__ );
 	define( 'RELATIVT_FORM_DIR', plugin_dir_path( __FILE__ ) );
 	define( 'RELATIVT_FORM_URL', plugin_dir_url( __FILE__ ) );
