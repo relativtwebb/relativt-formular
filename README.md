@@ -251,8 +251,8 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 192 assertions: validering, villkor, routing, mail, rendering, REST-flödet, import
-npx playwright test         # 86 tester i riktig webbläsare, desktop och mobil
+php tests/server-test.php   # 195 assertions: validering, villkor, routing, mail, rendering, REST-flödet, import
+npx playwright test         # 88 tester i riktig webbläsare, desktop och mobil
 ```
 
 Har du redan en Chromium på maskinen som Playwright inte installerat själv, peka ut den med `CHROMIUM_PATH=/sökväg/till/chrome npx playwright test`. Utan variabeln används Playwrights egen.

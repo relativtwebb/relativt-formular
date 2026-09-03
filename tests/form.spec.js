@@ -117,7 +117,7 @@ test('okänt värde i URL:en rör inte förvalet', async ({ page }) => {
 	await expect(field(form, 'jagar').locator('input[value="foretag"]')).toBeChecked();
 });
 
-test('dolda fält skickas inte med i nyttolasten', async ({ page }) => {
+test('villkorsdolda fält skickas inte med i nyttolasten', async ({ page }) => {
 	await page.goto(DEMO);
 	const form = page_form(page);
 
@@ -129,6 +129,23 @@ test('dolda fält skickas inte med i nyttolasten', async ({ page }) => {
 	expect(body.fields).toHaveProperty('behov');
 	expect(body.fields).not.toHaveProperty('onskemal');
 	expect(body.fields.jagar).toBe('foretag');
+});
+
+/*
+ * Regression 1.1.3: fälttypen Dolt fält skickades ALDRIG med – nyttolasten
+ * hoppade över alla fält med dold wrapper, och typen Dolt fält bär samma
+ * hidden-attribut som villkorsdolda fält. Bara villkoret får avgöra.
+ */
+test('fälttypen Dolt fält följer däremot med, med sitt shortcode-värde', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = page_form(page);
+
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+	await expect(form).toHaveClass(/is-submitted/);
+
+	const [body] = await page.evaluate(() => window.__mockCalls);
+	expect(body.fields.audit).toBe('Webb');
 });
 
 /* -----------------------------------------------------------------------------

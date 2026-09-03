@@ -411,8 +411,19 @@
 			}
 		}
 
-		isVisible(field) {
-			return !field.hidden && field.dataset.xfKey !== undefined && !field.classList.contains('xf-type-heading');
+		/**
+		 * Är fältets VILLKOR uppfyllt? Fält utan villkor är alltid med.
+		 *
+		 * Regression 1.1.3: testet var tidigare "är wrappern dold?"
+		 * (field.hidden) – men fälttypen Dolt fält renderas med samma
+		 * hidden-attribut som villkorsdolda fält, så dolda fält skickades
+		 * ALDRIG med i inskicket. Bara villkoret får avgöra deltagandet;
+		 * att typen inte syns är en annan sak än att fältet inte gäller.
+		 */
+		condSatisfied(field) {
+			const controller = field.dataset.xfCondField;
+			if (!controller) return true;
+			return this.matches(this.candidatesOf(controller), field.dataset.xfCondValue);
 		}
 
 		/* -- Fel ---------------------------------------------------------- */
@@ -442,7 +453,7 @@
 			let firstBad = null;
 
 			for (const field of this.fields) {
-				if (!this.isVisible(field)) continue;
+				if (!this.condSatisfied(field)) continue;
 
 				const key = field.dataset.xfKey;
 				const type = [...field.classList].find((c) => c.startsWith('xf-type-'))?.replace('xf-type-', '') ?? 'text';
@@ -522,7 +533,10 @@
 			const fields = {};
 
 			for (const field of this.fields) {
-				if (!this.isVisible(field)) continue;
+				// Villkoret avgör – INTE wrapperns hidden-attribut, som även
+				// fälttypen Dolt fält bär. Rubriker faller bort på inputs-
+				// kontrollen nedan.
+				if (!this.condSatisfied(field)) continue;
 
 				const key = field.dataset.xfKey;
 				const inputs = this.inputs(field);

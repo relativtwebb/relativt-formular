@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.1.2
+Stable tag: 1.1.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -20,6 +20,10 @@ Kräver Advanced Custom Fields Pro.
 Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
 == Changelog ==
+
+= 1.1.3 =
+Rättat: fälttypen Dolt fält skickades aldrig med i inskicket, så värden
+satta via shortcode-attribut nådde varken mail, ämnesrad eller inskick.
 
 = 1.1.2 =
 Standard-CSS:en städad: ingen !important i utseende-regler, ingen påtvingad

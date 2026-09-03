@@ -605,6 +605,27 @@ check(
 $GLOBALS['__form'] = xf_test_form();
 Relativt_Form::flush_fields_cache();
 
+echo "\nDolda fält\n";
+
+/*
+ * Regression 1.1.3. Fälttypen Dolt fält renderades och fick sitt värde från
+ * shortcode-attributet – men JS skickade aldrig med det, eftersom nyttolasten
+ * hoppade över alla fält med dold wrapper (skyddet för villkorsdolda fält
+ * träffade även typen Dolt fält). Serverledet testas här; webbläsarledet i
+ * form.spec.js.
+ */
+$with_hidden = $engine->validate( 12, $base + [ 'audit' => 'Webb' ] );
+check( 'dolt fälts värde valideras och följer med', value_of( $with_hidden['values'], 'audit' ) === 'Webb' );
+
+$GLOBALS['__form']['xf_subject'] = 'Ny audit-förfrågan – {audit}';
+[ , $audit_subject ] = call( $engine, 'resolve_recipient', [ 12, $with_hidden['values'] ] );
+check( 'och kan användas i ämnesraden', 'Ny audit-förfrågan – Webb' === $audit_subject, $audit_subject );
+$GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
+
+$without = $engine->validate( 12, $base );
+check( 'tomt dolt fält ger tomt värde, inget fel', ! isset( $without['errors']['audit'] ) && '' === value_of( $without['values'], 'audit' ) );
+
 echo "\nExport och import\n";
 
 $port    = Relativt_Form_Portability::instance();
@@ -613,7 +634,7 @@ $payload = $port->build_payload( 12 );
 check( 'exporten märks som en formulärexport', ( $payload['_type'] ?? '' ) === 'relativt-formular' );
 check( 'schemaversion följer med', ( $payload['_schema'] ?? 0 ) === Relativt_Form_Portability::SCHEMA );
 check( 'titeln följer med', ( $payload['title'] ?? '' ) === 'Kontaktformulär' );
-check( 'fälten följer med', count( $payload['settings']['xf_fields'] ?? [] ) === 8 );
+check( 'fälten följer med', count( $payload['settings']['xf_fields'] ?? [] ) === 9 );
 check( 'mottagarreglerna följer med', count( $payload['settings']['xf_rules'] ?? [] ) === 1 );
 check( 'mottagaradressen följer med', ( $payload['settings']['xf_to'] ?? '' ) === 'info@exempel.se' );
 check( 'hjälptexten följer med', ( $payload['settings']['xf_fields'][7]['help'] ?? '' ) === 'Berätta gärna kort vad det gäller.' );

@@ -228,6 +228,8 @@ function xf_test_form(): array {
 				'placeholder' => 'Skriv gärna några rader om vad ni söker…', 'width' => 'full',
 				'help' => 'Berätta gärna kort vad det gäller.',
 			],
+			// Sist, så att index-baserade assertions på raderna ovan står sig.
+			[ 'type' => 'hidden', 'key' => 'audit', 'label' => 'Audit' ],
 		],
 		'xf_rules' => [
 			[ 'field' => 'jagar', 'value' => 'Kandidat', 'email' => 'rekrytering@exempel.se', 'subject' => 'Ny kandidat från webbplatsen' ],

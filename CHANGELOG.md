@@ -3,6 +3,23 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.1.3] – 2026-09-03
+
+### Rättat
+- **Fälttypen Dolt fält skickades aldrig med i inskicket.** Fältet
+  renderades korrekt med sitt värde (t.ex. från ett shortcode-attribut),
+  men nyttolasten hoppade över alla fält med dold wrapper – skyddet som
+  finns för att *villkorsdolda* fält inte ska skickas träffade även typen
+  Dolt fält, som bär samma hidden-attribut. Värdet nådde därför aldrig
+  mail, ämnesrad, inskicksvy eller CSV. Nu avgör enbart fältets villkor
+  om det deltar i inskicket. Buggen har funnits sedan 1.0.0.
+
+### Tester
+- 195 serverassertions och 88 webbläsartester. Testformuläret har nu ett
+  dolt fält med värde satt via shortcode-attribut, och regressionen täcks
+  i båda leden: värdet valideras, når ämnesraden och skickas från riktig
+  webbläsare.
+
 ## [1.1.2] – 2026-09-02
 
 ### Ändrat – standardutseendet, SYNS på sajterna

@@ -14,8 +14,8 @@ $reflection = new ReflectionClass( $engine );
 $render     = $reflection->getMethod( 'render_form' );
 $render->setAccessible( true );
 
-/** Kontaktsidan: förvalt Företag. Modalen: förvalt Kandidat. */
-$page_form  = $render->invoke( $engine, 12, [ 'jagar' => 'foretag' ], '' );
+/** Kontaktsidan: förvalt Företag + dolt fält satt via "shortcoden". Modalen: förvalt Kandidat. */
+$page_form  = $render->invoke( $engine, 12, [ 'jagar' => 'foretag', 'audit' => 'Webb' ], '' );
 $modal_form = $render->invoke( $engine, 12, [ 'jagar' => 'kandidat' ], '' );
 /** Tredje instansen används bara av regressionstestet för Oxygens id-regler. */
 $regression_form = $render->invoke( $engine, 12, [ 'jagar' => 'foretag' ], '' );
