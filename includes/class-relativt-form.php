@@ -209,6 +209,7 @@ final class Relativt_Form {
 			'tel'      => 'Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.',
 			'number'   => 'Ange ett nummer.',
 			'date'     => 'Kontrollera datumet.',
+			'url'      => 'Ange en giltig webbadress, t.ex. https://exempel.se.',
 			'choice'   => 'Ogiltigt val.',
 			'links'    => 'Meddelandet innehåller för många länkar.',
 			'consent'  => 'Du behöver godkänna villkoren.',
@@ -293,6 +294,7 @@ final class Relativt_Form {
 			'text'       => 'Text',
 			'email'      => 'E-post',
 			'tel'        => 'Telefon',
+			'url'        => 'URL',
 			'number'     => 'Nummer',
 			'date'       => 'Datum',
 			'textarea'   => 'Textruta',
@@ -1103,12 +1105,13 @@ final class Relativt_Form {
 				break;
 
 			default:
-				$input_type = in_array( $type, [ 'email', 'tel', 'number', 'date' ], true ) ? $type : 'text';
+				$input_type = in_array( $type, [ 'email', 'tel', 'number', 'date', 'url' ], true ) ? $type : 'text';
 
 				// Rätt tangentbord på mobil och ifyllnadshjälp från webbläsaren.
 				$hints = [
 					'email' => ' inputmode="email" autocomplete="email" spellcheck="false"',
 					'tel'   => ' inputmode="tel" autocomplete="tel"',
+					'url'   => ' inputmode="url" autocomplete="url" spellcheck="false"',
 				][ $type ] ?? '';
 
 				printf(
@@ -1398,6 +1401,16 @@ final class Relativt_Form {
 					$errors[ $key ] = $msg['number'];
 					continue;
 				}
+				if ( 'url' === $type ) {
+					$normalized = $this->normalize_url( $store );
+					if ( null === $normalized ) {
+						$errors[ $key ] = $msg['url'];
+						continue;
+					}
+					// Sparas normaliserat (med schema) så länken går att klicka
+					// på rakt ur mailet – inte bara i wp-admin.
+					$store = $normalized;
+				}
 				// Formatet räcker inte: 2026-13-45 matchar regexen. checkdate()
 				// avgör om datumet faktiskt finns i kalendern.
 				if ( 'date' === $type ) {
@@ -1544,6 +1557,39 @@ final class Relativt_Form {
 			return false;
 		}
 		return ! preg_match( '/^(\d)\1+$/', $digits );
+	}
+
+	/**
+	 * Normaliserar en webbadress och returnerar null om värdet inte kan vara
+	 * en URL. Saknas schemat (någon skriver "linkedin.com/in/namn" i stället
+	 * för "https://linkedin.com/in/namn") läggs https:// på i första hand –
+	 * annars sparas en trasig relativ länk som inte går att klicka på i
+	 * mailet.
+	 *
+	 * SPEGLAS av normalizeUrl() i relativt-formular.js. Ändras den ena MÅSTE
+	 * den andra ändras.
+	 */
+	public function normalize_url( string $raw ): ?string {
+		$raw = trim( $raw );
+		if ( '' === $raw ) {
+			return null;
+		}
+
+		if ( ! preg_match( '#^[a-z][a-z0-9+.-]*://#i', $raw ) ) {
+			$raw = 'https://' . ltrim( $raw, '/' );
+		}
+
+		$url = esc_url_raw( $raw );
+		if ( '' === $url ) {
+			return null;
+		}
+
+		$host = wp_parse_url( $url, PHP_URL_HOST );
+		if ( ! $host || ! str_contains( $host, '.' ) ) {
+			return null;
+		}
+
+		return $url;
 	}
 
 	private function flatten( $value ): string {
@@ -1764,11 +1810,18 @@ final class Relativt_Form {
 			if ( '' === trim( (string) $v['value'] ) ) {
 				continue;
 			}
-			$rows .= sprintf(
+			// URL-fält blir en klickbar länk i mailet i stället för ren text.
+			$display = 'url' === $v['type']
+				? sprintf(
+					'<a href="%1$s" style="color:#11627a;word-break:break-all;">%1$s</a>',
+					esc_url( $v['value'] )
+				)
+				: nl2br( esc_html( $v['value'] ) );
+			$rows   .= sprintf(
 				'<tr><th align="left" valign="top" style="padding:8px 16px 8px 0;font:600 14px/1.5 Arial,sans-serif;color:#555;white-space:nowrap;">%s</th>'
 				. '<td valign="top" style="padding:8px 0;font:400 14px/1.6 Arial,sans-serif;color:#111;">%s</td></tr>',
 				esc_html( $v['label'] ),
-				nl2br( esc_html( $v['value'] ) )
+				$display
 			);
 		}
 

@@ -153,6 +153,7 @@
 		tel: 'Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.',
 		number: 'Ange ett nummer.',
 		date: 'Kontrollera datumet.',
+		url: 'Ange en giltig webbadress, t.ex. https://exempel.se.',
 		links: 'Meddelandet innehåller för många länkar.',
 		consent: 'Du behöver godkänna villkoren.',
 		generic: 'Något gick fel. Försök igen om en liten stund.',
@@ -235,6 +236,28 @@
 
 	/** Speglar länkräkningen i validate() – samma mönster, samma resultat. */
 	const countLinks = (value) => (value.match(/https?:\/\/|www\./gi) ?? []).length;
+
+	/**
+	 * Returnerar en normaliserad URL, eller null om värdet inte kan vara en
+	 * webbadress. SPEGLAR normalize_url() i class-relativt-form.php – ändras
+	 * den ena MÅSTE den andra ändras.
+	 */
+	const normalizeUrl = (raw) => {
+		let input = raw.trim();
+		if (input === '') return null;
+
+		if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(input)) {
+			input = `https://${input.replace(/^\/+/, '')}`;
+		}
+
+		try {
+			const url = new URL(input);
+			if (!url.hostname.includes('.')) return null;
+			return url.href;
+		} catch {
+			return null;
+		}
+	};
 
 	class RelativtForm {
 		constructor(root) {
@@ -487,6 +510,9 @@
 					firstBad ??= field;
 				} else if (type === 'date' && !validDate(value)) {
 					this.showError(field, MESSAGES.date);
+					firstBad ??= field;
+				} else if (type === 'url' && normalizeUrl(value) === null) {
+					this.showError(field, MESSAGES.url);
 					firstBad ??= field;
 				} else if (type === 'textarea' && MAX_LINKS > 0 && countLinks(value) > MAX_LINKS) {
 					this.showError(field, MESSAGES.links);

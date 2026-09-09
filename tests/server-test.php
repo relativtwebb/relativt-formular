@@ -196,6 +196,28 @@ $normalised = $engine->validate( 12, [
 ] );
 check( 'numret sparas normaliserat', value_of( $normalised['values'], 'telefon' ) === '0701234567', (string) value_of( $normalised['values'], 'telefon' ) );
 
+echo "\nURL-validering\n";
+
+// [inmatning, förväntat normaliserat värde]
+$urls = [
+	[ 'https://exempel.se', 'https://exempel.se' ],
+	[ 'http://exempel.se/sida', 'http://exempel.se/sida' ],
+	[ 'exempel.se', 'https://exempel.se' ],
+	[ 'www.exempel.se', 'https://www.exempel.se' ],
+	[ 'linkedin.com/in/anna-andersson', 'https://linkedin.com/in/anna-andersson' ],
+	[ '  exempel.se  ', 'https://exempel.se' ],
+];
+
+foreach ( $urls as [ $input, $expected ] ) {
+	$actual = $engine->normalize_url( $input );
+	check( "godkänner {$input}", $actual === $expected, 'fick ' . var_export( $actual, true ) );
+}
+
+$bad_urls = [ 'inte en url', 'https://', 'https://bara-ord', 'ftp:///saknar-host', '' ];
+foreach ( $bad_urls as $url ) {
+	check( 'avvisar ' . ( '' === $url ? '(tom)' : $url ), null === $engine->normalize_url( $url ) );
+}
+
 echo "\nMottagaradresser i wp-admin\n";
 
 check( 'godkänner en adress', true === $engine->validate_recipients( true, 'info@exempel.se' ) );
@@ -312,6 +334,14 @@ check( 'metadatan är på svenska, inte råa nycklar', str_contains( $body, 'Kam
 check( 'inga utm_-nycklar läcker ut i mailet', ! str_contains( $body, 'utm_source' ) && ! str_contains( $body, 'utm_medium' ) );
 check( 'landningssida dubbleras inte', substr_count( $body, 'Landningssida' ) === 1 );
 check( 'datum och tid har svenska etiketter', str_contains( $body, 'Datum' ) && str_contains( $body, 'Tid' ) );
+
+// URL-fält ska renderas som en klickbar länk, inte som ren text.
+$url_values   = array_merge( $foretag['values'], [
+	[ 'key' => 'linkedin', 'label' => 'LinkedIn-profil', 'type' => 'url', 'value' => 'https://linkedin.com/in/anna' ],
+] );
+$url_body     = call( $engine, 'mail_body', [ 12, $url_values, $meta ] );
+check( 'URL-fältet blir en klickbar länk', str_contains( $url_body, '<a href="https://linkedin.com/in/anna"' ), $url_body );
+check( 'länktexten visar hela adressen', str_contains( $url_body, '>https://linkedin.com/in/anna</a>' ) );
 check( 'användaragenten heter Webbläsare', $engine->meta_label( 'ua' ) === 'Webbläsare' );
 check( 'okänd nyckel faller tillbaka på sig själv', $engine->meta_label( 'nagot_okant' ) === 'nagot_okant' );
 check( 'skickat-från-sidan följer med', str_contains( $body, 'exempel.se/kontakt' ) );

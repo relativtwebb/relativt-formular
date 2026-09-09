@@ -3,6 +3,26 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.2.0] – 2026-09-09
+
+### Nytt
+- **Fälttypen URL.** Renderas som `<input type="url">` (rätt tangentbord på
+  mobil, webbläsarens inbyggda formathjälp) och valideras/normaliseras
+  server- och klientsidan precis som e-post och telefon: saknas schemat
+  läggs `https://` på automatiskt, så "linkedin.com/in/namn" sparas som en
+  riktig, klickbar länk i stället för en trasig relativ sådan.
+- **URL-fält renderas som en klickbar länk i notismejlet.** Tidigare skrevs
+  alla fältvärden ut som ren text i mailet – ett URL-fält blir nu en
+  `<a href>` istället, så mottagaren kan klicka sig rakt till t.ex. en
+  kandidats LinkedIn-profil.
+- Ny publik metod `normalize_url()`, samma mönster som `normalize_phone()`.
+  Speglad i `relativt-formular.js` som `normalizeUrl()`.
+
+### Tester
+- 208 serverassertions (från 195). Nytt: normalisering av giltiga och
+  ogiltiga webbadresser (saknat schema, tom host, ren text) samt att
+  URL-fält faktiskt renderas som `<a href>` i mailkroppen.
+
 ## [1.1.3] – 2026-09-03
 
 ### Rättat

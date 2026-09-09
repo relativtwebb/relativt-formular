@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.1.3
+Stable tag: 1.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -12,7 +12,7 @@ Formulärmotor för WordPress. Bygg formulär i wp-admin, varje formulär får e
 == Description ==
 
 Formulärbyggare med villkorliga fält som utvärderas på servern, mottagarregler,
-validering av e-post och telefon, spamskydd utan CAPTCHA, UTM-attribution,
+validering av e-post, telefon och URL, spamskydd utan CAPTCHA, UTM-attribution,
 inskickslagring med gallring samt export och import av formulär mellan sajter.
 
 Kräver Advanced Custom Fields Pro.
@@ -20,6 +20,11 @@ Kräver Advanced Custom Fields Pro.
 Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
 == Changelog ==
+
+= 1.2.0 =
+Ny fälttyp: URL. Valideras och normaliseras (https:// läggs på om schemat
+saknas) på samma sätt som e-post och telefon, och renderas som en klickbar
+länk i mailet som skickas vid inskick i stället för ren text.
 
 = 1.1.3 =
 Rättat: fälttypen Dolt fält skickades aldrig med i inskicket, så värden
