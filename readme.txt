@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.2.0
+Stable tag: 1.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -20,6 +20,12 @@ Kräver Advanced Custom Fields Pro.
 Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
 == Changelog ==
+
+= 1.3.0 =
+Nytt fältval: "Visa etikett". Ikryssad som standard; kryssas den ur döljs
+etiketten visuellt på sajten men ligger kvar för skärmläsare, så fältet
+behåller sitt tillgängliga namn. Befintliga formulär påverkas inte –
+etiketten visas som förut tills valet stängs av uttryckligen.
 
 = 1.2.0 =
 Ny fälttyp: URL. Valideras och normaliseras (https:// läggs på om schemat

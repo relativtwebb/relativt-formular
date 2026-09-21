@@ -8,6 +8,22 @@
 
 require __DIR__ . '/harness.php';
 
+/*
+ * Demo-fält för "Visa etikett" (1.3.0). Lever bara här – rör inte
+ * harness.php:s xf_test_form(), som server-test.php:s index-baserade
+ * assertions är beroende av.
+ */
+$GLOBALS['__form']['xf_fields'][] = [
+	'type' => 'text', 'key' => 'smeknamn', 'label' => 'Smeknamn', 'show_label' => 0,
+];
+$GLOBALS['__form']['xf_fields'][] = [
+	'type' => 'checkbox', 'key' => 'nyhetsbrev', 'label' => 'Jag vill ha nyhetsbrevet', 'show_label' => 0,
+];
+$GLOBALS['__form']['xf_fields'][] = [
+	'type' => 'radio', 'key' => 'sprak', 'label' => 'Språk', 'choices' => "sv : Svenska\nen : Engelska", 'show_label' => 0,
+];
+Relativt_Form::flush_fields_cache();
+
 $engine = Relativt_Form::instance();
 
 $reflection = new ReflectionClass( $engine );

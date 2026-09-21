@@ -410,6 +410,77 @@ check( 'val-knappsgruppen får sitt namn via aria-labelledby', (bool) preg_match
 check( 'hjälptexten renderas med id', (bool) preg_match( '/class="xf-help" id="[^"]+-meddelande-help">Berätta gärna kort/', $html ) );
 check( 'felraden renderas med id', (bool) preg_match( '/class="xf-error" id="[^"]+-namn-error"/', $html ) );
 
+echo "\nVisa etikett\n";
+
+/*
+ * Nytt i 1.3.0. "Visa etikett" döljer etiketten VISUELLT – den ska aldrig
+ * försvinna ur markupen, annars tappar fältet sitt tillgängliga namn för
+ * skärmläsare (och gruppfältens aria-labelledby pekar på ingenting).
+ */
+check( 'formulär utan show_label-nyckel visar etiketterna som förut', ! str_contains( $html, 'xf-sr-only' ) );
+
+$GLOBALS['__form']['xf_fields'][] = [
+	'type' => 'text', 'key' => 'smeknamn', 'label' => 'Smeknamn', 'show_label' => 0,
+];
+$GLOBALS['__form']['xf_fields'][] = [
+	'type' => 'checkbox', 'key' => 'nyhetsbrev', 'label' => 'Jag vill ha nyhetsbrevet', 'show_label' => 0,
+];
+$GLOBALS['__form']['xf_fields'][] = [
+	'type' => 'radio', 'key' => 'sprak', 'label' => 'Språk', 'choices' => "sv : Svenska\nen : Engelska", 'show_label' => 0,
+];
+Relativt_Form::flush_fields_cache();
+$html_no_labels = $render->invoke( $engine, 12, [], '' );
+
+check(
+	'textfält: etiketten får xf-sr-only men ligger kvar med sitt for-attribut',
+	(bool) preg_match( '/<label class="xf-label xf-sr-only" for="[^"]+-smeknamn">Smeknamn<\/label>/', $html_no_labels )
+);
+check(
+	'kryssruta: etikettexten döljs visuellt men finns kvar i klickytan',
+	str_contains( $html_no_labels, '<span class="xf-check-text xf-sr-only">Jag vill ha nyhetsbrevet</span>' )
+);
+check(
+	'gruppfält (radio): aria-labelledby pekar fortfarande på den nu dolda etiketten',
+	(bool) preg_match( '/role="radiogroup" aria-labelledby="([^"]+-sprak-label)"/', $html_no_labels, $m )
+		&& str_contains( $html_no_labels, '<span class="xf-label xf-sr-only" id="' . $m[1] . '">Språk' )
+);
+
+$GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
+
+// get_fields(): bakåtkompatibel standard + explicit av/på.
+$GLOBALS['__form']['xf_fields'][] = [ 'type' => 'text', 'key' => 'utan_falt', 'label' => 'Utan fält' ];
+$GLOBALS['__form']['xf_fields'][] = [ 'type' => 'text', 'key' => 'pa', 'label' => 'På', 'show_label' => 1 ];
+$GLOBALS['__form']['xf_fields'][] = [ 'type' => 'text', 'key' => 'av', 'label' => 'Av', 'show_label' => 0 ];
+Relativt_Form::flush_fields_cache();
+
+$by_key = [];
+foreach ( $engine->get_fields( 12 ) as $f ) {
+	$by_key[ $f['key'] ] = $f;
+}
+check( 'fält sparade före 1.3.0 (ingen nyckel alls) default:ar till visad etikett', $by_key['utan_falt']['show_label'] === true );
+check( 'explicit påslagen etikett', $by_key['pa']['show_label'] === true );
+check( 'explicit avslagen etikett', $by_key['av']['show_label'] === false );
+
+$GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
+
+// Export/import: inställningen ska följa med i vitlistan, inte tystas ner.
+$GLOBALS['__form']['xf_fields'][] = [ 'type' => 'text', 'key' => 'av2', 'label' => 'Av2', 'show_label' => 0 ];
+Relativt_Form::flush_fields_cache();
+$payload_sl = Relativt_Form_Portability::instance()->build_payload( 12 );
+$row_av2    = null;
+foreach ( $payload_sl['settings']['xf_fields'] as $row ) {
+	if ( ( $row['key'] ?? '' ) === 'av2' ) {
+		$row_av2 = $row;
+	}
+}
+check( 'show_label finns med i exportens vitlista', null !== $row_av2 && array_key_exists( 'show_label', $row_av2 ) );
+check( 'och värdet är avstängt', 0 === (int) ( $row_av2['show_label'] ?? 1 ) );
+
+$GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
+
 /* =============================================================================
  * Paketeringen
  *

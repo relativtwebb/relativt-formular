@@ -67,6 +67,7 @@ final class Relativt_Form_Portability {
 		'type'        => 'type',
 		'key'         => 'key',
 		'label'       => 'text',
+		'show_label'  => 'bool',
 		'placeholder' => 'text',
 		'help'        => 'text',
 		'choices'     => 'multiline',

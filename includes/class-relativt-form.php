@@ -352,6 +352,27 @@ final class Relativt_Form {
 							'wrapper'  => [ 'width' => '70' ],
 						],
 						/*
+						 * Etikett-TEXTEN krävs ändå (ovan) – den används för fältets
+						 * nyckel, radrubriken i byggaren och väljarna för villkor och
+						 * mottagarregler. Det här styr bara om den visas på sajten.
+						 * Avstängd etikett tas INTE bort ur markupen, bara ur syn –
+						 * annars tappar fältet sitt tillgängliga namn för
+						 * skärmläsare. Se render_field().
+						 */
+						[
+							'key'               => 'field_xf_f_show_label',
+							'label'             => 'Visa etikett',
+							'name'              => 'show_label',
+							'type'              => 'true_false',
+							'ui'                => 1,
+							'default_value'     => 1,
+							'wrapper'           => [ 'width' => '30' ],
+							'instructions'      => 'Etiketten läses ändå upp för skärmläsare när den är avstängd.',
+							'conditional_logic' => [ [
+								[ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'heading' ],
+							] ],
+						],
+						/*
 						 * Nyckeln döljs med CSS men MÅSTE ligga kvar i DOM:en.
 						 * Tas fältet bort helt skickas det inte med i POST, och
 						 * då genererar lock_field_keys() en ny nyckel utifrån
@@ -748,6 +769,9 @@ final class Relativt_Form {
 				'type'        => $type,
 				'key'         => $key,
 				'label'       => (string) ( $row['label'] ?? '' ),
+				// Saknas nyckeln helt (formulär sparat före 1.3.0) ska etiketten
+				// visas precis som innan – bara en uttrycklig false stänger av den.
+				'show_label'  => ! isset( $row['show_label'] ) || ! empty( $row['show_label'] ),
 				'placeholder' => (string) ( $row['placeholder'] ?? '' ),
 				'help'        => (string) ( $row['help'] ?? '' ),
 				'choices'     => $this->parse_choices( (string) ( $row['choices'] ?? '' ) ),
@@ -1036,10 +1060,17 @@ final class Relativt_Form {
 		$label_id    = $group_label && '' !== $f['label'] ? $id . '-label' : '';
 		$labelledby  = '' !== $label_id ? ' aria-labelledby="' . esc_attr( $label_id ) . '"' : '';
 
+		/*
+		 * "Visa etikett" styr bara det VISUELLA. Etiketten skrivs alltid ut –
+		 * annars försvinner fältets tillgängliga namn för skärmläsare, och
+		 * gruppfältens aria-labelledby ovan skulle peka på ingenting.
+		 */
+		$label_class = 'xf-label' . ( empty( $f['show_label'] ) ? ' xf-sr-only' : '' );
+
 		if ( 'checkbox' !== $type && '' !== $f['label'] ) {
 			echo $group_label // phpcs:ignore
-				? '<span class="xf-label" id="' . esc_attr( $label_id ) . '">' . esc_html( $f['label'] ) . ( $f['required'] ? '<span class="xf-req" aria-hidden="true">*</span>' : '' ) . '</span>'
-				: '<label class="xf-label" for="' . esc_attr( $id ) . '">' . esc_html( $f['label'] ) . ( $f['required'] ? '<span class="xf-req" aria-hidden="true">*</span>' : '' ) . '</label>';
+				? '<span class="' . esc_attr( $label_class ) . '" id="' . esc_attr( $label_id ) . '">' . esc_html( $f['label'] ) . ( $f['required'] ? '<span class="xf-req" aria-hidden="true">*</span>' : '' ) . '</span>'
+				: '<label class="' . esc_attr( $label_class ) . '" for="' . esc_attr( $id ) . '">' . esc_html( $f['label'] ) . ( $f['required'] ? '<span class="xf-req" aria-hidden="true">*</span>' : '' ) . '</label>';
 		}
 
 		switch ( $type ) {
@@ -1097,9 +1128,10 @@ final class Relativt_Form {
 
 			case 'checkbox':
 				printf(
-					'<label class="xf-check" for="%s"><input class="xf-check-input" type="checkbox" id="%s" name="%s" value="1"%s%s><span class="xf-check-box" aria-hidden="true"></span><span class="xf-check-text">%s</span></label>',
+					'<label class="xf-check" for="%s"><input class="xf-check-input" type="checkbox" id="%s" name="%s" value="1"%s%s><span class="xf-check-box" aria-hidden="true"></span><span class="xf-check-text%s">%s</span></label>',
 					esc_attr( $id ), esc_attr( $id ), esc_attr( $name ),
 					checked( $value, '1', false ), $required, // phpcs:ignore
+					empty( $f['show_label'] ) ? ' xf-sr-only' : '',
 					esc_html( $f['label'] )
 				);
 				break;

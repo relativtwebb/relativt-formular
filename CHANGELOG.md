@@ -3,6 +3,26 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.3.0] – 2026-09-21
+
+### Nytt
+- **Fältvalet "Visa etikett".** Ikryssad som standard i fältbyggaren; kryssas
+  den ur döljs fältets etikett på sajten. Gäller alla fälttyper utom
+  Rubrik/avdelare, där etiketten är hela innehållet.
+- Döljningen är rent visuell (en `xf-sr-only`-klass), inte en DOM-borttagning:
+  etiketten ligger kvar för skärmläsare, och gruppfältens (val-knappar,
+  radio, flerval) `aria-labelledby` fortsätter peka på ett riktigt namn. En
+  dold kryssruta-etikett förblir sin `<label>`:s klickyta.
+- Bakåtkompatibelt: formulär sparade före 1.3.0 saknar helt den nya nyckeln
+  och visar sina etiketter precis som innan uppdateringen.
+- Följer med i export/import av formulärdefinitioner (portabilitetens
+  vitlista).
+
+### Tester
+- 217 serverassertions (från 208), plus tre nya Playwright-tester som via
+  role/name-lokatorer verifierar att textfält, kryssrutor och gruppfält
+  behåller sitt tillgängliga namn när etiketten är avstängd.
+
 ## [1.2.0] – 2026-09-09
 
 ### Nytt

@@ -595,6 +595,55 @@ test('hjälptexten renderas under fältet', async ({ page }) => {
 });
 
 /* -----------------------------------------------------------------------------
+ * Visa etikett (1.3.0)
+ *
+ * "Visa etikett" döljer etiketten VISUELLT, inte ur DOM:en. Testerna nedan
+ * verifierar det med role/name-lokatorer – de går via webbläsarens riktiga
+ * tillgänglighetsträd, så de bevisar att fältet fortfarande har ett namn för
+ * skärmläsare, inte bara att någon text råkar ligga kvar i markupen.
+ * -------------------------------------------------------------------------- */
+
+test('textfält med avstängd etikett har fortfarande sitt tillgängliga namn', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = page_form(page);
+
+	const input = form.getByRole('textbox', { name: 'Smeknamn' });
+	await expect(input).toBeAttached();
+
+	// Etiketten ligger kvar i DOM:en, men görs visuellt osynlig.
+	const label = field(form, 'smeknamn').locator('.xf-label');
+	await expect(label).toHaveText('Smeknamn');
+	await expect(label).toHaveClass(/xf-sr-only/);
+	const box = await label.boundingBox();
+	expect(box.width).toBeLessThanOrEqual(1);
+	expect(box.height).toBeLessThanOrEqual(1);
+});
+
+test('kryssruta med avstängd etikett går fortfarande att kryssa i och har sitt namn kvar', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = page_form(page);
+
+	const checkbox = form.getByRole('checkbox', { name: 'Jag vill ha nyhetsbrevet' });
+	await expect(checkbox).toBeAttached();
+	await checkbox.check({ force: true });
+	await expect(checkbox).toBeChecked();
+
+	const text = field(form, 'nyhetsbrev').locator('.xf-check-text');
+	await expect(text).toHaveClass(/xf-sr-only/);
+});
+
+test('gruppfält (radio) med avstängd etikett behåller sitt aria-labelledby-namn', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = page_form(page);
+
+	const group = form.getByRole('radiogroup', { name: 'Språk' });
+	await expect(group).toBeAttached();
+
+	const label = field(form, 'sprak').locator('.xf-label');
+	await expect(label).toHaveClass(/xf-sr-only/);
+});
+
+/* -----------------------------------------------------------------------------
  * Samtycke och kampanjkakan
  *
  * Demon saknar relativtFormConfig, så standardbeteendet (auto utan

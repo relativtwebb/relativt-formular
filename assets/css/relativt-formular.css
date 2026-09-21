@@ -128,6 +128,21 @@
 	color: var(--xf-label);
 }
 
+/* "Visa etikett" avstängd. ALDRIG display:none – det tar bort fältets
+   tillgängliga namn helt. Etiketten finns kvar för skärmläsare, bara dold
+   visuellt. Samma klass återanvänds på kryssrutans egen etikettext. */
+.relativt-form .xf-sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
 /* Designen visar ingen asterisk. Markupen innehåller den ändå, så den kan
    tändas från sajtens CSS utan kodändring:
    .relativt-form.relativt-form .xf-req { display: inline; }
