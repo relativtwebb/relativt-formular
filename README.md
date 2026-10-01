@@ -10,10 +10,11 @@ Byggd för byråarbete: samma motor på flera kundsajter, formulär som kan flyt
 - **Villkorliga fält** som utvärderas *på servern*. Ett fält som inte ska synas renderas dolt direkt i HTML:en — det behöver alltså inte JavaScript för att göra rätt, och en besökare med skript avstängt ser samma formulär som alla andra.
 - **Mottagarregler.** Skicka till olika adresser beroende på vad besökaren svarat. Regler får skrivas med antingen etiketten eller det tekniska värdet — båda träffar.
 - **Validering** av e-post, telefon och URL, spegelvänd mellan PHP och JavaScript så klienten och servern aldrig är oense. Svenska nummer normaliseras till ett format, internationella släpps igenom. URL:er normaliseras med `https://` om schemat saknas, så länken alltid går att klicka på i mailet.
-- **Spamskydd** utan CAPTCHA: honungsfälla, HMAC-signerad tidsstämpel med minsta tid, frekvensspärr per IP och länkspärr i textrutor.
+- **Spamskydd** utan CAPTCHA: honungsfälla, HMAC-signerad tidsstämpel med minsta tid, frekvensspärr per IP och länkspärr i textrutor. Valfritt per formulär: [Cloudflare Turnstile](#cloudflare-turnstile).
 - **UTM-attribution** via förstapartskaka, så att inskicket bär med sig vilken kampanj besökaren kom ifrån. Finns [Relativt Cookie Consent](https://github.com/relativtwebb/relativt-cookie-consent) på sajten skrivs kakan först när besökaren samtyckt – se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke).
 - **Inskickslagring** med konfigurerbar gallring och CSV-export.
 - **Export och import av formulärdefinitioner** som JSON.
+- **Headless.** Formulärdefinitionen finns som publikt REST-endpoint, så en frontend (t.ex. Next.js) kan rendera formuläret själv och skicka till samma API – se [Headless: rendera formuläret själv](#headless-rendera-formuläret-själv).
 
 ## Krav
 
@@ -206,6 +207,30 @@ Läget styrs av filtret `relativt_form_utm_cookie`:
 
 Innan samtycket är avgjort hålls attributionen i minnet: landar besökaren på kampanjsidan och skickar formuläret där följer kampanjen med i inskicket även utan kaka.
 
+## Cloudflare Turnstile
+
+Ett extra spamskydd ovanpå honungsfällan och spärrarna, för formulär som behöver det. **Avstängt som standard** – ingenting ändras på en sajt som inte slår på det.
+
+1. Skapa en widget i Cloudflare (Turnstile → Add widget) för sajtens domän och, för headless, frontendens domän.
+2. Lägg nycklarna under **Formulär → Standardvärden**, eller – bättre för secret – i `wp-config.php`. Konstanterna vinner över fälten i wp-admin:
+
+```php
+define( 'RELATIVT_FORM_TURNSTILE_SITE_KEY', '0x4AAAA…' );
+define( 'RELATIVT_FORM_TURNSTILE_SECRET', '0x4AAAA…' );
+```
+
+3. Kryssa i **Kräv Turnstile** under formulärets flik **Skydd**.
+
+Secret skrivs aldrig ut i wp-admin efter att den sparats, och följer aldrig med i formulärexporten (valet Kräv Turnstile gör det).
+
+**Saknas en nyckel** skickas formuläret som vanligt, utan Turnstile, och formuläret i wp-admin visar en notis om vilken nyckel som saknas. Hellre ett formulär utan extra skydd än ett som inte går att skicka.
+
+**Om Cloudflare inte går att nå** – nätverksfel, timeout, ett svar som inte är JSON – släpps inskicket igenom (*fail open*), felet loggas via `error_log` och en notis visas i formulär- och inskicksvyerna tills en verifiering lyckas igen. Skälet: det felet kan en angripare inte framkalla, det är servern som pratar med Cloudflare. Det uppstår vid ett riktigt avbrott eller när webbhotellet spärrar utgående trafik, och då vore ett stängt formulär – leads som tyst uteblir – värre än ett formulär med de fyra vanliga skydden kvar. Ett uttryckligt nej från Cloudflare avvisar däremot alltid inskicket (`403`, kod `turnstile`). Avvisar Cloudflare själva secret syns det också som notis, eftersom varje inskick då stoppas.
+
+Servern kontrollerar Turnstile **efter** honungsfälla, nonce, tidsspärr och frekvensspärr. Turnstile-tokens kan bara verifieras en gång, och JS gör tyst om ett inskick som stoppats av tidsspärren – låg kontrollen före skulle omsändningen falla på en redan förbrukad token.
+
+Testnycklar från Cloudflare för utveckling: site key `1x00000000000000000000AA` passerar alltid, `2x00000000000000000000AB` blockerar alltid; secret `1x0000000000000000000000000000000AA` godkänner alltid.
+
 ## Event
 
 Vid lyckat inskick sänds ett event på `document`, så spårning kan hängas på utan att bakas in i motorn:
@@ -215,6 +240,143 @@ document.addEventListener('relativt-form:success', function (e) {
   // e.detail.formId — formulärets id
   // e.detail.root   — formulärets rot-element
 });
+```
+
+## Headless: rendera formuläret själv
+
+En frontend som inte laddar pluginets CSS och JS – t.ex. Next.js på en annan domän – kan rendera formuläret själv och prata direkt med REST-API:et. Fälten definieras fortfarande på ett ställe, i wp-admin; frontend hämtar definitionen.
+
+### Endpoints
+
+| Metod | Rutt | Gör |
+|---|---|---|
+| `GET` | `/wp-json/relativt-form/v1/form/<id>` | Formulärdefinitionen. Bara publicerade formulär, annars `404`. |
+| `GET` | `/wp-json/relativt-form/v1/token?form=<id>` | `{ nonce, ts, sig }` för ett inskick. |
+| `POST` | `/wp-json/relativt-form/v1/submit` | Själva inskicket, JSON. |
+
+Definitionen innehåller fälten (som byggaren sparat dem, rubriker inräknade; `choices` är alltid ett objekt värde → etikett), knapp-, tack- och samtyckestexter, felmeddelandena efter filtret `relativt_form_messages`, honungsfältets namn, Turnstile-läget och sajtens REST-rot. Mottagare, regler, avsändare, ämnesrad, lagringsval och nycklar följer **aldrig** med – svaret är publikt och kan cachas av vem som helst.
+
+**CORS behöver ingen kod.** WordPress-kärnan speglar `Origin` på `/wp-json/` och svarar på preflight med `Access-Control-Allow-Headers: … Content-Type`. Det fungerar alltså även när frontend ligger på en annan domän än WordPress. Bygg ingen egen CORS-lösning ovanpå.
+
+### Flödet
+
+1. **Hämta definitionen vid bygget** (eller med ISR) och rendera fälten. Honungsfältet (`honeypot`, i dag `xf_website`) renderas som ett textfält med samma namn, flyttat utanför skärmen – inte `display: none`, en del bottar hoppar över helt dolda fält. Villkorliga fält (`cond_field`/`cond_value`) utvärderas med samma regel som servern: fältet visas om **antingen** det tekniska värdet **eller** etiketten på det styrande fältet matchar något av de kommaseparerade värdena i `cond_value` (skiftlägesokänsligt); tomt `cond_value` = det styrande fältet ska bara ha ett värde. Dolda fält skickas inte med.
+2. **Hämta token vid första fokus/input**, inte vid sidladdning – nonce har en livslängd och sidan kan vara cachad. Tidsspärren (3 s) mäts från token.
+3. **POST `/submit` med JSON.** `credentials: 'omit'` räcker. `page` är frontendens egen adress. Värden: valfält skickar det tekniska värdet (nyckeln i `choices`), Flerval en array av värden, Kryssruta `"1"` eller `""`.
+4. **Hantera svaren som pluginets egen JS:**
+   - `200 { ok: true, title, text, redirect? }` → visa tacktexten (eller följ `redirect`, om frontend vill).
+   - `422 { errors: { <nyckel>: <text> } }` → fältfel per nyckel (`xf_consent` för samtyckesrutan).
+   - `425 { code: "toofast", retry_after }` → vänta `retry_after` sekunder och skicka om, högst två gånger.
+   - `403 { code: "nonce" }` → hämta ny token och skicka om, en gång.
+   - `403 { code: "turnstile" }` → återställ widgeten, visa `message` vid den.
+   - övrigt (`429 rate`, `400 sig`, `404`, `500 mail`) → visa `message`, annars `texts.error`.
+5. **Posta direkt från webbläsaren till WordPress, inte via en server-proxy** (t.ex. en Next route handler). Bakom en proxy delar alla besökare proxyns IP, och frekvensspärren – fem inskick per tio minuter – gäller då hela sajten på en gång. Ligger WordPress själv bakom en proxy/CDN pekar sajten ut rätt header med `relativt_form_client_ip` (se [Filter](#filter)).
+6. **UTM:** utan pluginets JS skrivs ingen `xf_src`-kaka. Frontend kan skicka `utm` själv i samma format (`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`, `gclid`, `fbclid`, `landing`, `referrer`); annars är fälten tomma i mailet. Inget mer behövs.
+
+**Turnstile i headless:** är `turnstile.enabled` sant renderar frontend widgeten med `turnstile.site_key` (lägg till frontendens domän på widgeten hos Cloudflare) och skickar token som `turnstile`. Återställ widgeten efter varje slutgiltigt misslyckat svar – men inte vid de tysta omförsöken för `toofast` och `nonce`, där är token fortfarande oanvänd.
+
+**Bakom ett webbhotells CDN** är det inte alltid dokumenterat vilken header som bär besökarens IP. LiteSpeed-servrar skriver ofta själva om `REMOTE_ADDR` från betrodda CDN:er, och då behövs inget filter alls. Kontrollera en gång på sajten innan filtret läggs in: logga tillfälligt `$_SERVER['REMOTE_ADDR']` och kandidatheadrarna vid ett inskick från en känd IP,
+
+```php
+add_action( 'rest_api_init', fn() => error_log( wp_json_encode( array_intersect_key( $_SERVER,
+	array_flip( [ 'REMOTE_ADDR', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'HTTP_CF_CONNECTING_IP', 'HTTP_TRUE_CLIENT_IP' ] ) ) ) ) );
+```
+
+och peka bara om filtret om `REMOTE_ADDR` visar CDN:ets adress. Ta bort loggningen efteråt – IP-adresser är personuppgifter.
+
+### TypeScript
+
+```ts
+export type FieldType =
+  | 'text' | 'email' | 'tel' | 'url' | 'number' | 'date' | 'textarea'
+  | 'select' | 'buttons' | 'radio' | 'checkboxes' | 'checkbox' | 'hidden' | 'heading';
+
+export interface FormField {
+  type: FieldType;
+  key: string;                       // tom för heading
+  label: string;
+  show_label: boolean;
+  placeholder: string;
+  help: string;
+  choices: Record<string, string>;   // värde => etikett, {} om inga val
+  default: string;
+  required: boolean;
+  width: 'full' | 'half';
+  cond_field: string;
+  cond_value: string;
+}
+
+export interface FormDefinition {
+  id: number;
+  title: string;
+  fields: FormField[];
+  texts: {
+    submit: string; sending: string;
+    thanks_title: string; thanks_text: string;
+    error: string; redirect: string;
+    consent: string;                 // html
+    consent_box: boolean;
+  };
+  messages: Record<string, string>;  // required, email, tel, …, turnstile
+  honeypot: string;
+  turnstile: { enabled: boolean; site_key: string };
+  rest: string;                      // slutar med /
+}
+
+export type SubmitResult =
+  | { ok: true; title: string; text: string; redirect?: string }
+  | { ok: false; errors: Record<string, string> }
+  | { ok: false; code?: string; message?: string };
+
+type Token = { nonce: string; ts: number; sig: string };
+
+export const getForm = (wp: string, id: number): Promise<FormDefinition> =>
+  fetch(`${wp}/wp-json/relativt-form/v1/form/${id}`).then((r) => {
+    if (!r.ok) throw new Error(`Formulär ${id}: ${r.status}`);
+    return r.json();
+  });
+
+const getToken = (def: FormDefinition): Promise<Token> =>
+  fetch(`${def.rest}token?form=${def.id}`, { credentials: 'omit' }).then((r) => r.json());
+
+/** Hämta token vid första fokus och skicka in den här, så mäts tidsspärren rätt. */
+export async function submit(
+  def: FormDefinition,
+  fields: Record<string, string | string[]>,
+  opts: { token: Promise<Token>; turnstile?: string; consent?: boolean; honeypot?: string; utm?: Record<string, string> },
+): Promise<SubmitResult> {
+  let token = await opts.token;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(`${def.rest}submit`, {
+      method: 'POST',
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        form: def.id,
+        fields,
+        utm: opts.utm ?? {},
+        page: window.location.origin + window.location.pathname,
+        [def.honeypot]: opts.honeypot ?? '',
+        xf_consent: opts.consent ? 1 : 0,
+        ...(opts.turnstile !== undefined ? { turnstile: opts.turnstile } : {}),
+        ...token,
+      }),
+    });
+    const data = await res.json().catch(() => ({ ok: false }));
+
+    if (data?.code === 'toofast' && attempt < 2) {
+      await new Promise((r) => setTimeout(r, Math.min(10, Number(data.retry_after) || 3) * 1000 + 250));
+      continue;
+    }
+    if (data?.code === 'nonce' && attempt === 0) {
+      token = await getToken(def);
+      continue;
+    }
+    return data as SubmitResult; // vid ok:false: återställ Turnstile-widgeten
+  }
+  return { ok: false, message: def.texts.error };
+}
 ```
 
 ## Flytta ett formulär mellan sajter
@@ -251,15 +413,15 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 195 assertions: validering, villkor, routing, mail, rendering, REST-flödet, import
-npx playwright test         # 88 tester i riktig webbläsare, desktop och mobil
+php tests/server-test.php   # 317 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import
+npx playwright test         # 110 tester i riktig webbläsare, desktop och mobil
 ```
 
 Har du redan en Chromium på maskinen som Playwright inte installerat själv, peka ut den med `CHROMIUM_PATH=/sökväg/till/chrome npx playwright test`. Utan variabeln används Playwrights egen.
 
 IDN-testet (`kontakt@räksmörgås.se`) hoppas över om PHP-tillägget `intl` saknas, eftersom motorn hoppar över punycode-översättningen i samma läge. CI installerar `intl`, så den vägen testas där.
 
-Demon som webbläsartesterna körs mot genereras av den riktiga renderaren via reflektion (`php tests/build-demo.php`). Den kan alltså inte glida ifrån koden.
+Demon som webbläsartesterna körs mot genereras av den riktiga renderaren via reflektion (`php tests/build-demo.php`). Den kan alltså inte glida ifrån koden. Cloudflares Turnstile-skript ersätts där av en stub med samma yta, så testerna inte beror på nätverket.
 
 Båda sviterna kör automatiskt vid varje push. Servertesterna körs mot PHP 8.0, 8.2 och 8.4 — det är den matrisen som bevisar `Requires PHP: 8.0`, inte headern i sig.
 

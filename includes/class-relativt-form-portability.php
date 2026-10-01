@@ -61,6 +61,8 @@ final class Relativt_Form_Portability {
 		'xf_store'        => 'bool',
 		'xf_retention'    => 'int',
 		'xf_log_ip'       => 'bool',
+		// Bara valet per formulär. Nycklarna är sajtens och följer aldrig med.
+		'xf_turnstile'    => 'bool',
 	];
 
 	private const FIELD_ROW = [

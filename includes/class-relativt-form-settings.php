@@ -21,6 +21,13 @@ final class Relativt_Form_Settings {
 
 	public const OPTION = 'relativt_form_defaults';
 
+	/*
+	 * Turnstile-nycklarna ligger i ett EGET alternativ, inte bland
+	 * standardvärdena ovan. Standardvärdena läses av setting()-kedjan i
+	 * motorn, och en secret ska inte kunna nås den vägen av misstag.
+	 */
+	public const TURNSTILE_OPTION = 'relativt_form_turnstile';
+
 	private static ?self $instance = null;
 
 	/** name => [etikett, typ, beskrivning] */
@@ -58,6 +65,28 @@ final class Relativt_Form_Settings {
 		return is_array( $all ) ? (string) ( $all[ $name ] ?? '' ) : '';
 	}
 
+	/**
+	 * Turnstile-nycklarna. Konstanterna i wp-config.php vinner över
+	 * databasen – då kan secret hållas utanför databasen helt, och en
+	 * databaskopia från produktion till staging tar inte med den.
+	 *
+	 * @return array{site_key:string,secret:string,site_key_const:bool,secret_const:bool}
+	 */
+	public static function turnstile_keys(): array {
+		$stored = get_option( self::TURNSTILE_OPTION, [] );
+		$stored = is_array( $stored ) ? $stored : [];
+
+		$site_const   = defined( 'RELATIVT_FORM_TURNSTILE_SITE_KEY' );
+		$secret_const = defined( 'RELATIVT_FORM_TURNSTILE_SECRET' );
+
+		return [
+			'site_key'       => trim( (string) ( $site_const ? constant( 'RELATIVT_FORM_TURNSTILE_SITE_KEY' ) : ( $stored['site_key'] ?? '' ) ) ),
+			'secret'         => trim( (string) ( $secret_const ? constant( 'RELATIVT_FORM_TURNSTILE_SECRET' ) : ( $stored['secret'] ?? '' ) ) ),
+			'site_key_const' => $site_const,
+			'secret_const'   => $secret_const,
+		];
+	}
+
 	public function add_page(): void {
 		add_submenu_page(
 			'edit.php?post_type=' . Relativt_Form::CPT_FORM,
@@ -79,6 +108,42 @@ final class Relativt_Form_Settings {
 				'default'           => [],
 			]
 		);
+
+		// Samma grupp, så att båda sparas av samma formulär och knapp.
+		register_setting(
+			'relativt_form_defaults_group',
+			self::TURNSTILE_OPTION,
+			[
+				'type'              => 'array',
+				'sanitize_callback' => [ $this, 'sanitize_turnstile' ],
+				'default'           => [],
+			]
+		);
+	}
+
+	/**
+	 * Secret-fältet renderas alltid tomt, så att nyckeln aldrig hamnar i
+	 * sidans HTML. Ett tomt fält vid sparning betyder därför "behåll den
+	 * sparade" – annars skulle varje sparning av standardvärdena radera den.
+	 * Att ta bort den kräver ett uttryckligt kryss.
+	 */
+	public function sanitize_turnstile( $input ): array {
+		$current = get_option( self::TURNSTILE_OPTION, [] );
+		$current = is_array( $current ) ? $current : [];
+		$input   = is_array( $input ) ? $input : [];
+
+		$site_key = array_key_exists( 'site_key', $input )
+			? sanitize_text_field( (string) $input['site_key'] )
+			: (string) ( $current['site_key'] ?? '' );
+
+		$secret = trim( sanitize_text_field( (string) ( $input['secret'] ?? '' ) ) );
+		if ( ! empty( $input['secret_clear'] ) ) {
+			$secret = '';
+		} elseif ( '' === $secret ) {
+			$secret = (string) ( $current['secret'] ?? '' );
+		}
+
+		return [ 'site_key' => $site_key, 'secret' => $secret ];
 	}
 
 	public function sanitize( $input ): array {
@@ -138,9 +203,58 @@ final class Relativt_Form_Settings {
 						</tr>
 					<?php endforeach; ?>
 				</table>
+
+				<?php $this->render_turnstile(); ?>
+
 				<?php submit_button(); ?>
 			</form>
 		</div>
+		<?php
+	}
+
+	/** Turnstile-nycklarna. Secret skrivs aldrig ut, varken från databasen eller konstanten. */
+	private function render_turnstile(): void {
+		$keys   = self::turnstile_keys();
+		$name   = self::TURNSTILE_OPTION;
+		$stored = get_option( $name, [] );
+		$stored = is_array( $stored ) ? $stored : [];
+		?>
+		<h2>Spamskydd: Cloudflare Turnstile</h2>
+		<p>Används bara av formulär där <strong>Kräv Turnstile</strong> är påslaget under fliken Skydd. Saknas någon av nycklarna skickas formulären som vanligt, utan Turnstile. Secret läggs helst i <code>wp-config.php</code>: <code>define( 'RELATIVT_FORM_TURNSTILE_SECRET', '…' );</code></p>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row"><label for="rf-turnstile-site-key">Turnstile site key</label></th>
+				<td>
+					<?php if ( $keys['site_key_const'] ) : ?>
+						<input type="text" class="regular-text" id="rf-turnstile-site-key" value="<?php echo esc_attr( $keys['site_key'] ); ?>" readonly>
+						<p class="description">Satt i wp-config.php (<code>RELATIVT_FORM_TURNSTILE_SITE_KEY</code>) och vinner över fältet här.</p>
+					<?php else : ?>
+						<input type="text" class="regular-text" id="rf-turnstile-site-key"
+							name="<?php echo esc_attr( $name ); ?>[site_key]"
+							value="<?php echo esc_attr( (string) ( $stored['site_key'] ?? '' ) ); ?>">
+						<p class="description">Publik nyckel, syns i sidans källkod.</p>
+					<?php endif; ?>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="rf-turnstile-secret">Turnstile secret key</label></th>
+				<td>
+					<?php if ( $keys['secret_const'] ) : ?>
+						<input type="password" class="regular-text" id="rf-turnstile-secret" value="" placeholder="Satt i wp-config.php" disabled>
+						<p class="description">Satt i wp-config.php (<code>RELATIVT_FORM_TURNSTILE_SECRET</code>) och vinner över fältet här.</p>
+					<?php else : ?>
+						<?php $has_secret = '' !== (string) ( $stored['secret'] ?? '' ); ?>
+						<input type="password" class="regular-text" id="rf-turnstile-secret" autocomplete="new-password"
+							name="<?php echo esc_attr( $name ); ?>[secret]" value=""
+							placeholder="<?php echo esc_attr( $has_secret ? 'Sparad – lämna tomt för att behålla' : '' ); ?>">
+						<?php if ( $has_secret ) : ?>
+							<label><input type="checkbox" name="<?php echo esc_attr( $name ); ?>[secret_clear]" value="1"> Ta bort sparad secret</label>
+						<?php endif; ?>
+						<p class="description">Visas aldrig efter att den sparats.</p>
+					<?php endif; ?>
+				</td>
+			</tr>
+		</table>
 		<?php
 	}
 }

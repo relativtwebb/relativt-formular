@@ -9,6 +9,7 @@
 
 define( 'ABSPATH', __DIR__ );
 define( 'HOUR_IN_SECONDS', 3600 );
+define( 'DAY_IN_SECONDS', 86400 );
 
 // --- No-ops -----------------------------------------------------------------
 foreach ( [ 'add_shortcode', 'add_meta_box', 'wp_schedule_event', 'update_post_meta', 'nocache_headers' ] as $fn ) {
@@ -53,7 +54,8 @@ function hooked_methods( string $hook ): array {
 }
 
 function wp_next_scheduled() { return time(); }
-function current_user_can() { return false; }
+// Av som standard. Testerna för admin-notiserna slår på den via $GLOBALS['__can'].
+function current_user_can() { return ! empty( $GLOBALS['__can'] ); }
 function is_admin() { return false; }
 // Deterministiskt men räknar upp, så två formulär på samma sida inte delar id:n.
 function wp_rand( $min = 0, $max = 9999 ) {
@@ -61,7 +63,15 @@ function wp_rand( $min = 0, $max = 9999 ) {
 	return ++$n;
 }
 function wp_salt( $scheme = '' ) { return 'testsalt-' . $scheme; }
-function get_option( $name ) { return 'info@exempel.se'; }
+/*
+ * Alternativ som ett test uttryckligen satt vinner. Allt annat svarar som
+ * förut med en adress – det är vad admin_email-fallbacken i fältgruppen och
+ * de äldre testerna räknar med.
+ */
+$GLOBALS['__options'] = [];
+function get_option( $name, $default = false ) {
+	return array_key_exists( $name, $GLOBALS['__options'] ) ? $GLOBALS['__options'][ $name ] : 'info@exempel.se';
+}
 function get_bloginfo( $what = 'name' ) { return 'Exempel AB'; }
 function rest_url( $path = '' ) { return '/__mock__/' . ltrim( $path, '/' ); }
 function admin_url( $path = '' ) { return '/wp-admin/' . ltrim( $path, '/' ); }
@@ -139,6 +149,30 @@ function wp_mail( $to, $subject, $body, $headers = [] ) {
 	return true;
 }
 
+// --- HTTP (Turnstile siteverify) ---------------------------------------------
+/*
+ * $GLOBALS['__remote'] styr svaret: [ 'code' => 200, 'body' => '…' ] eller ett
+ * WP_Error för att efterlikna att Cloudflare inte går att nå. Varje anrop
+ * spelas in, så testerna kan bevisa att siteverify INTE anropas i lägen där
+ * en engångstoken annars hade bränts i onödan.
+ */
+$GLOBALS['__remote']       = [ 'code' => 200, 'body' => '{"success":true}' ];
+$GLOBALS['__remote_calls'] = [];
+function wp_remote_post( $url, $args = [] ) {
+	$GLOBALS['__remote_calls'][] = [ 'url' => $url, 'args' => $args ];
+	$r = $GLOBALS['__remote'];
+	if ( $r instanceof WP_Error ) {
+		return $r;
+	}
+	return [ 'response' => [ 'code' => (int) ( $r['code'] ?? 200 ) ], 'body' => (string) ( $r['body'] ?? '' ) ];
+}
+function wp_remote_retrieve_body( $response ) {
+	return is_array( $response ) ? (string) ( $response['body'] ?? '' ) : '';
+}
+function wp_remote_retrieve_response_code( $response ) {
+	return is_array( $response ) ? (int) ( $response['response']['code'] ?? 0 ) : 0;
+}
+
 // --- REST -------------------------------------------------------------------
 /*
  * Minsta möjliga speglingar av WordPress REST-klasser, så att HELA
@@ -172,6 +206,7 @@ class WP_Error {
 		$this->message = $message;
 		$this->data    = $data;
 	}
+	public function get_error_message() { return $this->message; }
 }
 
 function is_wp_error( $thing ) { return $thing instanceof WP_Error; }
@@ -257,6 +292,11 @@ function get_field( $name, $post_id = 0 ) {
 	return $GLOBALS['__form'][ $name ] ?? null;
 }
 function get_post_type( $id ) { return 12 === (int) $id ? 'relativt_form' : false; }
+// Formulär 12 är publicerat; testerna kan sätta en annan status per id.
+$GLOBALS['__post_status'] = [];
+function get_post_status( $id ) {
+	return $GLOBALS['__post_status'][ (int) $id ] ?? ( 12 === (int) $id ? 'publish' : false );
+}
 function get_the_title( $id ) { return 'Kontaktformulär'; }
 function get_posts() { return []; }
 
@@ -299,7 +339,15 @@ function wpautop( $s ) { return (string) $s; }
 function trailingslashit( $s ) { return rtrim( (string) $s, '/' ) . '/'; }
 function delete_transient( $key ) { unset( $GLOBALS['__transients'][ $key ] ); return true; }
 function add_submenu_page() { return ''; }
-function register_setting() { return true; }
+$GLOBALS['__settings'] = [];
+function register_setting( $group, $name, $args = [] ) { $GLOBALS['__settings'][ $name ] = $args; return true; }
+function settings_fields( $group ) { echo '<input type="hidden" name="option_page" value="' . esc_attr( $group ) . '">'; }
+function submit_button() { echo '<button type="submit">Spara</button>'; }
+function get_current_screen() { return $GLOBALS['__screen'] ?? null; }
+
+// REST-rutterna spelas in, så att registreringen (metod, behörighet) kan testas.
+$GLOBALS['__routes'] = [];
+function register_rest_route( $ns, $route, $args = [] ) { $GLOBALS['__routes'][ $ns . $route ] = $args; return true; }
 function get_option_default( $name, $default = false ) { return $default; }
 function sanitize_title( $s ) { return preg_replace( '/[^a-z0-9]+/', '-', strtolower( (string) $s ) ); }
 function wp_json_encode( $data, $flags = 0 ) { return json_encode( $data, $flags ); }

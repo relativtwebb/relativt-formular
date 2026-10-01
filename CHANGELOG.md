@@ -3,6 +3,66 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.4.0] – 2026-10-01
+
+Ingenting ändras för sajter som inte slår på Turnstile. Nyttolasten,
+svarsformaten, shortcode-markupen, CSS-standardvärdena och exportens befintliga
+nycklar är oförändrade, och formulär sparade före 1.4.0 saknar den nya
+nyckeln och beter sig som förut.
+
+### Nytt
+- **Headless: `GET /wp-json/relativt-form/v1/form/<id>`.** Publikt endpoint
+  med formulärdefinitionen – fälten som `get_fields()` returnerar dem
+  (rubriker inräknade; `choices` alltid ett JSON-objekt), knapp-, tack- och samtyckestexter via samma kedja som
+  renderaren (formulär → Standardvärden → kodens fallback), meddelandena
+  *efter* filtret `relativt_form_messages`, honungsfältets namn,
+  Turnstile-läget och sajtens REST-rot. En frontend som renderar formuläret
+  själv behöver alltså inte definiera fälten en gång till. Bara publicerade
+  formulär svarar (annars 404). Svaret byggs av en uttrycklig lista:
+  mottagare, regler, avsändare, ämnesrad, lagringsval och nycklar följer
+  aldrig med.
+- **Cloudflare Turnstile**, avstängt som standard. Kryssrutan **Kräv
+  Turnstile** under formulärets nya flik Skydd; nycklarna under Formulär →
+  Standardvärden eller som konstanterna `RELATIVT_FORM_TURNSTILE_SITE_KEY` /
+  `RELATIVT_FORM_TURNSTILE_SECRET` i `wp-config.php`, som vinner över
+  databasen. Secret renderas aldrig i HTML. Kryssat men en nyckel saknas:
+  formuläret skickas som vanligt, utan Turnstile, och en admin-notis säger
+  vilken nyckel som saknas.
+- Servern verifierar token (`turnstile` eller widgetens eget
+  `cf-turnstile-response` i nyttolasten) mot siteverify *efter* honungsfälla,
+  nonce, tidsspärr och frekvensspärr – så att JS:ens tysta omsändning efter
+  `toofast` inte bränner engångstoken. Avslag: `403 { code: "turnstile" }`
+  med den nya meddelandenyckeln `turnstile`. `remoteip` går genom
+  `relativt_form_client_ip`.
+- **Fail open när Cloudflare inte går att nå** (nätverksfel, timeout, svar
+  som inte är JSON): inskicket släpps igenom med 1.3.0:s skydd, felet loggas
+  via `error_log` och syns som admin-notis tills en verifiering lyckas igen.
+  Ett uttryckligt `success: false` från Cloudflare avvisar alltid; avvisas
+  själva secret loggas det och syns också i admin.
+- Shortcode-läget: widgeten renderas ovanför knappen, `api.js` laddas
+  `async defer` bara på sidor där ett formulär kräver det. JS kräver token
+  innan sändning, skickar den med och återställer widgeten efter varje
+  misslyckat svar. Flera formulär på samma sida har varsin widget.
+- `xf_turnstile` följer med i export/import. Nycklarna gör det inte.
+  `uninstall.php` tar bort nycklarna tillsammans med övriga alternativ.
+
+### Dokumentation
+- Ny README-sektion **Headless: rendera formuläret själv** med flödet,
+  CORS (WordPress-kärnan räcker), proxy-varningen och ett TypeScript-exempel.
+  Testantalen i README var inaktuella och är rättade.
+
+### Tester
+- 317 serverassertions (från 217): definitionsendpointet (innehåll,
+  fallback-kedjan, 404 för utkast, läckagetest som letar efter både
+  nycklarnas namn och värden), Turnstile av/på/utan nycklar, giltig och
+  ogiltig token, ordningen (toofast, nonce, frekvensspärr och honungsfälla
+  anropar aldrig siteverify), fail open med loggning, konstanterna före
+  databasen (i en egen PHP-process), att secret aldrig renderas.
+- 110 Playwright-tester (från 94): widgeten renderas, token följer med,
+  inget inskick utan token, återställning efter 422 och 403 men inte vid
+  tyst toofast-omsändning, två formulär med varsin widget. Cloudflares
+  api.js stubbas i demon, så CI inte beror på nätverket.
+
 ## [1.3.0] – 2026-09-21
 
 ### Nytt

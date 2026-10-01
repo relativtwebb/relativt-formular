@@ -769,6 +769,380 @@ echo "\nStandardvärden\n";
 check( 'okänt namn ger tom sträng', Relativt_Form_Settings::get( 'hittepa' ) === '' );
 check( 'kända namn finns i listan', Relativt_Form_Settings::get( 'xf_from_name' ) === '' );
 
+echo "\nFormulärdefinitionen (headless)\n";
+
+/*
+ * GET /form/<id> är publikt och cachas av frontend. Det som får synas är
+ * fälten och besökartexterna – aldrig vart inskicken går eller hur de sparas.
+ */
+$GLOBALS['__routes'] = [];
+$engine->register_routes();
+$form_route = $GLOBALS['__routes']['relativt-form/v1/form/(?P<id>\d+)'] ?? null;
+
+check( 'definitionsrutten registreras', null !== $form_route );
+check( 'och är en publik GET', 'GET' === ( $form_route['methods'] ?? '' ) && '__return_true' === ( $form_route['permission_callback'] ?? '' ) );
+check( 'id tas emot som heltal', 'integer' === ( $form_route['args']['id']['type'] ?? '' ) );
+check( 'token- och submit-rutterna är oförändrat publika',
+	'__return_true' === ( $GLOBALS['__routes']['relativt-form/v1/token']['permission_callback'] ?? '' )
+	&& '__return_true' === ( $GLOBALS['__routes']['relativt-form/v1/submit']['permission_callback'] ?? '' ) );
+
+Relativt_Form::flush_fields_cache();
+$def = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+
+check( 'publicerat formulär svarar med en definition', is_array( $def ) && 12 === ( $def['id'] ?? 0 ) );
+check( 'titeln följer med', 'Kontaktformulär' === ( $def['title'] ?? '' ) );
+check( 'fälten är get_fields(), oförändrade i JSON', json_decode( wp_json_encode( $def['fields'] ?? null ), true ) === json_decode( wp_json_encode( $engine->get_fields( 12 ) ), true ) );
+check( 'choices är alltid ett objekt i JSON, även tomt', str_contains( wp_json_encode( $def['fields'], JSON_UNESCAPED_UNICODE ), '"key":"namn","label":"Namn","show_label":true,"placeholder":"För- och efternamn","help":"","choices":{}' ) );
+check( 'och värde => etikett behålls', '{"foretag":"Företag","kandidat":"Kandidat"}' === wp_json_encode( $def['fields'][0]['choices'] ?? null, JSON_UNESCAPED_UNICODE ) );
+check( 'knapptexterna följer med', 'Skicka' === ( $def['texts']['submit'] ?? '' ) && 'Skickar…' === ( $def['texts']['sending'] ?? '' ) );
+check( 'tacktexterna följer med', 'Tack för ditt meddelande!' === ( $def['texts']['thanks_title'] ?? '' ) && 'Vi återkommer till dig så snart vi kan.' === ( $def['texts']['thanks_text'] ?? '' ) );
+check( 'samtyckestexten följer med som html', str_contains( (string) ( $def['texts']['consent'] ?? '' ), '<a href="/integritetspolicy/">' ) );
+check( 'samtyckesrutan är ett boolvärde', false === ( $def['texts']['consent_box'] ?? null ) );
+check( 'utan tack-sida är redirect tom', '' === ( $def['texts']['redirect'] ?? null ) );
+check( 'felmeddelandet följer med', 'Något gick fel. Försök igen, eller mejla oss direkt.' === ( $def['texts']['error'] ?? '' ) );
+check( 'honungsfältets namn följer med', 'xf_website' === ( $def['honeypot'] ?? '' ) );
+check( 'REST-roten följer med', '/__mock__/relativt-form/v1/' === ( $def['rest'] ?? '' ) );
+check( 'meddelandena följer med', $engine->messages() === ( $def['messages'] ?? null ) );
+check( 'Turnstile är av som standard', [ 'enabled' => false, 'site_key' => '' ] === ( $def['turnstile'] ?? null ) );
+
+// Fallback-kedjan: formulärets värde → Standardvärden → kodens fallback.
+unset( $GLOBALS['__form']['xf_thanks_title'], $GLOBALS['__form']['xf_submit_text'] );
+$GLOBALS['__options']['relativt_form_defaults'] = [ 'xf_thanks_title' => 'Tack från standardvärdena' ];
+$def = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+check( 'tomt formulärvärde ärver Standardvärden', 'Tack från standardvärdena' === ( $def['texts']['thanks_title'] ?? '' ) );
+check( 'och utan standardvärde gäller kodens fallback', 'Skicka' === ( $def['texts']['submit'] ?? '' ) );
+unset( $GLOBALS['__options']['relativt_form_defaults'] );
+$def = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+check( 'tack-rubrikens fallback är densamma som renderarens', 'Tack!' === ( $def['texts']['thanks_title'] ?? '' ) );
+$GLOBALS['__form'] = xf_test_form();
+
+$GLOBALS['__form']['xf_redirect'] = '/tack/';
+$def = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+check( 'tack-sidan följer med', '/tack/' === ( $def['texts']['redirect'] ?? '' ) );
+$GLOBALS['__form'] = xf_test_form();
+
+// Rubriker behövs för layouten i frontend.
+$GLOBALS['__form']['xf_fields'][] = [ 'type' => 'heading', 'key' => '', 'label' => 'Om dig' ];
+Relativt_Form::flush_fields_cache();
+$def   = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+$types = array_column( json_decode( wp_json_encode( $def['fields'] ?? [] ), true ), 'type' );
+check( 'fält av typen Rubrik följer med', in_array( 'heading', $types, true ) );
+$GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
+
+// En engelsk sajt filtrerar texterna – klienten ska få samma som serverns 422.
+add_filter( 'relativt_form_messages', static fn( $m ) => array_merge( $m, [ 'required' => 'This field is required.', 'turnstile' => 'Please wait for the check.' ] ) );
+$def = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+check( 'meddelandena följer med EFTER filtret', 'This field is required.' === ( $def['messages']['required'] ?? '' ) );
+check( 'den nya nyckeln turnstile kan filtreras', 'Please wait for the check.' === ( $engine->messages()['turnstile'] ?? '' ) );
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'fields' => [ 'jagar' => 'foretag' ] ] ) ) );
+check( 'och serverns 422 säger samma sak', 'This field is required.' === ( $res->data['errors']['namn'] ?? '' ) );
+remove_all_filters( 'relativt_form_messages' );
+$GLOBALS['__transients'] = [];
+
+check( 'turnstile har en svensk standardtext', str_contains( $engine->messages()['turnstile'] ?? '', 'Säkerhetskontrollen' ) );
+
+$GLOBALS['__post_status'][12] = 'draft';
+$res = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+check( 'utkast svarar 404', $res instanceof WP_Error && 404 === ( $res->data['status'] ?? 0 ) );
+$GLOBALS['__post_status'][12] = 'private';
+$res = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+check( 'privat formulär svarar 404', $res instanceof WP_Error && 404 === ( $res->data['status'] ?? 0 ) );
+$GLOBALS['__post_status'] = [];
+$res = $engine->rest_form( new WP_REST_Request( [ 'id' => 999 ] ) );
+check( 'okänt formulär svarar 404', $res instanceof WP_Error && 404 === ( $res->data['status'] ?? 0 ) );
+
+/*
+ * Läckagetestet. Slår på Turnstile med nycklar så att även secret finns i
+ * omlopp, serialiserar hela svaret och letar efter både nycklarnas NAMN och
+ * deras VÄRDEN – ett namnbyte i koden ska inte kunna smita förbi.
+ */
+$GLOBALS['__form']['xf_turnstile']               = 1;
+$GLOBALS['__options']['relativt_form_turnstile'] = [ 'site_key' => '1x00000000000000000000AA', 'secret' => 'hemlig-secret-123' ];
+$def  = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+$json = (string) wp_json_encode( $def, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+$form = xf_test_form();
+
+$leaks = [];
+foreach ( [ 'xf_to', 'xf_rules', 'xf_from_name', 'xf_from_email', 'xf_subject', 'xf_store', 'xf_retention', 'xf_log_ip', 'secret' ] as $needle ) {
+	if ( str_contains( $json, $needle ) ) {
+		$leaks[] = $needle;
+	}
+}
+foreach ( [ $form['xf_to'], $form['xf_from_email'], $form['xf_subject'], $form['xf_rules'][0]['email'], $form['xf_rules'][0]['subject'], 'hemlig-secret-123' ] as $needle ) {
+	if ( str_contains( $json, (string) $needle ) ) {
+		$leaks[] = $needle;
+	}
+}
+check( 'inga mottagare, avsändare, ämnen, lagringsval eller nycklar läcker', [] === $leaks, implode( ', ', $leaks ) );
+check( 'aktiv Turnstile syns med site key', [ 'enabled' => true, 'site_key' => '1x00000000000000000000AA' ] === ( $def['turnstile'] ?? null ) );
+
+$GLOBALS['__options']['relativt_form_turnstile'] = [ 'site_key' => '1x00000000000000000000AA', 'secret' => '' ];
+$def = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+check( 'utan secret är Turnstile avstängt i definitionen', [ 'enabled' => false, 'site_key' => '' ] === ( $def['turnstile'] ?? null ) );
+$GLOBALS['__form']    = xf_test_form();
+$GLOBALS['__options'] = [];
+
+echo "\nTurnstile: inställningar\n";
+
+$settings_group = $GLOBALS['__field_groups']['group_xf_settings']['fields'] ?? [];
+$ts_field       = null;
+foreach ( $settings_group as $f ) {
+	if ( 'field_xf_turnstile' === ( $f['key'] ?? '' ) ) {
+		$ts_field = $f;
+	}
+}
+check( 'formuläret har kryssrutan Kräv Turnstile', 'xf_turnstile' === ( $ts_field['name'] ?? '' ) && 'true_false' === ( $ts_field['type'] ?? '' ) );
+check( 'och den är av som standard', 0 === ( $ts_field['default_value'] ?? null ) );
+check( 'den ligger under fliken Skydd', in_array( 'Skydd', array_column( $settings_group, 'label' ), true ) );
+
+$settings = Relativt_Form_Settings::instance();
+$settings->register();
+check( 'nycklarna registreras som eget alternativ', isset( $GLOBALS['__settings']['relativt_form_turnstile'] ) );
+check( 'skilt från standardvärdena', '' === Relativt_Form_Settings::get( 'secret' ) && '' === Relativt_Form_Settings::get( 'site_key' ) );
+
+$GLOBALS['__options']['relativt_form_turnstile'] = [ 'site_key' => 'db-site', 'secret' => 'db-secret' ];
+$keys = Relativt_Form_Settings::turnstile_keys();
+check( 'nycklarna läses ur databasen', 'db-site' === $keys['site_key'] && 'db-secret' === $keys['secret'] && ! $keys['secret_const'] );
+
+check( 'tomt secret-fält vid sparning behåller den sparade', [ 'site_key' => 'ny-site', 'secret' => 'db-secret' ] === $settings->sanitize_turnstile( [ 'site_key' => 'ny-site', 'secret' => '' ] ) );
+check( 'ny secret ersätter den gamla', 'ny-secret' === $settings->sanitize_turnstile( [ 'site_key' => 'db-site', 'secret' => ' ny-secret ' ] )['secret'] );
+check( 'krysset Ta bort rensar secret', '' === $settings->sanitize_turnstile( [ 'site_key' => 'db-site', 'secret' => '', 'secret_clear' => '1' ] )['secret'] );
+check( 'saknas alternativet i POST behålls allt', [ 'site_key' => 'db-site', 'secret' => 'db-secret' ] === $settings->sanitize_turnstile( null ) );
+check( 'site key saneras', 'abc' === $settings->sanitize_turnstile( [ 'site_key' => '<b>abc</b>' ] )['site_key'] );
+
+ob_start();
+$settings->render();
+$page = (string) ob_get_clean();
+check( 'inställningssidan visar Turnstile-fälten', str_contains( $page, 'Turnstile site key' ) && str_contains( $page, 'Turnstile secret key' ) );
+check( 'secret renderas aldrig i HTML', ! str_contains( $page, 'db-secret' ) );
+check( 'men det syns att en secret är sparad', str_contains( $page, 'Sparad – lämna tomt för att behålla' ) );
+$GLOBALS['__options'] = [];
+
+/*
+ * Konstanterna går inte att avdefiniera, så de prövas i en egen PHP-process
+ * med samma rigg. Databasen har andra värden – konstanterna ska vinna, och
+ * konstantens secret får inte heller hamna i HTML:en.
+ */
+$probe = <<<'PHP'
+define( 'RELATIVT_FORM_TURNSTILE_SITE_KEY', 'konst-site' );
+define( 'RELATIVT_FORM_TURNSTILE_SECRET', 'konst-secret' );
+require getenv( 'XF_HARNESS' );
+$GLOBALS['__options']['relativt_form_turnstile'] = [ 'site_key' => 'db-site', 'secret' => 'db-secret' ];
+ob_start();
+Relativt_Form_Settings::instance()->render();
+$page = ob_get_clean();
+echo json_encode( [ 'keys' => Relativt_Form_Settings::turnstile_keys(), 'leak' => str_contains( $page, 'konst-secret' ) || str_contains( $page, 'db-secret' ), 'note' => str_contains( $page, 'Satt i wp-config.php' ) ] );
+PHP;
+$cmd = escapeshellarg( PHP_BINARY ) . ' -r ' . escapeshellarg( $probe );
+$out = shell_exec( 'XF_HARNESS=' . escapeshellarg( __DIR__ . '/harness.php' ) . ' ' . $cmd );
+$probe_result = json_decode( (string) $out, true );
+check( 'konstanterna vinner över databasen',
+	'konst-site' === ( $probe_result['keys']['site_key'] ?? '' ) && 'konst-secret' === ( $probe_result['keys']['secret'] ?? '' ),
+	(string) $out );
+check( 'inställningssidan säger att värdet kommer från wp-config.php', true === ( $probe_result['note'] ?? false ) );
+check( 'och skriver varken konstantens eller databasens secret', false === ( $probe_result['leak'] ?? true ) );
+
+check( 'avinstallationen rensar nycklarna', str_contains( (string) file_get_contents( __DIR__ . '/../uninstall.php' ), "delete_option( 'relativt_form_turnstile' )" ) );
+
+$GLOBALS['__form']['xf_turnstile'] = 1;
+$payload = $port->build_payload( 12 );
+check( 'Kräv Turnstile följer med i exporten', 1 === ( $payload['settings']['xf_turnstile'] ?? null ) );
+check( 'och importen tar emot det som bool', 1 === $clean->invoke( $port, 'ja', 'bool' ) );
+$GLOBALS['__options']['relativt_form_turnstile'] = [ 'site_key' => 'db-site', 'secret' => 'db-secret' ];
+check( 'nycklarna följer aldrig med i exporten', ! str_contains( (string) wp_json_encode( $port->build_payload( 12 ) ), 'db-s' ) );
+$GLOBALS['__form']    = xf_test_form();
+$GLOBALS['__options'] = [];
+
+echo "\nTurnstile: rendering\n";
+
+$render = $ref->getMethod( 'render_form' );
+$render->setAccessible( true );
+
+$GLOBALS['__assets'] = [];
+$plain = $render->invoke( $engine, 12, [], '' );
+check( 'av som standard: ingen widget', ! str_contains( $plain, 'cf-turnstile' ) );
+check( 'och inget skript från Cloudflare', ! isset( $GLOBALS['__assets']['enq:script:relativt-formular-turnstile'] ) );
+
+$GLOBALS['__form']['xf_turnstile'] = 1;
+$missing = $render->invoke( $engine, 12, [], '' );
+check( 'påslaget utan nycklar: ingen widget, formuläret fungerar som förut', ! str_contains( $missing, 'cf-turnstile' ) && str_contains( $missing, 'xf-submit' ) );
+
+$GLOBALS['__options']['relativt_form_turnstile'] = [ 'site_key' => '1x00000000000000000000AA', 'secret' => 'hemlig' ];
+$with = $render->invoke( $engine, 12, [], '' );
+check( 'påslaget med nycklar: widgeten renderas', str_contains( $with, 'class="xf-turnstile cf-turnstile" data-sitekey="1x00000000000000000000AA" data-xf-turnstile' ) );
+check( 'ovanför knappen', strpos( $with, 'data-xf-turnstile' ) < strpos( $with, 'class="xf-actions"' ) );
+check( 'med en egen felrad', str_contains( $with, 'data-xf-error="turnstile"' ) );
+check( 'secret syns inte i markupen', ! str_contains( $with, 'hemlig' ) );
+check( 'Cloudflares skript köas', isset( $GLOBALS['__assets']['enq:script:relativt-formular-turnstile'] ) );
+
+$tag = $engine->turnstile_script_tag( "<script src='https://challenges.cloudflare.com/turnstile/v0/api.js' id='relativt-formular-turnstile-js'></script>", 'relativt-formular-turnstile' );
+check( 'skriptet laddas async defer', str_contains( $tag, ' async defer src=' ) );
+check( 'andra skript rörs inte', "<script src='x.js'></script>" === $engine->turnstile_script_tag( "<script src='x.js'></script>", 'relativt-formular' ) );
+$GLOBALS['__form']    = xf_test_form();
+$GLOBALS['__options'] = [];
+$GLOBALS['__assets']  = [];
+
+echo "\nTurnstile: inskick\n";
+
+$GLOBALS['__transients'] = [];
+$GLOBALS['__mail']       = [];
+$GLOBALS['__posts']      = [];
+$_SERVER['REMOTE_ADDR']  = '203.0.113.9';
+
+/**
+ * Nollställer räknarna mellan fallen.
+ *
+ * @param array|WP_Error $remote Siteverify-svaret som riggen ska ge.
+ */
+function xf_ts_reset( $remote = [ 'code' => 200, 'body' => '{"success":true}' ] ): void {
+	$GLOBALS['__transients']   = [];
+	$GLOBALS['__mail']         = [];
+	$GLOBALS['__posts']        = [];
+	$GLOBALS['__remote']       = $remote;
+	$GLOBALS['__remote_calls'] = [];
+}
+
+xf_ts_reset();
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+check( 'av som standard: inskick utan token går igenom', 200 === $res->status );
+check( 'och siteverify anropas aldrig', [] === $GLOBALS['__remote_calls'] );
+
+xf_ts_reset();
+$GLOBALS['__form']['xf_turnstile'] = 1;
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+check( 'påslaget utan nycklar blockerar inte', 200 === $res->status && [] === $GLOBALS['__remote_calls'] );
+
+$GLOBALS['__options']['relativt_form_turnstile'] = [ 'site_key' => '1x00000000000000000000AA', 'secret' => 'hemlig' ];
+
+xf_ts_reset();
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+check( 'påslaget utan token svarar 403 turnstile', 403 === $res->status && 'turnstile' === ( $res->data['code'] ?? '' ) );
+check( 'med meddelandet ur messages()', $engine->messages()['turnstile'] === ( $res->data['message'] ?? '' ) );
+check( 'en tom token frågar inte Cloudflare', [] === $GLOBALS['__remote_calls'] );
+check( 'ingenting sparas och inget mail går ut', [] === $GLOBALS['__posts'] && [] === $GLOBALS['__mail'] );
+
+xf_ts_reset();
+$res  = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'turnstile' => 'giltig-token' ] ) ) );
+$call = $GLOBALS['__remote_calls'][0] ?? [];
+check( 'giltig token går igenom', 200 === $res->status && true === ( $res->data['ok'] ?? false ) );
+check( 'siteverify anropas en gång mot rätt adress', 1 === count( $GLOBALS['__remote_calls'] ) && 'https://challenges.cloudflare.com/turnstile/v0/siteverify' === ( $call['url'] ?? '' ) );
+check( 'med secret, token och besökarens IP', [ 'secret' => 'hemlig', 'response' => 'giltig-token', 'remoteip' => '203.0.113.9' ] === ( $call['args']['body'] ?? null ) );
+check( 'och 5 sekunders timeout', 5 === ( $call['args']['timeout'] ?? 0 ) );
+check( 'inskicket sparas och mailas', 1 === count( $GLOBALS['__posts'] ) && 1 === count( $GLOBALS['__mail'] ) );
+
+xf_ts_reset();
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'cf-turnstile-response' => 'giltig-token' ] ) ) );
+check( 'widgetens eget fältnamn cf-turnstile-response tas också emot', 200 === $res->status && 'giltig-token' === ( $GLOBALS['__remote_calls'][0]['args']['body']['response'] ?? '' ) );
+
+xf_ts_reset( [ 'code' => 200, 'body' => '{"success":false,"error-codes":["invalid-input-response"]}' ] );
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'turnstile' => 'fel-token' ] ) ) );
+check( 'ogiltig token svarar 403 turnstile', 403 === $res->status && 'turnstile' === ( $res->data['code'] ?? '' ) );
+check( 'och ingenting sparas', [] === $GLOBALS['__posts'] && [] === $GLOBALS['__mail'] );
+check( 'en vanlig ogiltig token är ingen driftvarning', false === get_transient( 'relativt_form_turnstile_issue' ) );
+
+add_filter( 'relativt_form_client_ip', static fn() => '198.51.100.7' );
+xf_ts_reset();
+$engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'turnstile' => 'giltig-token' ] ) ) );
+check( 'remoteip går genom relativt_form_client_ip', '198.51.100.7' === ( $GLOBALS['__remote_calls'][0]['args']['body']['remoteip'] ?? '' ) );
+remove_all_filters( 'relativt_form_client_ip' );
+
+/*
+ * Ordningen. En Turnstile-token kan bara verifieras en gång. Spärrarna som
+ * JS tyst gör om efter (toofast, nonce) MÅSTE därför slå till innan
+ * siteverify, annars bränns token och omsändningen faller på Turnstile.
+ */
+xf_ts_reset();
+$fast_ts = time() - 1;
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'turnstile' => 'giltig-token', 'ts' => $fast_ts, 'sig' => call( $engine, 'sign', [ '12|' . $fast_ts ] ) ] ) ) );
+check( 'toofast svarar 425 …', 425 === $res->status && 'toofast' === ( $res->data['code'] ?? '' ) );
+check( '… utan att anropa siteverify (token bränns inte)', [] === $GLOBALS['__remote_calls'] );
+
+xf_ts_reset();
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'turnstile' => 'giltig-token', 'nonce' => 'fel' ] ) ) );
+check( 'utgången nonce anropar inte heller siteverify', 403 === $res->status && 'nonce' === ( $res->data['code'] ?? '' ) && [] === $GLOBALS['__remote_calls'] );
+
+xf_ts_reset();
+$GLOBALS['__transients'][ 'xf_rl_' . md5( '203.0.113.9' ) ] = 5;
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'turnstile' => 'giltig-token' ] ) ) );
+check( 'frekvensspärren slår till före siteverify', 429 === $res->status && [] === $GLOBALS['__remote_calls'] );
+
+xf_ts_reset();
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'turnstile' => 'giltig-token', 'xf_website' => 'spam' ] ) ) );
+check( 'honungsfällan slår till före siteverify', 200 === $res->status && [] === $GLOBALS['__remote_calls'] && [] === $GLOBALS['__posts'] );
+
+xf_ts_reset();
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'turnstile' => 'giltig-token', 'fields' => [ 'jagar' => 'foretag' ] ] ) ) );
+check( 'valideringen kommer efter Turnstile (token är förbrukad vid 422)', 422 === $res->status && 1 === count( $GLOBALS['__remote_calls'] ) );
+
+/*
+ * Fail open: Cloudflare går inte att nå. Inskicket ska gå igenom, felet
+ * loggas och syns som admin-notis tills en verifiering lyckas igen.
+ */
+$log = tempnam( sys_get_temp_dir(), 'xf-log' );
+$old_log = ini_set( 'error_log', $log );
+
+xf_ts_reset( new WP_Error( 'http_request_failed', 'cURL error 28: Operation timed out' ) );
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'turnstile' => 'giltig-token' ] ) ) );
+check( 'siteverify nere: inskicket släpps igenom (fail open)', 200 === $res->status && 1 === count( $GLOBALS['__posts'] ) );
+check( 'och felet loggas', str_contains( (string) file_get_contents( $log ), 'Turnstile siteverify kunde inte nås (cURL error 28' ) );
+$issue = get_transient( 'relativt_form_turnstile_issue' );
+check( 'och sparas för admin-notisen', 'unreachable' === ( $issue['kind'] ?? '' ) );
+
+$GLOBALS['__remote'] = [ 'code' => 502, 'body' => '<html>Bad gateway</html>' ];
+$GLOBALS['__posts']  = [];
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'turnstile' => 'giltig-token' ] ) ) );
+check( 'svar som inte är JSON behandlas likadant', 200 === $res->status && str_contains( (string) file_get_contents( $log ), 'HTTP 502 utan giltigt JSON-svar' ) );
+
+$GLOBALS['__remote'] = [ 'code' => 200, 'body' => '{"success":true}' ];
+$GLOBALS['__transients'][ 'relativt_form_turnstile_issue' ] = [ 'kind' => 'unreachable', 'time' => time() ];
+$engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'turnstile' => 'giltig-token' ] ) ) );
+check( 'nästa lyckade verifiering tar bort varningen', false === get_transient( 'relativt_form_turnstile_issue' ) );
+
+xf_ts_reset( [ 'code' => 200, 'body' => '{"success":false,"error-codes":["invalid-input-secret"]}' ] );
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'turnstile' => 'giltig-token' ] ) ) );
+check( 'fel secret: Cloudflares uttryckliga nej gäller (403)', 403 === $res->status && 'turnstile' === ( $res->data['code'] ?? '' ) );
+check( 'men felinställningen loggas och syns i admin', str_contains( (string) file_get_contents( $log ), 'avvisade Turnstile-secret' ) && 'secret' === ( get_transient( 'relativt_form_turnstile_issue' )['kind'] ?? '' ) );
+
+ini_set( 'error_log', (string) $old_log );
+@unlink( $log );
+
+echo "\nTurnstile: admin-notiser\n";
+
+$GLOBALS['__can'] = true;
+$GLOBALS['__options']['relativt_form_turnstile'] = [ 'site_key' => '1x00000000000000000000AA', 'secret' => '' ];
+$GLOBALS['__screen'] = (object) [ 'base' => 'post', 'post_type' => 'relativt_form' ];
+$_GET['post'] = 12;
+xf_ts_reset();
+
+ob_start();
+$engine->turnstile_notice();
+$notice = (string) ob_get_clean();
+check( 'formuläret varnar när en nyckel saknas', str_contains( $notice, 'Kräv Turnstile är påslaget, men secret key saknas' ) );
+check( 'och säger att formuläret ändå skickas', str_contains( $notice, 'skickas utan Turnstile' ) );
+
+$GLOBALS['__options']['relativt_form_turnstile'] = [ 'site_key' => '1x00000000000000000000AA', 'secret' => 'hemlig' ];
+ob_start();
+$engine->turnstile_notice();
+check( 'ingen varning när allt är på plats', '' === (string) ob_get_clean() );
+
+$GLOBALS['__screen'] = (object) [ 'base' => 'edit', 'post_type' => 'relativt_entry' ];
+$GLOBALS['__transients']['relativt_form_turnstile_issue'] = [ 'kind' => 'unreachable', 'time' => time() ];
+ob_start();
+$engine->turnstile_notice();
+check( 'driftvarningen syns i inskicksvyn', str_contains( (string) ob_get_clean(), 'Cloudflare Turnstile gick inte att nå' ) );
+
+$GLOBALS['__screen'] = (object) [ 'base' => 'dashboard', 'post_type' => '' ];
+ob_start();
+$engine->turnstile_notice();
+check( 'men inte på andra sidor i wp-admin', '' === (string) ob_get_clean() );
+
+unset( $_GET['post'], $GLOBALS['__screen'] );
+$GLOBALS['__can']     = false;
+$GLOBALS['__form']    = xf_test_form();
+$GLOBALS['__options'] = [];
+xf_ts_reset();
+
 echo "\n" . str_repeat( '─', 50 ) . "\n";
 printf( "%d godkända, %d underkända\n\n", $passed, $failed );
 exit( $failed > 0 ? 1 : 0 );

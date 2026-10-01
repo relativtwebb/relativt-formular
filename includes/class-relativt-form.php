@@ -43,6 +43,12 @@ final class Relativt_Form {
 	private const RATE_LIMIT   = 5;
 	private const RATE_WINDOW  = 600; // 10 minuter.
 
+	/** Cloudflares verifieringsendpoint för Turnstile-tokens. */
+	private const TURNSTILE_VERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+
+	/** Senaste problemet med Turnstile-verifieringen, för admin-notisen. */
+	private const TURNSTILE_ISSUE = 'relativt_form_turnstile_issue';
+
 	/** Fälttyper som har valbara alternativ. */
 	private const CHOICE_TYPES = [ 'select', 'buttons', 'radio', 'checkboxes' ];
 
@@ -71,6 +77,7 @@ final class Relativt_Form {
 		add_action( 'acf/init', [ $this, 'register_fields' ] );
 		add_action( 'rest_api_init', [ $this, 'register_routes' ] );
 		add_action( 'wp_enqueue_scripts', [ $this, 'register_assets' ] );
+		add_filter( 'script_loader_tag', [ $this, 'turnstile_script_tag' ], 10, 2 );
 
 		// Admin.
 		add_action( 'pre_get_posts', [ $this, 'filter_entry_list' ] );
@@ -92,6 +99,7 @@ final class Relativt_Form {
 		add_action( 'restrict_manage_posts', [ $this, 'entry_filter_dropdown' ] );
 		add_action( 'admin_post_relativt_form_export', [ $this, 'export_csv' ] );
 		add_action( 'admin_notices', [ $this, 'mail_failure_notice' ] );
+		add_action( 'admin_notices', [ $this, 'turnstile_notice' ] );
 
 		// Gallring.
 		add_action( 'after_switch_theme', [ $this, 'schedule_cleanup' ] );
@@ -217,6 +225,7 @@ final class Relativt_Form {
 			'nonce'    => 'Sessionen har gått ut. Ladda om sidan och försök igen.',
 			'rate'     => 'Du har skickat flera meddelanden på kort tid. Vänta en stund och försök igen.',
 			'generic'  => 'Något gick fel. Försök igen om en liten stund.',
+			'turnstile' => 'Säkerhetskontrollen är inte klar. Vänta en sekund och försök igen.',
 		];
 
 		$filtered = apply_filters( 'relativt_form_messages', $defaults );
@@ -639,6 +648,17 @@ final class Relativt_Form {
 					'default_value'=> 1,
 					'instructions' => 'IP-adress är en personuppgift. Stäng av om ni inte behöver den.',
 				],
+
+				[ 'key' => 'field_xf_tab_protect', 'label' => 'Skydd', 'type' => 'tab' ],
+				[
+					'key'           => 'field_xf_turnstile',
+					'label'         => 'Kräv Turnstile',
+					'name'          => 'xf_turnstile',
+					'type'          => 'true_false',
+					'ui'            => 1,
+					'default_value' => 0,
+					'instructions'  => 'Cloudflare Turnstile som extra spamskydd, utöver honungsfällan och tidsspärren. Nycklarna sätts under Formulär → Standardvärden eller i wp-config.php. Saknas de skickas formuläret som vanligt, utan Turnstile.',
+				],
 			],
 		] );
 	}
@@ -927,6 +947,26 @@ final class Relativt_Form {
 					</div>
 				<?php endif; ?>
 
+				<?php
+				/*
+				 * Turnstile bara när formuläret kräver det OCH båda nycklarna
+				 * finns. Utan secret kan servern inte verifiera något, och en
+				 * widget som ändå kräver en token vore bara friktion.
+				 * Skriptet köas härifrån, oberoende av always_enqueue: det är
+				 * ett tredjepartsanrop som inte ska ske på sidor utan formulär.
+				 */
+				$turnstile = $this->turnstile_state( $form_id );
+				if ( 'active' === $turnstile['state'] ) :
+					if ( function_exists( 'wp_enqueue_script' ) ) {
+						wp_enqueue_script( 'relativt-formular-turnstile', 'https://challenges.cloudflare.com/turnstile/v0/api.js', [], null, true );
+					}
+					?>
+					<div class="xf-field xf-field--full xf-type-turnstile">
+						<div class="xf-turnstile cf-turnstile" data-sitekey="<?php echo esc_attr( $turnstile['site_key'] ); ?>" data-xf-turnstile></div>
+						<p class="xf-error" data-xf-error="turnstile" role="alert"></p>
+					</div>
+				<?php endif; ?>
+
 				<div class="xf-actions">
 					<?php
 					/*
@@ -1184,6 +1224,83 @@ final class Relativt_Form {
 			'permission_callback' => '__return_true',
 			'callback'            => [ $this, 'rest_submit' ],
 		] );
+
+		register_rest_route( self::REST_NS, '/form/(?P<id>\d+)', [
+			'methods'             => 'GET',
+			'permission_callback' => '__return_true',
+			'callback'            => [ $this, 'rest_form' ],
+			'args'                => [
+				'id' => [
+					'required'          => true,
+					'type'              => 'integer',
+					'sanitize_callback' => 'absint',
+				],
+			],
+		] );
+	}
+
+	/**
+	 * get_fields() för JSON. Enda skillnaden: choices blir alltid ett
+	 * objekt. En tom PHP-array serialiseras annars som [] och en lista med
+	 * värdena 0, 1, 2 … som en JSON-array – frontend ska kunna lita på
+	 * formen värde => etikett.
+	 */
+	private function public_fields( int $form_id ): array {
+		return array_map(
+			static function ( array $f ): array {
+				$f['choices'] = (object) $f['choices'];
+				return $f;
+			},
+			$this->get_fields( $form_id )
+		);
+	}
+
+	/**
+	 * Formulärdefinitionen för en frontend som renderar formuläret själv
+	 * (headless). Samma källa som shortcoden, så att fälten bara definieras
+	 * på ett ställe – i wp-admin.
+	 *
+	 * Svaret är publikt och kan cachas av vem som helst. Därför byggs det av
+	 * en uttrycklig lista och aldrig av "allt utom": mottagare, regler,
+	 * avsändare, ämnesrad, lagringsval och nycklar får inte följa med, och
+	 * ett fält som läggs till i byggaren i framtiden ska inte läcka av sig
+	 * självt. Bara publicerade formulär svarar – ett utkast är inte klart
+	 * att visas.
+	 */
+	public function rest_form( WP_REST_Request $request ) {
+		$form_id = (int) $request->get_param( 'id' );
+		if ( get_post_type( $form_id ) !== self::CPT_FORM || get_post_status( $form_id ) !== 'publish' ) {
+			return new WP_Error( 'xf_no_form', 'Okänt formulär.', [ 'status' => 404 ] );
+		}
+
+		$turnstile = $this->turnstile_state( $form_id );
+		$active    = 'active' === $turnstile['state'];
+		$redirect  = trim( (string) $this->setting( $form_id, 'xf_redirect', '' ) );
+
+		return [
+			'id'        => $form_id,
+			'title'     => html_entity_decode( wp_strip_all_tags( (string) get_the_title( $form_id ) ), ENT_QUOTES, 'UTF-8' ),
+			'fields'    => $this->public_fields( $form_id ),
+			// Samma kedja och samma fallbacks som renderaren och success_payload().
+			'texts'     => [
+				'submit'       => (string) $this->setting( $form_id, 'xf_submit_text', 'Skicka' ),
+				'sending'      => (string) $this->setting( $form_id, 'xf_sending_text', 'Skickar…' ),
+				'thanks_title' => (string) $this->setting( $form_id, 'xf_thanks_title', 'Tack!' ),
+				'thanks_text'  => (string) $this->setting( $form_id, 'xf_thanks_text', '' ),
+				'error'        => (string) $this->setting( $form_id, 'xf_error_text', 'Något gick fel.' ),
+				'redirect'     => '' !== $redirect ? esc_url_raw( $redirect ) : '',
+				'consent'      => wp_kses_post( (string) $this->setting( $form_id, 'xf_consent', '' ) ),
+				'consent_box'  => (bool) $this->setting( $form_id, 'xf_consent_box' ),
+			],
+			// Efter filtret – samma texter som serverns 422-svar.
+			'messages'  => $this->messages(),
+			'honeypot'  => 'xf_website',
+			'turnstile' => [
+				'enabled'  => $active,
+				'site_key' => $active ? $turnstile['site_key'] : '',
+			],
+			'rest'      => rest_url( self::REST_NS . '/' ),
+		];
 	}
 
 	/**
@@ -1253,7 +1370,28 @@ final class Relativt_Form {
 			return $this->fail( $msg['rate'], 429, [ 'code' => 'rate' ] );
 		}
 
-		// 5. Validering.
+		/*
+		 * 5. Turnstile. Medvetet EFTER spärrarna ovan: en Turnstile-token kan
+		 * bara verifieras en gång. Låg kontrollen före tidsspärren skulle
+		 * siteverify bränna token på ett toofast-svar, och JS:ens tysta
+		 * omsändning skulle då falla på Turnstile i stället för att gå
+		 * igenom. Samma sak för nonce: ett nytt token-försök ska inte kosta
+		 * besökaren en ny säkerhetskontroll.
+		 */
+		if ( 'active' === $this->turnstile_state( $form_id )['state'] ) {
+			$token = '';
+			foreach ( [ 'turnstile', 'cf-turnstile-response' ] as $name ) {
+				$token = trim( (string) ( $body[ $name ] ?? '' ) );
+				if ( '' !== $token ) {
+					break;
+				}
+			}
+			if ( ! $this->verify_turnstile( $token ) ) {
+				return $this->fail( $msg['turnstile'], 403, [ 'code' => 'turnstile' ] );
+			}
+		}
+
+		// 6. Validering.
 		$raw    = is_array( $body['fields'] ?? null ) ? $body['fields'] : [];
 		$result = $this->validate( $form_id, $raw );
 
@@ -1318,6 +1456,124 @@ final class Relativt_Form {
 
 	private function sign( string $payload ): string {
 		return hash_hmac( 'sha256', $payload, wp_salt( 'relativt_form' ) );
+	}
+
+	/* ---------------------------------------------------------------------
+	 * Turnstile
+	 * ------------------------------------------------------------------ */
+
+	/**
+	 * Är Turnstile på för formuläret, och går det att använda?
+	 *
+	 * 'off'     – formuläret kräver det inte (standard, och alla formulär
+	 *             sparade före 1.4.0).
+	 * 'missing' – kryssat, men en nyckel saknas. Formuläret skickas då UTAN
+	 *             Turnstile: hellre ett formulär utan extra skydd än ett som
+	 *             inte går att skicka. Admin-notisen säger vad som saknas.
+	 * 'active'  – kryssat och båda nycklarna finns.
+	 *
+	 * @return array{state:string,site_key:string,secret:string,missing:array<int,string>}
+	 */
+	private function turnstile_state( int $form_id ): array {
+		$out = [ 'state' => 'off', 'site_key' => '', 'secret' => '', 'missing' => [] ];
+
+		if ( ! $this->setting( $form_id, 'xf_turnstile' ) ) {
+			return $out;
+		}
+
+		$keys = $this->turnstile_keys();
+
+		$out['site_key'] = (string) $keys['site_key'];
+		$out['secret']   = (string) $keys['secret'];
+
+		if ( '' === $out['site_key'] ) {
+			$out['missing'][] = 'site key';
+		}
+		if ( '' === $out['secret'] ) {
+			$out['missing'][] = 'secret key';
+		}
+
+		$out['state'] = $out['missing'] ? 'missing' : 'active';
+		return $out;
+	}
+
+	/**
+	 * Verifierar en token mot Cloudflare.
+	 *
+	 * Ett uttryckligt svar från Cloudflare avgör alltid: success:false =
+	 * avslag. Går Cloudflare däremot inte att NÅ – nätverksfel, timeout,
+	 * 5xx, svar som inte är JSON – släpps inskicket igenom (fail open).
+	 * Skälet: det felet kan en angripare inte framkalla, det är servern som
+	 * pratar med Cloudflare. Det uppstår vid ett riktigt avbrott eller när
+	 * webbhotellet spärrar utgående trafik, och då vore ett stängt formulär
+	 * värre än ett formulär med 1.3.0:s skydd (honungsfälla, tidsspärr,
+	 * frekvensspärr, länkspärr) – leads som tyst uteblir märks inte förrän
+	 * kunden undrar. Felet loggas och syns som admin-notis tills en
+	 * verifiering går igenom igen.
+	 */
+	private function verify_turnstile( string $token ): bool {
+		// Tom eller orimligt lång token behöver inte fråga Cloudflare. 2048 är Cloudflares max.
+		if ( '' === $token || strlen( $token ) > 2048 ) {
+			return false;
+		}
+
+		$args = [ 'secret' => $this->turnstile_keys()['secret'], 'response' => $token ];
+		$ip   = $this->client_ip();
+		if ( '' !== $ip ) {
+			$args['remoteip'] = $ip;
+		}
+
+		$response = wp_remote_post( self::TURNSTILE_VERIFY, [ 'timeout' => 5, 'body' => $args ] );
+
+		$data = is_wp_error( $response ) ? null : json_decode( (string) wp_remote_retrieve_body( $response ), true );
+
+		if ( ! is_array( $data ) || ! is_bool( $data['success'] ?? null ) ) {
+			$why = is_wp_error( $response )
+				? $response->get_error_message()
+				: 'HTTP ' . wp_remote_retrieve_response_code( $response ) . ' utan giltigt JSON-svar';
+			error_log( 'Relativt Formulär: Turnstile siteverify kunde inte nås (' . $why . '). Inskicket släpptes igenom utan Turnstile-kontroll.' ); // phpcs:ignore
+			set_transient( self::TURNSTILE_ISSUE, [ 'kind' => 'unreachable', 'time' => time() ], DAY_IN_SECONDS );
+			return true;
+		}
+
+		if ( true === $data['success'] ) {
+			if ( get_transient( self::TURNSTILE_ISSUE ) ) {
+				delete_transient( self::TURNSTILE_ISSUE );
+			}
+			return true;
+		}
+
+		/*
+		 * Fel secret avvisar VARJE inskick – det är en felinställning, inte
+		 * en bot, och måste synas för redaktören i stället för att bara se
+		 * ut som att besökarna slutat höra av sig.
+		 */
+		$codes = is_array( $data['error-codes'] ?? null ) ? $data['error-codes'] : [];
+		if ( array_intersect( [ 'missing-input-secret', 'invalid-input-secret' ], $codes ) ) {
+			error_log( 'Relativt Formulär: Cloudflare avvisade Turnstile-secret (' . implode( ', ', $codes ) . '). Kontrollera nyckeln under Formulär → Standardvärden eller i wp-config.php.' ); // phpcs:ignore
+			set_transient( self::TURNSTILE_ISSUE, [ 'kind' => 'secret', 'time' => time() ], DAY_IN_SECONDS );
+		}
+
+		return false;
+	}
+
+	/** Nycklarna, med wp-config.php-konstanterna före databasen. Se Relativt_Form_Settings. */
+	private function turnstile_keys(): array {
+		return class_exists( 'Relativt_Form_Settings', false )
+			? Relativt_Form_Settings::turnstile_keys()
+			: [ 'site_key' => '', 'secret' => '' ];
+	}
+
+	/**
+	 * Cloudflare vill ha api.js laddad med async och defer. Läggs på via
+	 * filtret i stället för wp_enqueue_script:s strategy-argument, som
+	 * först finns i WordPress 6.3 – pluginet kräver 6.0.
+	 */
+	public function turnstile_script_tag( $tag, $handle ) {
+		if ( 'relativt-formular-turnstile' !== $handle || ! is_string( $tag ) || str_contains( $tag, ' async' ) ) {
+			return $tag;
+		}
+		return str_replace( ' src=', ' async defer src=', $tag );
 	}
 
 	private function rate_limited(): bool {
@@ -2049,6 +2305,51 @@ final class Relativt_Form {
 			esc_html( 1 === $count ? 'Ett inskick har ett mail som inte kunde skickas.' : sprintf( '%d inskick har mail som inte kunde skickas.', $count ) ),
 			esc_url( admin_url( 'edit.php?post_type=' . self::CPT_ENTRY . '&xf_mail=failed' ) ),
 			esc_html( 1 === $count ? 'inskicket' : 'inskicken' )
+		);
+	}
+
+	/**
+	 * Två lägen som annars vore tysta:
+	 *  - på formuläret: Kräv Turnstile är på men en nyckel saknas, så
+	 *    formuläret skickas utan Turnstile;
+	 *  - i formulär- och inskicksvyerna: Cloudflare gick inte att nå, eller
+	 *    avvisade secret. Samma mönster som mail_failure_notice().
+	 */
+	public function turnstile_notice(): void {
+		if ( ! function_exists( 'get_current_screen' ) || ! current_user_can( 'edit_pages' ) ) {
+			return;
+		}
+
+		$screen = get_current_screen();
+		if ( ! $screen || ! in_array( $screen->post_type ?? '', [ self::CPT_FORM, self::CPT_ENTRY ], true ) ) {
+			return;
+		}
+
+		if ( 'post' === ( $screen->base ?? '' ) && self::CPT_FORM === ( $screen->post_type ?? '' ) ) {
+			$form_id = $this->current_admin_post_id();
+			$state   = $form_id ? $this->turnstile_state( $form_id ) : null;
+			if ( $state && 'missing' === $state['state'] ) {
+				printf(
+					'<div class="notice notice-warning"><p><strong>Relativt Formulär:</strong> Kräv Turnstile är påslaget, men %s saknas. Formuläret skickas utan Turnstile tills nycklarna finns under <a href="%s">Formulär → Standardvärden</a> eller i wp-config.php.</p></div>',
+					esc_html( implode( ' och ', $state['missing'] ) ),
+					esc_url( admin_url( 'edit.php?post_type=' . self::CPT_FORM . '&page=relativt-form-defaults' ) )
+				);
+			}
+		}
+
+		$issue = get_transient( self::TURNSTILE_ISSUE );
+		if ( ! is_array( $issue ) ) {
+			return;
+		}
+
+		$when = function_exists( 'wp_date' ) ? wp_date( 'Y-m-d H:i', (int) ( $issue['time'] ?? 0 ) ) : gmdate( 'Y-m-d H:i', (int) ( $issue['time'] ?? 0 ) );
+
+		printf(
+			'<div class="notice notice-error"><p><strong>Relativt Formulär:</strong> %s (senast %s)</p></div>',
+			esc_html( 'secret' === ( $issue['kind'] ?? '' )
+				? 'Cloudflare avvisar Turnstile-secret, så alla inskick från formulär med Turnstile stoppas. Kontrollera nyckeln under Formulär → Standardvärden eller i wp-config.php.'
+				: 'Cloudflare Turnstile gick inte att nå. Inskicken släpps igenom utan Turnstile-kontroll tills verifieringen fungerar igen. Kontrollera att servern når challenges.cloudflare.com.' ),
+			esc_html( $when )
 		);
 	}
 

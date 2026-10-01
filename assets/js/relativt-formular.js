@@ -157,6 +157,7 @@
 		links: 'Meddelandet innehåller för många länkar.',
 		consent: 'Du behöver godkänna villkoren.',
 		generic: 'Något gick fel. Försök igen om en liten stund.',
+		turnstile: 'Säkerhetskontrollen är inte klar. Vänta en sekund och försök igen.',
 		...(typeof CONFIG.messages === 'object' && CONFIG.messages !== null ? CONFIG.messages : {}),
 	};
 
@@ -266,6 +267,9 @@
 			this.thanks = root.querySelector('.xf-thanks');
 			this.formError = root.querySelector('.xf-form-error');
 			this.submitBtn = root.querySelector('.xf-submit');
+			// Turnstile-widgeten finns bara när formuläret kräver det (1.4.0).
+			this.turnstileBox = root.querySelector('[data-xf-turnstile]');
+			this.turnstileField = this.turnstileBox?.closest('.xf-field') ?? null;
 			this.id = root.dataset.xfForm;
 			this.rest = root.dataset.xfRest;
 			this.token = null;
@@ -276,6 +280,7 @@
 			this.fields = [...root.querySelectorAll('[data-xf-key]')].filter((el) => el.dataset.xfKey !== '');
 
 			this.applyUrlPresets();
+			this.mountTurnstile();
 			this.wireA11y();
 			this.bind();
 			this.evaluateConditions();
@@ -449,6 +454,49 @@
 			return this.matches(this.candidatesOf(controller), field.dataset.xfCondValue);
 		}
 
+		/* -- Turnstile ---------------------------------------------------- */
+
+		/*
+		 * Widgeten renderas av Cloudflares api.js (implicit rendering via
+		 * klassen cf-turnstile). Varje formulär pratar med SIN container – inte
+		 * med ett widget-id – så att sidan och modalen inte blandar ihop
+		 * varandras token. getResponse/reset tar containern lika gärna som id.
+		 */
+		mountTurnstile() {
+			if (!this.turnstileBox) return;
+			// Implicit rendering hittar bara containrar som finns när api.js
+			// laddas. Ett formulär som läggs in senare (ajax-modal) renderas här.
+			if (document.readyState === 'complete' && window.turnstile?.render && !this.turnstileBox.childElementCount) {
+				try {
+					window.turnstile.render(this.turnstileBox);
+				} catch {
+					/* Redan renderad – inget att göra. */
+				}
+			}
+		}
+
+		turnstileToken() {
+			if (!this.turnstileBox) return '';
+			let token = '';
+			try {
+				token = window.turnstile?.getResponse?.(this.turnstileBox) ?? '';
+			} catch {
+				token = '';
+			}
+			// Widgeten skriver också token till ett dolt fält i containern.
+			return token || this.turnstileBox.querySelector('[name="cf-turnstile-response"]')?.value || '';
+		}
+
+		/** En token kan bara verifieras en gång – efter ett misslyckat inskick behövs en ny. */
+		resetTurnstile() {
+			if (!this.turnstileBox) return;
+			try {
+				window.turnstile?.reset?.(this.turnstileBox);
+			} catch {
+				/* Ingen widget att återställa. */
+			}
+		}
+
 		/* -- Fel ---------------------------------------------------------- */
 
 		showError(field, message) {
@@ -527,6 +575,12 @@
 				firstBad ??= field;
 			}
 
+			// Utan token avvisar servern ändå – säg det vid widgeten direkt.
+			if (this.turnstileField && this.turnstileToken() === '') {
+				this.showError(this.turnstileField, MESSAGES.turnstile);
+				firstBad ??= this.turnstileField;
+			}
+
 			return firstBad;
 		}
 
@@ -589,6 +643,8 @@
 				nonce: this.token?.nonce ?? '',
 				ts: this.token?.ts ?? 0,
 				sig: this.token?.sig ?? '',
+				// Bara när widgeten finns – nyttolasten är oförändrad för alla andra formulär.
+				...(this.turnstileBox ? { turnstile: this.turnstileToken() } : {}),
 			};
 		}
 
@@ -668,6 +724,8 @@
 				}
 
 				if (response.status === 422 && data?.errors) {
+					// Servern verifierar Turnstile FÖRE valideringen, så token är förbrukad.
+					this.resetTurnstile();
 					for (const [key, message] of Object.entries(data.errors)) {
 						const field = this.wrapper(key) ?? this.root.querySelector('.xf-type-consent');
 						if (field) this.showError(field, message);
@@ -687,8 +745,22 @@
 					return this.send(attempt + 1);
 				}
 
+				/*
+				 * Slutgiltigt misslyckande: ny Turnstile-token till nästa försök.
+				 * De tysta omförsöken ovan (toofast, nonce) återställer INTE –
+				 * de spärrarna ligger före Turnstile på servern, så token är
+				 * fortfarande oanvänd och följer med i omsändningen.
+				 */
+				this.resetTurnstile();
+
+				if (data?.code === 'turnstile' && this.turnstileField) {
+					this.showError(this.turnstileField, data.message || MESSAGES.turnstile);
+					return;
+				}
+
 				if (this.formError) this.formError.textContent = data?.message || MESSAGES.generic;
 			} catch {
+				this.resetTurnstile();
 				if (this.formError) this.formError.textContent = MESSAGES.generic;
 			}
 		}

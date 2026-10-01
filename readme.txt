@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.3.0
+Stable tag: 1.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -12,14 +12,24 @@ Formulärmotor för WordPress. Bygg formulär i wp-admin, varje formulär får e
 == Description ==
 
 Formulärbyggare med villkorliga fält som utvärderas på servern, mottagarregler,
-validering av e-post, telefon och URL, spamskydd utan CAPTCHA, UTM-attribution,
-inskickslagring med gallring samt export och import av formulär mellan sajter.
+validering av e-post, telefon och URL, spamskydd utan CAPTCHA (valfritt med
+Cloudflare Turnstile), UTM-attribution, inskickslagring med gallring, export
+och import av formulär mellan sajter samt ett REST-API för headless-frontends.
 
 Kräver Advanced Custom Fields Pro.
 
 Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
 == Changelog ==
+
+= 1.4.0 =
+Headless-stöd: nytt publikt endpoint GET /wp-json/relativt-form/v1/form/<id>
+med formulärdefinitionen (fält, texter, meddelanden), så att en frontend kan
+rendera formuläret själv och skicka till det befintliga REST-API:et.
+Mottagare, avsändare och nycklar följer aldrig med. Nytt valfritt spamskydd:
+Cloudflare Turnstile per formulär, nycklar under Standardvärden eller i
+wp-config.php. Avstängt som standard – ingenting ändras för sajter som inte
+slår på det.
 
 = 1.3.0 =
 Nytt fältval: "Visa etikett". Ikryssad som standard; kryssas den ur döljs

@@ -735,3 +735,133 @@ test('återkallat samtycke tar bort kampanjkakan', async ({ page }) => {
 
 	expect(await page.evaluate(() => document.cookie)).not.toContain('xf_src=');
 });
+
+/* -----------------------------------------------------------------------------
+ * Turnstile (1.4.0)
+ *
+ * Demon har två formulär med Turnstile (#xf-ts-a, #xf-ts-b), renderade av den
+ * riktiga renderaren med Cloudflares testnyckel. Cloudflares api.js ersätts
+ * av en stub i demon – se TURNSTILE-STUB i build-demo.php.
+ * -------------------------------------------------------------------------- */
+
+const ts_form = (page, which = 'a') => page.locator(`#xf-ts-${which} .relativt-form`);
+const widget = (form) => form.locator('[data-xf-turnstile]');
+
+test('Turnstile: widgeten renderas ovanför knappen med site key', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = ts_form(page);
+
+	await expect(widget(form)).toHaveAttribute('data-sitekey', '1x00000000000000000000AA');
+	await expect(widget(form)).toHaveClass(/cf-turnstile/);
+	await expect(widget(form)).toHaveAttribute('data-rendered', '1');
+
+	const above = await form.evaluate((root) => {
+		const w = root.querySelector('[data-xf-turnstile]');
+		const btn = root.querySelector('.xf-submit');
+		return !!(w.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING);
+	});
+	expect(above).toBe(true);
+});
+
+test('Turnstile: formulär utan Turnstile har ingen widget och skickar ingen token', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = page_form(page);
+	await expect(widget(form)).toHaveCount(0);
+
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+	await expect(form).toHaveClass(/is-submitted/);
+
+	const body = await page.evaluate(() => window.__mockCalls[0]);
+	expect(body).not.toHaveProperty('turnstile');
+});
+
+test('Turnstile: två formulär på samma sida har varsin widget', async ({ page }) => {
+	await page.goto(DEMO);
+	await expect(page.locator('[data-xf-turnstile][data-rendered="1"]')).toHaveCount(2);
+
+	// Ett misslyckat inskick i det ena formuläret återställer bara dess egen widget.
+	await page.evaluate(() => {
+		window.__mockFail = { status: 403, payload: { ok: false, code: 'turnstile', message: 'Säkerhetskontrollen är inte klar.' }, once: true };
+	});
+	const a = ts_form(page, 'a');
+	await fillValid(a);
+	await a.locator('.xf-submit').click();
+
+	await expect(widget(a)).toHaveAttribute('data-resets', '1');
+	await expect(widget(ts_form(page, 'b'))).toHaveAttribute('data-resets', '0');
+});
+
+test('Turnstile: token följer med i nyttolasten', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = ts_form(page);
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+
+	await expect(form).toHaveClass(/is-submitted/);
+	const body = await page.evaluate(() => window.__mockCalls[0]);
+	expect(body.turnstile).toBe('XXXX.DUMMY.TOKEN.XXXX');
+	expect(Number(body.form)).toBe(12);
+});
+
+test('Turnstile: utan token skickas ingenting, felet visas vid widgeten', async ({ page }) => {
+	await page.addInitScript(() => {
+		window.__turnstileNoToken = true;
+	});
+	await page.goto(DEMO);
+	const form = ts_form(page);
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+
+	await expect(form.locator('[data-xf-error="turnstile"]')).toHaveText('Säkerhetskontrollen är inte klar. Vänta en sekund och försök igen.');
+	await expect(form.locator('.xf-type-turnstile')).toHaveClass(/has-error/);
+	expect(await page.evaluate(() => window.__mockCalls.length)).toBe(0);
+});
+
+test('Turnstile: widgeten återställs efter ett 422-svar', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = ts_form(page);
+	await fillValid(form);
+	await page.evaluate(() => {
+		window.__mockFail = { status: 422, payload: { ok: false, errors: { namn: 'Fyll i detta fält.' } }, once: true };
+	});
+	await form.locator('.xf-submit').click();
+
+	await expect(field(form, 'namn').locator('.xf-error')).toHaveText('Fyll i detta fält.');
+	await expect(widget(form)).toHaveAttribute('data-resets', '1');
+
+	// Nästa försök går igenom med en ny token.
+	await form.locator('.xf-submit').click();
+	await expect(form).toHaveClass(/is-submitted/);
+	expect(await page.evaluate(() => window.__mockCalls[1].turnstile)).toBe('XXXX.DUMMY.TOKEN.XXXX');
+});
+
+test('Turnstile: avslag från servern visas vid widgeten och återställer den', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = ts_form(page);
+	await fillValid(form);
+	await page.evaluate(() => {
+		window.__mockFail = { status: 403, payload: { ok: false, code: 'turnstile', message: 'Säkerhetskontrollen är inte klar. Vänta en sekund och försök igen.' }, once: true };
+	});
+	await form.locator('.xf-submit').click();
+
+	await expect(form.locator('[data-xf-error="turnstile"]')).toHaveText('Säkerhetskontrollen är inte klar. Vänta en sekund och försök igen.');
+	await expect(widget(form)).toHaveAttribute('data-resets', '1');
+	await expect(form.locator('.xf-form-error')).toHaveText('');
+	await expect(form.locator('.xf-submit')).toBeEnabled();
+});
+
+test('Turnstile: tyst toofast-omsändning återanvänder token utan att återställa', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = ts_form(page);
+	await fillValid(form);
+	await page.evaluate(() => {
+		window.__mockFail = { status: 425, payload: { ok: false, code: 'toofast', retry_after: 1 }, once: true };
+	});
+	await form.locator('.xf-submit').click();
+
+	await expect(form).toHaveClass(/is-submitted/, { timeout: 10000 });
+	const calls = await page.evaluate(() => window.__mockCalls.map((c) => c.turnstile));
+	expect(calls).toEqual(['XXXX.DUMMY.TOKEN.XXXX', 'XXXX.DUMMY.TOKEN.XXXX']);
+	await expect(widget(form)).toHaveAttribute('data-resets', '0');
+});

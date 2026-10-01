@@ -36,6 +36,18 @@ $modal_form = $render->invoke( $engine, 12, [ 'jagar' => 'kandidat' ], '' );
 /** Tredje instansen används bara av regressionstestet för Oxygens id-regler. */
 $regression_form = $render->invoke( $engine, 12, [ 'jagar' => 'foretag' ], '' );
 
+/*
+ * Turnstile (1.4.0). Två formulär på samma sida med varsin widget, renderade
+ * av den riktiga renderaren med Cloudflares testnyckel som alltid passerar.
+ * Påslaget bara för de här två – formulären ovan ska se ut som före 1.4.0.
+ */
+$GLOBALS['__form']['xf_turnstile']               = 1;
+$GLOBALS['__options']['relativt_form_turnstile'] = [ 'site_key' => '1x00000000000000000000AA', 'secret' => '1x0000000000000000000000000000000AA' ];
+$turnstile_a = $render->invoke( $engine, 12, [ 'jagar' => 'foretag' ], '' );
+$turnstile_b = $render->invoke( $engine, 12, [ 'jagar' => 'foretag' ], '' );
+unset( $GLOBALS['__form']['xf_turnstile'] );
+$GLOBALS['__options'] = [];
+
 $css = file_get_contents( __DIR__ . '/../assets/css/relativt-formular.css' );
 $js  = file_get_contents( __DIR__ . '/../assets/js/relativt-formular.js' );
 
@@ -140,6 +152,19 @@ h1, h2 { font-size: 18px; margin: 0 0 20px; letter-spacing: .04em; text-transfor
 	</div>
 </div>
 
+<!-- Turnstile: två formulär på samma sida, varsin widget -->
+<div class="ct-section" id="xf-turnstile">
+	<div class="ct-section-inner-wrap">
+		<h2>Turnstile</h2>
+		<div class="ct-div-block card" id="xf-ts-a">
+			{$turnstile_a}
+		</div>
+		<div class="ct-div-block card" id="xf-ts-b" style="margin-top: 40px">
+			{$turnstile_b}
+		</div>
+	</div>
+</div>
+
 <!-- Modal-stub, med formuläret förvalt på Kandidat -->
 <div class="site-modal" data-modal="kontakt">
 	<div class="site-modal-overlay" data-modal-close></div>
@@ -217,6 +242,45 @@ window.fetch = async (url, options = {}) => {
 
 	return realFetch(url, options);
 };
+
+/* =============================================================================
+   TURNSTILE-STUB
+   Cloudflares api.js laddas inte i testerna (ingen nätverksberoende CI).
+   Stubben har samma yta som motorn använder – implicit rendering av
+   .cf-turnstile, getResponse(container), reset(container) – och skriver
+   token till det dolda fältet cf-turnstile-response, precis som widgeten.
+   Testnyckeln 2x00000000000000000000AB ger aldrig någon token, som hos
+   Cloudflare. window.__turnstileNoToken (sätts före laddning) gör samma sak
+   för alla widgetar. data-resets räknar återställningarna per widget.
+   ========================================================================== */
+window.__turnstileNoToken = window.__turnstileNoToken || false;
+window.turnstile = {
+	_issue(el) {
+		const blocked = window.__turnstileNoToken || el.dataset.sitekey === '2x00000000000000000000AB';
+		el.querySelector('[name="cf-turnstile-response"]').value = blocked ? '' : 'XXXX.DUMMY.TOKEN.XXXX';
+	},
+	render(el) {
+		if (el.dataset.rendered) throw new Error('Turnstile: widgeten är redan renderad');
+		el.dataset.rendered = '1';
+		el.dataset.resets = '0';
+		const input = document.createElement('input');
+		input.type = 'hidden';
+		input.name = 'cf-turnstile-response';
+		el.appendChild(input);
+		this._issue(el);
+		return `widget-\${document.querySelectorAll('[data-rendered]').length}`;
+	},
+	getResponse(el) {
+		return el.querySelector('[name="cf-turnstile-response"]')?.value ?? '';
+	},
+	reset(el) {
+		el.dataset.resets = String(Number(el.dataset.resets || 0) + 1);
+		this._issue(el);
+	},
+};
+document.addEventListener('DOMContentLoaded', () => {
+	document.querySelectorAll('.cf-turnstile').forEach((el) => window.turnstile.render(el));
+});
 
 /* Modal-stub med samma API som temats modal */
 window.relativtFormModal = {
