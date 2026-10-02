@@ -715,9 +715,9 @@ final class Relativt_Form_Stats {
 				$m    = $meta[ (int) $post->ID ] ?? [];
 				$data = maybe_unserialize( (string) ( $m['_xf_meta'] ?? '' ) );
 
-				// IP-adressen ligger i samma metafält men används aldrig här – släpp den direkt.
+				// IP-adressen och samtyckestexten ligger i samma metafält men används aldrig här – släpp dem direkt.
 				if ( is_array( $data ) ) {
-					unset( $data['ip'] );
+					unset( $data['ip'], $data['consent'] );
 				}
 
 				$fid     = (int) ( $m['_xf_form_id'] ?? 0 );

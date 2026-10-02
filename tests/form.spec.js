@@ -31,17 +31,31 @@ const STATS = { necessary: true, statistics: true, marketing: false };
 const NONE = { necessary: true, statistics: false, marketing: false };
 
 /**
- * Relativt Cookie Consent: rccCookie i konfigurationen är exakt vad PHP
- * skickar när cookie-pluginet är aktivt. Samtyckescookien sätts bara om den
- * saknas, så att ett test kan ändra den mellan sidladdningar.
+ * Relativt Cookie Consent: rccCookie och rccConsentVersion i konfigurationen
+ * är exakt vad PHP skickar när cookie-pluginet är aktivt. window.rcc
+ * efterliknar cookie-pluginets API: getConsent() svarar null när samtycket
+ * har en äldre samtyckesversion än sajten. Samtyckescookien sätts bara om
+ * den saknas, så att ett test kan ändra den mellan sidladdningar.
+ *
+ *   version – sajtens samtyckesversion (kakan skrivs med version 1)
+ *   api     – false = cookie-pluginets skript har inte körts
  */
-async function withRcc(page, consent, extra = {}) {
-	await page.addInitScript(([value, more]) => {
-		window.relativtFormConfig = { rccCookie: 'relativt_cookie_consent', ...more };
+async function withRcc(page, consent, extra = {}, { version = 1, api = true } = {}) {
+	await page.addInitScript(([value, more, siteVersion, withApi]) => {
+		window.relativtFormConfig = { rccCookie: 'relativt_cookie_consent', rccConsentVersion: siteVersion, ...more };
 		if (value && !document.cookie.includes('relativt_cookie_consent=')) {
-			document.cookie = `relativt_cookie_consent=${encodeURIComponent(JSON.stringify(value))}; path=/`;
+			document.cookie = `relativt_cookie_consent=${encodeURIComponent(JSON.stringify({ version: 1, ...value }))}; path=/`;
 		}
-	}, [consent, extra]);
+		if (withApi) {
+			const read = () => {
+				const row = document.cookie.split('; ').find((r) => r.startsWith('relativt_cookie_consent='));
+				if (!row) return null;
+				const consent = JSON.parse(decodeURIComponent(row.slice('relativt_cookie_consent='.length)));
+				return (parseInt(consent.version, 10) || 1) === siteVersion ? consent : null;
+			};
+			window.rcc = { getConsent: read, hasConsent: (category) => !!read()?.[category] };
+		}
+	}, [consent, extra, version, api]);
 }
 
 /**
@@ -658,6 +672,17 @@ test('obligatorisk grupp utan required-attribut stoppas via data-xf-required', a
 	expect(await page.evaluate(() => window.__mockCalls.length)).toBe(0);
 });
 
+test('fälten för besökarens uppgifter talar om vad de gäller (WCAG 1.3.5)', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = page_form(page);
+
+	await expect(field(form, 'namn').locator('input')).toHaveAttribute('autocomplete', 'name');
+	await expect(field(form, 'foretag').locator('input')).toHaveAttribute('autocomplete', 'organization');
+	await expect(field(form, 'epost').locator('input')).toHaveAttribute('autocomplete', 'email');
+	await expect(field(form, 'telefon').locator('input')).toHaveAttribute('autocomplete', 'tel');
+	await expect(field(form, 'meddelande').locator('textarea')).not.toHaveAttribute('autocomplete', /.+/);
+});
+
 test('hjälptexten renderas under fältet', async ({ page }) => {
 	await page.goto(DEMO);
 	const form = page_form(page);
@@ -763,7 +788,7 @@ test('kampanjkakan skrivs i efterhand när samtycket kommer', async ({ page }) =
 
 const LANDING = `${DEMO}?utm_source=google&utm_medium=cpc&gclid=abc123&fbclid=def456`;
 
-test('statistiksamtycke: UTM sparas, gclid och fbclid bara i minnet', async ({ page }) => {
+test('statistiksamtycke: UTM sparas, gclid och fbclid stannar i webbläsarens minne', async ({ page }) => {
 	await withRcc(page, STATS);
 	await page.goto(LANDING);
 
@@ -773,10 +798,14 @@ test('statistiksamtycke: UTM sparas, gclid och fbclid bara i minnet', async ({ p
 	expect(cookie.gclid).toBeUndefined();
 	expect(cookie.fbclid).toBeUndefined();
 
-	// Inskick från landningssidan får klick-id ur minnet.
+	// I minnet på landningssidan…
+	expect(await page.evaluate(() => window.relativtForm.source().gclid)).toBe('abc123');
+
+	// …men de följer inte med inskicket (1.8.0). UTM gör det.
 	const body = await submitPage(page);
-	expect(body.utm.gclid).toBe('abc123');
-	expect(body.utm.fbclid).toBe('def456');
+	expect(body.utm.utm_source).toBe('google');
+	expect(body.utm.gclid).toBeUndefined();
+	expect(body.utm.fbclid).toBeUndefined();
 
 	// Nästa sida: bara det som fick sparas.
 	await page.goto(DEMO);
@@ -795,6 +824,76 @@ test('marknadsföringssamtycke: klick-id sparas i kakan', async ({ page }) => {
 	expect(await page.evaluate(() => window.relativtForm.consent())).toEqual({
 		mode: 'auto', tool: 'rcc', attribution: true, clickIds: true,
 	});
+
+	const body = await submitPage(page);
+	expect(body.utm.gclid).toBe('abc123');
+	expect(body.utm.fbclid).toBe('def456');
+});
+
+test('klick-id som ges samtycke senare på sidan följer med inskicket', async ({ page }) => {
+	await withRcc(page, STATS);
+	await page.goto(LANDING);
+
+	await page.evaluate((detail) => {
+		document.dispatchEvent(new CustomEvent('rcc_consent_updated', { detail }));
+	}, ALL);
+
+	const body = await submitPage(page);
+	expect(body.utm.gclid).toBe('abc123');
+});
+
+/* -----------------------------------------------------------------------------
+ * Samtycke och kampanjkakan: samtyckesversionen i Relativt Cookie Consent (1.8.0)
+ * -------------------------------------------------------------------------- */
+
+test('ett samtycke med äldre samtyckesversion räknas inte', async ({ page }) => {
+	// Kakan har version 1, sajten har höjt till 2 – rutan visas igen.
+	await withRcc(page, ALL, {}, { version: 2 });
+	await page.goto(LANDING);
+
+	expect(await srcCookie(page)).toBeNull();
+	expect(await page.evaluate(() => window.relativtForm.consent())).toEqual({
+		mode: 'auto', tool: 'rcc', attribution: false, clickIds: false,
+	});
+	const body = await submitPage(page);
+	expect(body.utm.gclid).toBeUndefined();
+});
+
+test('utan cookie-pluginets skript läses samtyckeskakan direkt, men bara med rätt version', async ({ page }) => {
+	await withRcc(page, ALL, {}, { version: 1, api: false });
+	await page.goto(LANDING);
+
+	expect((await srcCookie(page)).gclid).toBe('abc123');
+});
+
+test('utan cookie-pluginets skript och med höjd version skrivs ingen kaka', async ({ page }) => {
+	await withRcc(page, ALL, {}, { version: 2, api: false });
+	await page.goto(LANDING);
+
+	expect(await srcCookie(page)).toBeNull();
+});
+
+test('utan cookie-pluginets skript och okänd version räknas samtyckeskakan inte', async ({ page }) => {
+	await withRcc(page, ALL, { rccConsentVersion: null }, { api: false });
+	await page.goto(LANDING);
+
+	expect(await srcCookie(page)).toBeNull();
+});
+
+test('cookie-pluginets API används även när det laddas efter formulärskriptet', async ({ page }) => {
+	await withRcc(page, ALL, {}, { version: 2, api: false });
+	// API:et dyker upp efter formulärskriptet och säger nej (inaktuell version),
+	// fast kakan själv ser ut att ge samtycke.
+	await page.addInitScript(() => {
+		document.addEventListener('DOMContentLoaded', () => {
+			window.rcc = { getConsent: () => null, hasConsent: () => false };
+			document.dispatchEvent(new Event('rcc_ready'));
+		});
+	});
+	await page.goto(LANDING);
+
+	expect(await srcCookie(page)).toBeNull();
+	expect((await page.evaluate(() => window.relativtForm.consent())).tool).toBe('rcc');
 });
 
 test('nedgradering till bara statistik skalar av klick-id utan att förlänga kakan', async ({ page }) => {
@@ -872,9 +971,10 @@ test('utan samtyckesverktyg skrivs ingen kampanjkaka, men attributionen följer 
 		mode: 'auto', tool: null, attribution: false, clickIds: false,
 	});
 
+	// UTM följer med inskicket från landningssidan; klick-id gör det inte.
 	const body = await submitPage(page);
 	expect(body.utm.utm_source).toBe('google');
-	expect(body.utm.gclid).toBe('abc123');
+	expect(body.utm.gclid).toBeUndefined();
 
 	await page.goto(DEMO);
 	expect(await page.evaluate(() => window.relativtForm.source().utm_source)).toBeUndefined();

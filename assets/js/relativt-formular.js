@@ -65,6 +65,8 @@
 	 */
 	const UTM_MODE = ['always', 'never'].includes(CONFIG.utmCookie) ? CONFIG.utmCookie : 'auto';
 	const RCC_COOKIE = typeof CONFIG.rccCookie === 'string' && CONFIG.rccCookie !== '' ? CONFIG.rccCookie : null;
+	/** Sajtens samtyckesversion i Relativt Cookie Consent, eller null om okänd. */
+	const RCC_VERSION = Number.isInteger(CONFIG.rccConsentVersion) && CONFIG.rccConsentVersion > 0 ? CONFIG.rccConsentVersion : null;
 	const WP_CONSENT_API = CONFIG.wpConsentApi === true;
 
 	const categoryList = (value, fallback) => (Array.isArray(value)
@@ -138,7 +140,9 @@
 	 * (wp_consent_type_defined) så länge det tar.
 	 */
 	const consentTool = () => {
-		if (RCC_COOKIE) return 'rcc';
+		// Relativt Cookie Consent: vänta på dess API (window.rcc), som vet om
+		// samtycket gäller den aktuella samtyckesversionen.
+		if (RCC_COOKIE) return rccApi() || settled || rccLatest ? 'rcc' : 'pending';
 
 		if (typeof window.wp_has_consent === 'function') {
 			if (wpConsentType()) return 'wp-consent-api';
@@ -152,11 +156,29 @@
 		return settled ? null : 'pending';
 	};
 
+	const rccApi = () => typeof window.rcc?.getConsent === 'function';
+
+	/**
+	 * Samtycket i Relativt Cookie Consent – bara om det gäller sajtens
+	 * aktuella samtyckesversion. window.rcc.getConsent() svarar null för ett
+	 * inaktuellt samtycke. Har cookie-pluginets skript inte körts alls när
+	 * sidan laddat färdigt (fördröjt av ett optimeringsplugin, blockerat)
+	 * läses samtyckeskakan direkt, men bara om versionen stämmer med den PHP
+	 * skickat. Okänd version = inget samtycke.
+	 */
+	const rccConsent = () => {
+		if (rccApi()) return window.rcc.getConsent();
+
+		const consent = readCookie(RCC_COOKIE);
+		if (!consent || typeof consent !== 'object' || !RCC_VERSION) return null;
+		return (parseInt(consent.version, 10) || 1) === RCC_VERSION ? consent : null;
+	};
+
 	const granted = (tool, category) => {
 		try {
 			switch (tool) {
 				case 'rcc': {
-					const consent = rccLatest ?? window.rcc?.getConsent?.() ?? readCookie(RCC_COOKIE);
+					const consent = rccLatest ?? rccConsent();
 					return !!(consent && isYes(consent[category]));
 				}
 				case 'wp-consent-api':
@@ -278,6 +300,8 @@
 			if (event.detail && typeof event.detail === 'object') rccLatest = event.detail;
 			sync();
 		});
+		// Cookie-pluginets API är klart (om det laddas efter det här skriptet).
+		document.addEventListener('rcc_ready', sync);
 
 		document.addEventListener('wp_listen_for_consent_change', (event) => {
 			const changed = event.detail && typeof event.detail === 'object' ? event.detail : {};
@@ -815,6 +839,16 @@
 
 			const utm = { ...currentSource() };
 			delete utm.t;
+			/*
+			 * Klick-id lämnar bara webbläsaren med samtycke till kategorin för
+			 * klick-id (normalt marknadsföring) när inskicket görs. De är
+			 * annonsplattformarnas identifierare för ett enskilt klick, och i
+			 * inskicket kopplas de dessutom till ett namn och en e-postadress.
+			 * Utan samtycke fanns de bara i minnet – nu stannar de där.
+			 */
+			if (permissions()?.clicks !== true) {
+				for (const key of CLICK_KEYS) delete utm[key];
+			}
 
 			return {
 				form: this.id,

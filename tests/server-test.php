@@ -852,8 +852,9 @@ $def = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
 check( 'publicerat formulär svarar med en definition', is_array( $def ) && 12 === ( $def['id'] ?? 0 ) );
 check( 'titeln följer med', 'Kontaktformulär' === ( $def['title'] ?? '' ) );
 // 1.6.0: statistikvalet är en admininställning och tas bort ur den publika definitionen.
-$public_expected = array_map( static function ( $f ) { unset( $f['stats'] ); return $f; }, $engine->get_fields( 12 ) );
-check( 'fälten är get_fields() utan statistikvalet, oförändrade i JSON', json_decode( wp_json_encode( $def['fields'] ?? null ), true ) === json_decode( wp_json_encode( $public_expected ), true ) );
+// 1.8.0: autocomplete skickas som färdigt värde för attributet.
+$public_expected = array_map( static function ( $f ) use ( $engine ) { unset( $f['stats'] ); $f['autocomplete'] = $engine->autocomplete_for( $f ); return $f; }, $engine->get_fields( 12 ) );
+check( 'fälten är get_fields() utan statistikvalet och med upplöst autocomplete, oförändrade i JSON', json_decode( wp_json_encode( $def['fields'] ?? null ), true ) === json_decode( wp_json_encode( $public_expected ), true ) );
 check( 'statistikvalet följer aldrig med i den publika definitionen', ! str_contains( (string) wp_json_encode( $def['fields'] ?? null ), '"stats"' ) );
 check( 'choices är alltid ett objekt i JSON, även tomt', str_contains( wp_json_encode( $def['fields'], JSON_UNESCAPED_UNICODE ), '"key":"namn","label":"Namn","show_label":true,"placeholder":"För- och efternamn","help":"","choices":{}' ) );
 check( 'och värde => etikett behålls', '{"foretag":"Företag","kandidat":"Kandidat"}' === wp_json_encode( $def['fields'][0]['choices'] ?? null, JSON_UNESCAPED_UNICODE ) );
@@ -1592,6 +1593,157 @@ $GLOBALS['__transients'] = [];
 
 unset( $GLOBALS['wpdb'] );
 $GLOBALS['__transients'] = [];
+
+
+echo "\nAutofyll / autocomplete (1.8.0)\n";
+
+$GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
+$f18 = [];
+foreach ( $engine->get_fields( 12 ) as $f ) {
+	$f18[ $f['key'] ] = $f;
+}
+check( 'namnfältet gissas till name', 'name' === $engine->autocomplete_for( $f18['namn'] ) );
+check( 'företagsfältet gissas till organization', 'organization' === $engine->autocomplete_for( $f18['foretag'] ) );
+check( 'e-post och telefon efter typen', 'email' === $engine->autocomplete_for( $f18['epost'] ) && 'tel' === $engine->autocomplete_for( $f18['telefon'] ) );
+check( 'textrutor och val får inget', '' === $engine->autocomplete_for( $f18['meddelande'] ) && '' === $engine->autocomplete_for( $f18['behov'] ) );
+check( 'okända textfält gissas inte', '' === $engine->autocomplete_for( [ 'type' => 'text', 'key' => 'ordernummer', 'autocomplete' => '' ] ) );
+check( 'nycklar med bindestreck känns igen', 'given-name' === $engine->autocomplete_for( [ 'type' => 'text', 'key' => 'for-namn' ] ) && 'postal-code' === $engine->autocomplete_for( [ 'type' => 'text', 'key' => 'post_nummer' ] ) );
+
+$GLOBALS['__form']['xf_fields'][1]['autocomplete'] = 'off';
+$GLOBALS['__form']['xf_fields'][2]['autocomplete'] = 'organization-title';
+$GLOBALS['__form']['xf_fields'][3]['autocomplete'] = '" onfocus="alert(1)';
+Relativt_Form::flush_fields_cache();
+$f18 = [];
+foreach ( $engine->get_fields( 12 ) as $f ) {
+	$f18[ $f['key'] ] = $f;
+}
+check( 'valet Inget stänger av gissningen', '' === $engine->autocomplete_for( $f18['namn'] ) );
+check( 'ett uttryckligt val vinner över gissningen', 'organization-title' === $engine->autocomplete_for( $f18['foretag'] ) );
+check( 'okända värden rensas bort i get_fields', '' === $f18['epost']['autocomplete'] && 'email' === $engine->autocomplete_for( $f18['epost'] ) );
+
+$html18 = $render->invoke( $engine, 12, [], '' );
+check( 'valet Inget ger inget attribut', (bool) preg_match( '/name="fields\[namn\]"[^>]*>/', $html18, $m18 ) && ! str_contains( $m18[0], 'autocomplete' ), $m18[0] ?? '' );
+check( 'uttryckligt val renderas', (bool) preg_match( '/name="fields\[foretag\]"[^>]*autocomplete="organization-title"/', $html18 ) );
+check( 'e-post behåller autocomplete och tangentbord', (bool) preg_match( '/name="fields\[epost\]"[^>]*inputmode="email"[^>]*autocomplete="email"/', $html18 ) );
+check( 'inget skadligt värde når markupen', ! str_contains( $html18, 'alert(1)' ) );
+
+$GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
+$html18 = $render->invoke( $engine, 12, [], '' );
+check( 'befintliga formulär får autocomplete utan att öppnas', (bool) preg_match( '/name="fields\[namn\]"[^>]*autocomplete="name"/', $html18 ) && (bool) preg_match( '/name="fields\[foretag\]"[^>]*autocomplete="organization"/', $html18 ) );
+
+$def18 = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+$by18  = array_column( json_decode( wp_json_encode( $def18['fields'] ), true ), 'autocomplete', 'key' );
+check( 'headless-definitionen har färdigt autocomplete-värde', 'name' === ( $by18['namn'] ?? null ) && '' === ( $by18['meddelande'] ?? null ) );
+check( 'valet följer med i JSON-exporten', array_key_exists( 'autocomplete', Relativt_Form_Portability::instance()->build_payload( 12 )['settings']['xf_fields'][0] ) );
+
+echo "\nIP-adress och gallring (1.8.0)\n";
+
+$_SERVER['REMOTE_ADDR'] = '198.51.100.7';
+unset( $GLOBALS['__form']['xf_log_ip'] );
+check( 'IP-adressen sparas inte som standard', '' === call( $engine, 'collect_meta', [ 12, [] ] )['ip'] );
+$GLOBALS['__form']['xf_log_ip'] = 1;
+check( 'men går att slå på', '198.51.100.7' === call( $engine, 'collect_meta', [ 12, [] ] )['ip'] );
+
+unset( $GLOBALS['__form']['xf_retention'] );
+check( 'formulär utan gallringstid gallras efter 365 dagar, som byggaren visar', 365 === $engine->retention_days( 12 ) );
+$GLOBALS['__form']['xf_retention'] = 0;
+check( 'uttryckligt 0 betyder fortfarande aldrig', 0 === $engine->retention_days( 12 ) );
+$GLOBALS['__form'] = xf_test_form();
+
+echo "\nSamtyckesrutan sparas (1.8.0)\n";
+
+check( 'utan samtyckesruta sparas inget samtycke', '' === call( $engine, 'collect_meta', [ 12, [ 'xf_consent' => 1 ] ] )['consent'] );
+$GLOBALS['__form']['xf_consent_box'] = 1;
+$consent18 = call( $engine, 'collect_meta', [ 12, [ 'xf_consent' => 1 ] ] )['consent'];
+check( 'ikryssad ruta sparas med texten som gällde', str_starts_with( $consent18, 'Godkänt: Genom att klicka på Skicka meddelande' ), $consent18 );
+check( 'texten sparas utan html', ! str_contains( $consent18, '<' ) && str_contains( $consent18, 'integritetspolicy' ) );
+check( 'oikryssad ruta sparar inget', '' === call( $engine, 'collect_meta', [ 12, [] ] )['consent'] );
+$mail18 = call( $engine, 'mail_body', [ 12, $foretag['values'], call( $engine, 'collect_meta', [ 12, [ 'xf_consent' => 1 ] ] ) ] );
+check( 'samtycket står i mailet', str_contains( $mail18, '>Samtycke<' ) && str_contains( $mail18, 'Godkänt:' ) );
+$GLOBALS['__form'] = xf_test_form();
+
+echo "\nIntegritetsverktygen (1.8.0)\n";
+
+check( 'exporten registreras', is_callable( $engine->register_privacy_exporter( [] )['relativt-formular']['callback'] ?? null ) );
+check( 'raderingen registreras', is_callable( $engine->register_privacy_eraser( [] )['relativt-formular']['callback'] ?? null ) );
+check( 'båda hänger på WordPress filter', in_array( 'register_privacy_exporter', hooked_methods( 'wp_privacy_personal_data_exporters' ), true ) && in_array( 'register_privacy_eraser', hooked_methods( 'wp_privacy_personal_data_erasers' ), true ) );
+
+$entry18 = static fn( string $email, string $extra = '' ) => [
+	'_xf_form_id' => 12,
+	'_xf_email'   => $email,
+	'_xf_values'  => array_values( array_filter( [
+		[ 'key' => 'namn', 'label' => 'Namn', 'type' => 'text', 'value' => 'Anna Andersson' ],
+		[ 'key' => 'epost', 'label' => 'E-post', 'type' => 'email', 'value' => $email ],
+		'' !== $extra ? [ 'key' => 'epost2', 'label' => 'Faktura-e-post', 'type' => 'email', 'value' => $extra ] : null,
+		[ 'key' => 'meddelande', 'label' => 'Meddelande', 'type' => 'textarea', 'value' => 'Kontakta gärna anna@exempel.se' ],
+	] ) ),
+	'_xf_meta'    => [ 'date' => '2026-10-01', 'time' => '09:30', 'page' => 'https://exempel.se/kontakt/', 'consent' => 'Godkänt: text', 'ip' => '', 'ua' => 'Firefox', 'utm' => [ 'utm_source' => 'google' ] ],
+];
+$GLOBALS['__postmeta'] = [
+	501 => $entry18( 'Anna@Exempel.se' ),
+	502 => $entry18( 'bo@exempel.se', 'anna@exempel.se' ), // adressen i ett annat e-postfält
+	503 => $entry18( 'cecilia@exempel.se' ),                // nämner adressen bara i meddelandet
+];
+$GLOBALS['__get_posts'] = static function ( $args ) {
+	$GLOBALS['__privacy_args'] = $args;
+	return array_keys( $GLOBALS['__postmeta'] );
+};
+
+$exp18 = $engine->privacy_export( 'anna@exempel.se', 1 );
+$ids18 = array_column( $exp18['data'], 'item_id' );
+$mq18 = $GLOBALS['__privacy_args']['meta_query'] ?? [];
+check( 'frågan söker i både första e-postfältet och alla fältvärden', 'OR' === ( $mq18['relation'] ?? '' ) && 'anna@exempel.se' === ( $mq18[0]['value'] ?? '' ) && '"anna@exempel.se"' === ( $mq18[1]['value'] ?? '' ) && 'LIKE' === ( $mq18[1]['compare'] ?? '' ) );
+check( 'och läser i omgångar', 50 === ( $GLOBALS['__privacy_args']['posts_per_page'] ?? 0 ) && 1 === ( $GLOBALS['__privacy_args']['paged'] ?? 0 ) );
+check( 'inskick med adressen i något e-postfält exporteras, oavsett versaler', [ 'xf-entry-501', 'xf-entry-502' ] === $ids18, implode( ',', $ids18 ) );
+check( 'en adress som bara nämns i ett meddelande räknas inte', ! in_array( 'xf-entry-503', $ids18, true ) );
+$data18 = array_column( $exp18['data'][0]['data'] ?? [], 'value', 'name' );
+check( 'exporten har formulär, tid och fältvärden', 'Kontaktformulär' === ( $data18['Formulär'] ?? '' ) && '2026-10-01 09:30' === ( $data18['Inskickat'] ?? '' ) && 'Anna Andersson' === ( $data18['Namn'] ?? '' ) );
+check( 'och metadata med svenska etiketter', 'Godkänt: text' === ( $data18['Samtycke'] ?? '' ) && 'google' === ( $data18['Kampanjkälla'] ?? '' ) && 'Firefox' === ( $data18['Webbläsare'] ?? '' ) );
+check( 'tomma värden utelämnas', ! isset( $data18['IP-adress'] ) );
+check( 'en ofull omgång är klar', true === $exp18['done'] );
+check( 'en ogiltig adress söker inte alls', [] === $engine->privacy_export( 'inte-en-adress', 1 )['data'] );
+
+add_filter( 'relativt_form_privacy_erase', static fn( $erase, $id ) => 502 !== $id, 10, 2 );
+$GLOBALS['__deleted'] = [];
+$era18 = $engine->privacy_erase( 'anna@exempel.se', 1 );
+check( 'raderingen tar bort inskicken helt', [ 501 ] === $GLOBALS['__deleted'], implode( ',', $GLOBALS['__deleted'] ) );
+check( 'filtret kan hålla kvar ett inskick, och det redovisas', true === $era18['items_removed'] && true === $era18['items_retained'] && str_contains( implode( ' ', $era18['messages'] ), '1 formulärinskick behölls' ) );
+check( 'inskick utan adressen rörs inte', isset( $GLOBALS['__postmeta'][503] ) );
+remove_all_filters( 'relativt_form_privacy_erase' );
+
+// En full omgång där inget kan raderas får inte hålla verktyget kvar för evigt.
+$GLOBALS['__postmeta'] = [];
+for ( $i = 600; $i < 650; $i++ ) {
+	$GLOBALS['__postmeta'][ $i ] = $entry18( 'anna@exempel.se' );
+}
+add_filter( 'relativt_form_privacy_erase', static fn() => false );
+$era18 = $engine->privacy_erase( 'anna@exempel.se', 1 );
+check( 'full omgång utan raderingar avslutas', true === $era18['done'] && false === $era18['items_removed'] );
+remove_all_filters( 'relativt_form_privacy_erase' );
+$era18 = $engine->privacy_erase( 'anna@exempel.se', 1 );
+check( 'full omgång med raderingar fortsätter', false === $era18['done'] && true === $era18['items_removed'] );
+
+unset( $GLOBALS['__get_posts'] );
+$GLOBALS['__postmeta'] = [];
+$GLOBALS['__deleted']  = [];
+
+echo "\nRelativt Cookie Consent: samtyckesversionen (1.8.0)\n";
+
+check( 'utan samtyckesversion skickas ingen', ! isset( xf_read_config()['rccConsentVersion'] ) );
+if ( ! defined( 'RCC_VERSION' ) ) {
+	define( 'RCC_VERSION', '1.2.0' );
+}
+if ( ! function_exists( 'rcc_get_settings' ) ) {
+	function rcc_get_settings() { return $GLOBALS['__rcc_settings'] ?? []; }
+}
+$GLOBALS['__rcc_settings'] = [ 'consent_version' => '3' ];
+$cfg18 = xf_read_config();
+check( 'med cookie-pluginet följer kaknamnet med', 'relativt_cookie_consent' === ( $cfg18['rccCookie'] ?? '' ) );
+check( 'och samtyckesversionen, som heltal', 3 === ( $cfg18['rccConsentVersion'] ?? null ) );
+$GLOBALS['__rcc_settings'] = [];
+check( 'saknad version räknas som 1, som i cookie-pluginet', 1 === ( xf_read_config()['rccConsentVersion'] ?? null ) );
 
 echo "\n" . str_repeat( '─', 50 ) . "\n";
 printf( "%d godkända, %d underkända\n\n", $passed, $failed );

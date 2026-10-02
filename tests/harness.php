@@ -307,6 +307,27 @@ function get_the_title( $id ) { return 'Kontaktformulär'; }
 function get_posts( $args = [] ) {
 	return isset( $GLOBALS['__get_posts'] ) ? ( $GLOBALS['__get_posts'] )( $args ) : [];
 }
+/*
+ * Inskickens metadata för integritetsverktygen: $GLOBALS['__postmeta'][id][nyckel].
+ * Raderade inskick spelas in i $GLOBALS['__deleted'].
+ */
+$GLOBALS['__postmeta'] = [];
+$GLOBALS['__deleted']  = [];
+if ( ! function_exists( 'get_post_meta' ) ) {
+	function get_post_meta( $id, $key = '', $single = false ) {
+		return $GLOBALS['__postmeta'][ (int) $id ][ $key ] ?? '';
+	}
+}
+if ( ! function_exists( 'wp_delete_post' ) ) {
+	function wp_delete_post( $id, $force = false ) {
+		$GLOBALS['__deleted'][] = (int) $id;
+		unset( $GLOBALS['__postmeta'][ (int) $id ] );
+		return (object) [ 'ID' => (int) $id ];
+	}
+}
+if ( ! function_exists( 'get_the_date' ) ) {
+	function get_the_date( $format = '', $post = null ) { return '2026-10-01 09:30'; }
+}
 function home_url( $path = '' ) { return 'https://exempel.se/' . ltrim( (string) $path, '/' ); }
 function maybe_unserialize( $v ) {
 	if ( is_string( $v ) && preg_match( '/^[aOsibd]:/', $v ) ) {

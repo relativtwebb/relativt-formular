@@ -69,6 +69,52 @@ final class Relativt_Form {
 	 */
 	private const MAX_LINKS = 3;
 
+	/**
+	 * Gallringstid i dagar när formuläret saknar ett eget värde. Samma siffra
+	 * som byggaren visar som standard – före 1.8.0 betydde ett saknat värde
+	 * i stället "radera aldrig", fast byggaren visade 365.
+	 */
+	public const DEFAULT_RETENTION = 365;
+
+	/** Inskick per omgång i WordPress verktyg för export och radering av personuppgifter. */
+	private const PRIVACY_BATCH = 50;
+
+	/**
+	 * Värden för autocomplete-attributet som byggaren erbjuder (WCAG 1.3.5,
+	 * Identifiera syftet med inmatning). Tokens enligt HTML-standarden.
+	 */
+	public const AUTOCOMPLETE = [
+		'name'               => 'Namn',
+		'given-name'         => 'Förnamn',
+		'family-name'        => 'Efternamn',
+		'organization'       => 'Företag/organisation',
+		'organization-title' => 'Titel/roll',
+		'email'              => 'E-post',
+		'tel'                => 'Telefon',
+		'url'                => 'Webbadress',
+		'street-address'     => 'Gatuadress',
+		'postal-code'        => 'Postnummer',
+		'address-level2'     => 'Ort',
+		'country-name'       => 'Land',
+	];
+
+	/**
+	 * Gissning för textfält med valet Automatiskt, på fältnyckeln utan
+	 * bindestreck och understreck. Bara entydiga namn – en felaktig gissning
+	 * är värre än ingen, eftersom webbläsaren då fyller i fel uppgift.
+	 */
+	private const AUTOCOMPLETE_GUESS = [
+		'name'               => [ 'namn', 'name', 'fullname', 'fulltnamn', 'dittnamn', 'kontaktperson' ],
+		'given-name'         => [ 'fornamn', 'firstname', 'givenname' ],
+		'family-name'        => [ 'efternamn', 'lastname', 'surname', 'familyname' ],
+		'organization'       => [ 'foretag', 'foretagsnamn', 'company', 'companyname', 'organisation', 'organization', 'organisationsnamn', 'bolag' ],
+		'organization-title' => [ 'titel', 'jobtitle', 'befattning', 'yrkestitel' ],
+		'street-address'     => [ 'adress', 'address', 'gatuadress', 'streetaddress' ],
+		'postal-code'        => [ 'postnummer', 'postnr', 'zip', 'zipcode', 'postcode', 'postalcode' ],
+		'address-level2'     => [ 'ort', 'postort', 'stad', 'city' ],
+		'country-name'       => [ 'land', 'country' ],
+	];
+
 	/** Kampanjkakan. Namnet speglas i JS (COOKIE) och i cookie-deklarationen. */
 	public const SOURCE_COOKIE = 'xf_src';
 
@@ -111,6 +157,10 @@ final class Relativt_Form {
 		 */
 		add_filter( 'wp_consent_api_registered_' . plugin_basename( defined( 'RELATIVT_FORM_FILE' ) ? RELATIVT_FORM_FILE : __FILE__ ), '__return_true' );
 		add_action( 'plugins_loaded', [ $this, 'register_cookie_info' ] );
+
+		// Verktyg → Exportera/Radera personuppgifter.
+		add_filter( 'wp_privacy_personal_data_exporters', [ $this, 'register_privacy_exporter' ] );
+		add_filter( 'wp_privacy_personal_data_erasers', [ $this, 'register_privacy_eraser' ] );
 		add_filter( 'script_loader_tag', [ $this, 'turnstile_script_tag' ], 10, 2 );
 
 		// Admin.
@@ -196,6 +246,18 @@ final class Relativt_Form {
 			$config['rccCookie'] = function_exists( 'rcc_cookie_name' )
 				? (string) rcc_cookie_name()
 				: 'relativt_cookie_consent';
+
+			/*
+			 * Samtyckesversionen (cookie-pluginet 1.1.0+). JS frågar i första
+			 * hand window.rcc.getConsent(), som själv bortser från ett
+			 * samtycke med äldre version. Versionen här behövs bara om
+			 * cookie-pluginets skript aldrig körs och samtyckeskakan måste
+			 * läsas direkt – utan den räknas kakan inte som samtycke alls.
+			 */
+			if ( function_exists( 'rcc_get_settings' ) ) {
+				$rcc = rcc_get_settings();
+				$config['rccConsentVersion'] = max( 1, (int) ( is_array( $rcc ) ? ( $rcc['consent_version'] ?? 1 ) : 1 ) );
+			}
 		}
 
 		if ( function_exists( 'wp_has_consent' ) ) {
@@ -578,6 +640,26 @@ final class Relativt_Form {
 							'choices' => [ 'full' => 'Hel bredd', 'half' => 'Halv bredd' ],
 						],
 						/*
+						 * 1.8.0. Webbläsarens ifyllnadshjälp – och WCAG 1.3.5,
+						 * som kräver att fält för besökarens egna uppgifter
+						 * talar om vad de gäller. Automatiskt räcker för de
+						 * flesta formulär; se autocomplete_for().
+						 */
+						[
+							'key'               => 'field_xf_f_autocomplete',
+							'label'             => 'Autofyll',
+							'name'              => 'autocomplete',
+							'type'              => 'select',
+							'default_value'     => '',
+							'wrapper'           => [ 'width' => '50' ],
+							'instructions'      => 'Vilken uppgift om besökaren fältet gäller. Automatiskt känner igen e-post, telefon och webbadress samt vanliga fältnamn som Namn och Företag.',
+							'choices'           => [ '' => 'Automatiskt', 'off' => 'Inget (inte en uppgift om besökaren)' ] + self::AUTOCOMPLETE,
+							'conditional_logic' => array_map(
+								static fn( $t ) => [ [ 'field' => 'field_xf_f_type', 'operator' => '==', 'value' => $t ] ],
+								[ 'text', 'email', 'tel', 'url' ]
+							),
+						],
+						/*
 						 * 1.6.0. Valfritt per fält, av som standard. Visas bara
 						 * för typerna i STATS_TYPES – get_fields() kontrollerar
 						 * typen igen, så ett fält som byter typ efteråt inte
@@ -770,7 +852,7 @@ final class Relativt_Form {
 					'label'        => 'Radera inskick efter (dagar)',
 					'name'         => 'xf_retention',
 					'type'         => 'number',
-					'default_value'=> 365,
+					'default_value'=> self::DEFAULT_RETENTION,
 					'min'          => 0,
 					'instructions' => '0 = radera aldrig. Gallringen körs en gång per dygn.',
 				],
@@ -780,8 +862,8 @@ final class Relativt_Form {
 					'name'         => 'xf_log_ip',
 					'type'         => 'true_false',
 					'ui'           => 1,
-					'default_value'=> 1,
-					'instructions' => 'IP-adress är en personuppgift. Stäng av om ni inte behöver den.',
+					'default_value'=> 0,
+					'instructions' => 'IP-adress är en personuppgift. Av som standard – slå bara på om ni behöver den, t.ex. för att utreda missbruk. Frekvensspärren mot spam fungerar ändå.',
 				],
 
 				[ 'key' => 'field_xf_tab_protect', 'label' => 'Skydd', 'type' => 'tab' ],
@@ -936,10 +1018,47 @@ final class Relativt_Form {
 				'cond_field'  => sanitize_key( (string) ( $row['cond_field'] ?? '' ) ),
 				'cond_value'  => (string) ( $row['cond_value'] ?? '' ),
 				'stats'       => ! empty( $row['stats'] ) && in_array( $type, self::STATS_TYPES, true ),
+				// '' = automatiskt, 'off' = inget, annars en token ur AUTOCOMPLETE.
+				'autocomplete' => self::clean_autocomplete( $row['autocomplete'] ?? '' ),
 			];
 		}
 
 		return $cache[ $form_id ] = $fields;
+	}
+
+	private static function clean_autocomplete( $value ): string {
+		$value = is_string( $value ) ? trim( $value ) : '';
+		return 'off' === $value || isset( self::AUTOCOMPLETE[ $value ] ) ? $value : '';
+	}
+
+	/**
+	 * Autocomplete-värdet ett fält renderas med, eller '' för inget attribut.
+	 *
+	 * Automatiskt: e-post, telefon och URL efter typen; textfält efter
+	 * nyckeln (AUTOCOMPLETE_GUESS), så att befintliga formulär med fält som
+	 * Namn och Företag klarar WCAG 1.3.5 utan att någon behöver öppna dem.
+	 */
+	public function autocomplete_for( array $f ): string {
+		$type   = (string) ( $f['type'] ?? '' );
+		$choice = self::clean_autocomplete( $f['autocomplete'] ?? '' );
+
+		if ( ! in_array( $type, [ 'text', 'email', 'tel', 'url' ], true ) || 'off' === $choice ) {
+			return '';
+		}
+		if ( '' !== $choice ) {
+			return $choice;
+		}
+		if ( 'text' !== $type ) {
+			return $type; // email, tel och url är både typ och token.
+		}
+
+		$key = preg_replace( '/[^a-z0-9]/', '', strtolower( (string) ( $f['key'] ?? '' ) ) );
+		foreach ( self::AUTOCOMPLETE_GUESS as $token => $keys ) {
+			if ( in_array( $key, $keys, true ) ) {
+				return $token;
+			}
+		}
+		return '';
 	}
 
 	/**
@@ -998,7 +1117,7 @@ final class Relativt_Form {
 
 	/** Gallringstiden i dagar, 0 = aldrig. Samma tolkning som run_cleanup(). */
 	public function retention_days( int $form_id ): int {
-		return max( 0, (int) $this->setting( $form_id, 'xf_retention', 0 ) );
+		return max( 0, (int) $this->setting( $form_id, 'xf_retention', self::DEFAULT_RETENTION ) );
 	}
 
 	/* ---------------------------------------------------------------------
@@ -1327,10 +1446,14 @@ final class Relativt_Form {
 
 				// Rätt tangentbord på mobil och ifyllnadshjälp från webbläsaren.
 				$hints = [
-					'email' => ' inputmode="email" autocomplete="email" spellcheck="false"',
-					'tel'   => ' inputmode="tel" autocomplete="tel"',
-					'url'   => ' inputmode="url" autocomplete="url" spellcheck="false"',
+					'email' => ' inputmode="email" spellcheck="false"',
+					'tel'   => ' inputmode="tel"',
+					'url'   => ' inputmode="url" spellcheck="false"',
 				][ $type ] ?? '';
+				$autocomplete = $this->autocomplete_for( $f );
+				if ( '' !== $autocomplete ) {
+					$hints .= ' autocomplete="' . esc_attr( $autocomplete ) . '"';
+				}
 
 				printf(
 					'<input class="xf-input" type="%s" id="%s" name="%s" value="%s"%s%s%s>',
@@ -1393,10 +1516,13 @@ final class Relativt_Form {
 	 */
 	private function public_fields( int $form_id ): array {
 		return array_map(
-			static function ( array $f ): array {
+			function ( array $f ): array {
 				$f['choices'] = (object) $f['choices'];
 				// Statistikvalet är en admininställning, inte en del av formuläret.
 				unset( $f['stats'] );
+				// Färdigt värde för attributet ('' = inget), så att frontenden
+				// inte behöver upprepa gissningen.
+				$f['autocomplete'] = $this->autocomplete_for( $f );
 				return $f;
 			},
 			$this->get_fields( $form_id )
@@ -2084,6 +2210,7 @@ final class Relativt_Form {
 			'page'     => 'Skickat från',
 			'landing'  => 'Landningssida',
 			'referrer' => 'Hänvisande sida',
+			'consent'  => 'Samtycke',
 			'ip'       => 'IP-adress',
 			'ua'       => 'Webbläsare',
 		];
@@ -2131,9 +2258,26 @@ final class Relativt_Form {
 			'landing'  => esc_url_raw( (string) ( $body['utm']['landing'] ?? '' ) ),
 			'referrer' => esc_url_raw( (string) ( $body['utm']['referrer'] ?? '' ) ),
 			'ua'       => mb_substr( sanitize_text_field( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ) ), 0, 300 ),
-			'ip'       => $this->setting( $form_id, 'xf_log_ip', true ) ? $this->client_ip() : '',
+			'consent'  => $this->consent_record( $form_id, $body ),
+			'ip'       => $this->setting( $form_id, 'xf_log_ip', false ) ? $this->client_ip() : '',
 			'utm'      => $utm,
 		];
+	}
+
+	/**
+	 * Beviset för samtyckesrutan: att den kryssades i och vilken text som
+	 * gällde. Tidpunkten står redan i inskickets datum och tid. Tomt när
+	 * formuläret inte har någon ruta – då är samtyckestexten bara
+	 * information, och inget samtycke har inhämtats.
+	 */
+	private function consent_record( int $form_id, array $body ): string {
+		if ( ! $this->setting( $form_id, 'xf_consent_box' ) || empty( $body['xf_consent'] ) ) {
+			return '';
+		}
+
+		$text = trim( (string) preg_replace( '/\s+/u', ' ', wp_strip_all_tags( (string) $this->setting( $form_id, 'xf_consent', '' ) ) ) );
+
+		return '' !== $text ? 'Godkänt: ' . mb_substr( $text, 0, 500 ) : 'Godkänt';
 	}
 
 	/**
@@ -2814,6 +2958,12 @@ final class Relativt_Form {
 					$columns[] = $label;
 				}
 			}
+			if ( is_array( $meta ) && '' !== (string) ( $meta['consent'] ?? '' ) ) {
+				$row['Samtycke'] = (string) $meta['consent'];
+				if ( ! in_array( 'Samtycke', $columns, true ) ) {
+					$columns[] = 'Samtycke';
+				}
+			}
 			foreach ( is_array( $meta ) ? ( $meta['utm'] ?? [] ) : [] as $k => $v ) {
 				$label         = $this->meta_label( $k );
 				$row[ $label ] = (string) $v;
@@ -2863,7 +3013,7 @@ final class Relativt_Form {
 		$forms = get_posts( [ 'post_type' => self::CPT_FORM, 'numberposts' => -1, 'fields' => 'ids' ] );
 
 		foreach ( $forms as $form_id ) {
-			$days = (int) $this->setting( $form_id, 'xf_retention', 0 );
+			$days = $this->retention_days( (int) $form_id );
 			if ( $days < 1 ) {
 				continue;
 			}
@@ -2893,6 +3043,167 @@ final class Relativt_Form {
 				}
 			}
 		}
+	}
+
+	/* ---------------------------------------------------------------------
+	 * Integritetsverktygen (1.8.0)
+	 *
+	 * Verktyg → Exportera personuppgifter / Radera personuppgifter. Inskicken
+	 * hittas på e-postadressen: alla fält av typen E-post räknas, inte bara
+	 * det första. WordPress anropar i omgångar tills done är sant.
+	 * ------------------------------------------------------------------ */
+
+	public function register_privacy_exporter( $exporters ) {
+		$exporters = is_array( $exporters ) ? $exporters : [];
+		$exporters['relativt-formular'] = [
+			'exporter_friendly_name' => 'Formulärinskick (Relativt Formulär)',
+			'callback'               => [ $this, 'privacy_export' ],
+		];
+		return $exporters;
+	}
+
+	public function register_privacy_eraser( $erasers ) {
+		$erasers = is_array( $erasers ) ? $erasers : [];
+		$erasers['relativt-formular'] = [
+			'eraser_friendly_name' => 'Formulärinskick (Relativt Formulär)',
+			'callback'             => [ $this, 'privacy_erase' ],
+		];
+		return $erasers;
+	}
+
+	/**
+	 * Inskick med adressen, en omgång i taget.
+	 *
+	 * Frågan är bred (adressen någonstans i fältvärdena) och smalnas av i PHP,
+	 * så att en adress som bara nämns i ett meddelande inte räknas.
+	 *
+	 * @return array{0:int,1:list<int>} [antal träffar i frågan, inskick som verkligen har adressen]
+	 */
+	private function entries_for_email( string $email, int $page ): array {
+		$email = strtolower( trim( $email ) );
+		if ( '' === $email || ! str_contains( $email, '@' ) ) {
+			return [ 0, [] ];
+		}
+
+		$found = get_posts( [
+			'post_type'        => self::CPT_ENTRY,
+			'post_status'      => 'any',
+			'posts_per_page'   => self::PRIVACY_BATCH,
+			'paged'            => max( 1, $page ),
+			'orderby'          => 'ID',
+			'order'            => 'ASC',
+			'fields'           => 'ids',
+			'no_found_rows'    => true,
+			'meta_query'       => [
+				'relation' => 'OR',
+				[ 'key' => '_xf_email', 'value' => $email ],
+				[ 'key' => '_xf_values', 'value' => '"' . $email . '"', 'compare' => 'LIKE' ],
+			],
+		] );
+		$found = is_array( $found ) ? array_map( 'intval', $found ) : [];
+
+		$ids = array_values( array_filter( $found, fn( int $id ) => $this->entry_has_email( $id, $email ) ) );
+
+		return [ count( $found ), $ids ];
+	}
+
+	private function entry_has_email( int $entry_id, string $email ): bool {
+		if ( strtolower( trim( (string) get_post_meta( $entry_id, '_xf_email', true ) ) ) === $email ) {
+			return true;
+		}
+		$values = get_post_meta( $entry_id, '_xf_values', true );
+		foreach ( is_array( $values ) ? $values : [] as $v ) {
+			if ( 'email' === ( $v['type'] ?? '' ) && strtolower( trim( (string) ( $v['value'] ?? '' ) ) ) === $email ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public function privacy_export( $email, $page = 1 ): array {
+		[ $found, $ids ] = $this->entries_for_email( (string) $email, (int) $page );
+
+		$items = [];
+		foreach ( $ids as $id ) {
+			$items[] = [
+				'group_id'          => 'relativt-formular',
+				'group_label'       => 'Formulärinskick',
+				'group_description' => 'Det du skickat via formulären på webbplatsen, med uppgifterna som sparades tillsammans med inskicket.',
+				'item_id'           => 'xf-entry-' . $id,
+				'data'              => $this->privacy_data( $id ),
+			];
+		}
+
+		return [ 'data' => $items, 'done' => $found < self::PRIVACY_BATCH ];
+	}
+
+	/** @return list<array{name:string,value:string}> */
+	private function privacy_data( int $entry_id ): array {
+		$form_id = (int) get_post_meta( $entry_id, '_xf_form_id', true );
+		$data    = [
+			[ 'name' => 'Formulär', 'value' => (string) get_the_title( $form_id ) ],
+			[ 'name' => 'Inskickat', 'value' => (string) get_the_date( 'Y-m-d H:i', $entry_id ) ],
+		];
+
+		$values = get_post_meta( $entry_id, '_xf_values', true );
+		foreach ( is_array( $values ) ? $values : [] as $v ) {
+			$value = (string) ( $v['value'] ?? '' );
+			if ( '' !== trim( $value ) ) {
+				$data[] = [ 'name' => (string) ( $v['label'] ?? '' ), 'value' => $value ];
+			}
+		}
+
+		$meta = get_post_meta( $entry_id, '_xf_meta', true );
+		$meta = is_array( $meta ) ? $meta : [];
+		foreach ( $this->meta_labels() as $k => $label ) {
+			if ( in_array( $k, [ 'date', 'time' ], true ) || '' === (string) ( $meta[ $k ] ?? '' ) ) {
+				continue; // Datum och tid står redan i Inskickat.
+			}
+			$data[] = [ 'name' => $label, 'value' => (string) $meta[ $k ] ];
+		}
+		foreach ( is_array( $meta['utm'] ?? null ) ? $meta['utm'] : [] as $k => $v ) {
+			$data[] = [ 'name' => $this->meta_label( (string) $k ), 'value' => (string) $v ];
+		}
+
+		return $data;
+	}
+
+	/**
+	 * Raderar inskicken helt – ett inskick är besökarens eget meddelande, så
+	 * det finns inget meningsfullt att anonymisera och spara.
+	 *
+	 * Inskick som måste sparas (t.ex. bokföringskrav) behålls med filtret
+	 * relativt_form_privacy_erase, och redovisas då som kvarhållna.
+	 *
+	 * Frågar alltid omgång 1: raderade inskick försvinner ur nästa fråga.
+	 * Klar när omgången inte var full, eller när inget kunde raderas – annars
+	 * skulle kvarhållna inskick hålla verktyget kvar i en evig loop.
+	 */
+	public function privacy_erase( $email, $page = 1 ): array {
+		[ $found, $ids ] = $this->entries_for_email( (string) $email, 1 );
+
+		$removed  = 0;
+		$retained = 0;
+		foreach ( $ids as $id ) {
+			if ( ! apply_filters( 'relativt_form_privacy_erase', true, $id ) ) {
+				$retained++;
+				continue;
+			}
+			if ( wp_delete_post( $id, true ) ) {
+				$removed++;
+			} else {
+				$retained++;
+			}
+		}
+
+		return [
+			'items_removed'  => $removed > 0,
+			'items_retained' => $retained > 0,
+			'messages'       => $retained > 0
+				? [ sprintf( '%d formulärinskick behölls och raderades inte.', $retained ) ]
+				: [],
+			'done'           => $found < self::PRIVACY_BATCH || 0 === $removed,
+		];
 	}
 
 	/* ---------------------------------------------------------------------

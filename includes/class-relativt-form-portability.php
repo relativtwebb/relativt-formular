@@ -79,6 +79,7 @@ final class Relativt_Form_Portability {
 		'cond_field'  => 'key',
 		'cond_value'  => 'text',
 		'stats'       => 'bool',
+		'autocomplete' => 'text',
 	];
 
 	private const RULE_ROW = [

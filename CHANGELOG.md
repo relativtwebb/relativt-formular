@@ -3,6 +3,74 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.8.0] – 2026-10-02
+
+Integritet och tillgänglighet. Formulären fungerar som förut för besökarna,
+men två standardvärden ändras – se **Ändrat**.
+
+### Rättat
+- **Samtyckesversionen i Relativt Cookie Consent respekteras alltid.** När
+  cookie-pluginets skript inte hunnit köras läste formuläret samtyckeskakan
+  direkt, utan att kontrollera versionen. Efter en höjd samtyckesversion
+  kunde `xf_src` då skrivas fast besökaren inte samtyckt på nytt. Nu:
+  - samtycket läses med `window.rcc.getConsent()`, som bortser från
+    inaktuella samtycken; formuläret väntar på cookie-pluginets API
+    (`rcc_ready`, annars tills sidan laddat färdigt) i stället för att läsa
+    kakan direkt;
+  - körs cookie-pluginets skript aldrig läses kakan direkt, men bara om
+    versionen stämmer med sajtens (`rccConsentVersion`, skickas från PHP).
+    Okänd version räknas som inget samtycke.
+
+### Ändrat
+- **Klick-id följer bara med inskicket med samtycke.** `gclid` och `fbclid`
+  skickas med ett inskick bara om besökaren samtyckt till kategorin för
+  klick-id (normalt marknadsföring) när formuläret skickas. Före 1.8.0 hölls
+  de utanför kakan men skickades ändå med inskicket från landningssidan, och
+  sparades då i databasen och i mailet tillsammans med namn och
+  e-postadress. UTM-parametrar, landningssida och hänvisare följer med som
+  förut. Statistikens kort Annonsklick och kanalerna för betald trafik kan
+  därför visa färre inskick än annonsplattformen.
+- **IP-adressen sparas inte längre som standard.** Valet *Spara IP-adress*
+  är av för nya formulär. Formulär som sparats tidigare behåller sitt val –
+  gå igenom dem och stäng av där IP-adressen inte behövs. Frekvensspärren
+  fungerar oförändrat.
+- **Gallring för formulär utan värde.** Ett formulär som saknar ett sparat
+  värde för *Radera inskick efter (dagar)* gallras nu efter 365 dagar – det
+  byggaren redan visade som standard. Tidigare betydde ett saknat värde
+  "radera aldrig". Gäller i praktiken bara formulär som aldrig sparats i
+  byggaren, t.ex. importerade från en mycket gammal export. Ett uttryckligt
+  0 betyder fortfarande aldrig.
+
+### Nytt
+- **WordPress integritetsverktyg.** Inskicken ingår i *Verktyg → Exportera
+  personuppgifter* och *Radera personuppgifter*. Ett inskick hittas om
+  adressen står i något av formulärets e-postfält (inte bara det första),
+  oavsett versaler; en adress som bara nämns i ett meddelande räknas inte.
+  Raderingen tar bort inskicken helt. Filtret `relativt_form_privacy_erase`
+  håller kvar inskick som måste sparas, och de redovisas i verktyget.
+- **Samtyckesrutan sparas med inskicket.** Med *Kräv ikryssad ruta* sparas
+  *Godkänt:* och samtyckestexten som gällde, och visas i inskicket, mailet,
+  CSV-exporten och personuppgiftsexporten. Samtyckestexten läses aldrig in
+  på statistiksidan.
+- **Fältvalet Autofyll** (`autocomplete`, WCAG 1.3.5) för text, e-post,
+  telefon och URL. *Automatiskt* (standard) sätter e-post, telefon och URL
+  efter typen och textfält efter nyckeln – `namn`, `foretag`, `fornamn`,
+  `efternamn`, `titel`, `adress`, `postnummer`, `ort`, `land` m.fl. – så
+  befintliga formulär får attributet utan att öppnas. Okända fält får inget.
+  Valet följer med i JSON-export/import, och headless-definitionen har det
+  färdiga värdet i `autocomplete`.
+
+### Tester
+- 46 nya serverassertions (543 totalt): autofyll (gissning, uttryckligt
+  val, Inget, rensning av okända värden, rendering, headless, export),
+  IP och gallring som standard, samtyckesbeviset, integritetsverktygen
+  (sökning, flera e-postfält, falska träffar, export, radering, kvarhållna
+  inskick, evig loop), samtyckesversionen i konfigurationen.
+- 7 nya Playwright-tester (160 totalt): samtyckesversion med och utan
+  cookie-pluginets API, API som laddas efter formulärskriptet, klick-id i
+  inskicket med och utan samtycke, autofyll. `withRcc` efterliknar nu
+  cookie-pluginets API med versionskontroll.
+
 ## [1.7.0] – 2026-10-02
 
 > **Beteendeändring – läs före uppdatering.** På sajter **utan**

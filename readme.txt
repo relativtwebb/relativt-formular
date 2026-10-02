@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.7.0
+Stable tag: 1.8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -23,11 +23,24 @@ Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
 == Upgrade Notice ==
 
+= 1.8.0 =
+Klick-id (gclid, fbclid) följer bara med inskick när besökaren samtyckt till
+marknadsföring. IP-adressen sparas inte längre som standard i nya formulär.
+
 = 1.7.0 =
 Utan samtyckesverktyg skrivs kampanjkakan inte längre. Se CHANGELOG för hur
 det gamla beteendet behålls.
 
 == Changelog ==
+
+= 1.8.0 =
+Inskicken ingår i WordPress verktyg för export och radering av
+personuppgifter. Samtyckesrutan sparas med texten som gällde. Nytt fältval
+Autofyll (autocomplete, WCAG 1.3.5) som också gissar rätt för befintliga
+fält som Namn och Företag. Klick-id (gclid, fbclid) följer bara med inskick
+med samtycke till marknadsföring. IP-adressen sparas inte som standard i nya
+formulär. Rättat: en höjd samtyckesversion i Relativt Cookie Consent
+respekteras även när cookie-pluginets skript laddas sent.
 
 = 1.7.0 =
 BETEENDEÄNDRING: på sajter utan samtyckesverktyg skrivs kampanjkakan xf_src

@@ -13,6 +13,8 @@ Byggd för byråarbete: samma motor på flera kundsajter, formulär som kan flyt
 - **Spamskydd** utan CAPTCHA: honungsfälla, HMAC-signerad tidsstämpel med minsta tid, frekvensspärr per IP och länkspärr i textrutor. Valfritt per formulär: [Cloudflare Turnstile](#cloudflare-turnstile).
 - **UTM-attribution** via förstapartskaka, så att inskicket bär med sig vilken kampanj besökaren kom ifrån. Kakan skrivs bara med samtycke via [Relativt Cookie Consent](https://github.com/relativtwebb/relativt-cookie-consent), WP Consent API eller en egen JS-krok, och annonsklick-id (`gclid`/`fbclid`) bara med samtycke till marknadsföring – se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke).
 - **Inskickslagring** med konfigurerbar gallring och CSV-export.
+- **Personuppgifter:** inskicken kan exporteras och raderas med WordPress integritetsverktyg, samtyckesrutan sparas med texten som gällde, IP-adressen sparas bara om den slås på – se [Personuppgifter](#personuppgifter).
+- **Tillgänglighet:** riktiga etiketter, fel kopplade till fälten och upplästa, fokus till första felet, och autofyll-attribut på fält för besökarens egna uppgifter (WCAG 1.3.5) – se [Autofyll](#autofyll).
 - **Statistik** över inskickens metadata: över tid, kanaler, kampanjer, sidor, enhet och klockslag – se [Statistik](#statistik).
 - **Export och import av formulärdefinitioner** som JSON.
 - **Headless.** Formulärdefinitionen finns som publikt REST-endpoint, så en frontend (t.ex. Next.js) kan rendera formuläret själv och skicka till samma API – se [Headless: rendera formuläret själv](#headless-rendera-formuläret-själv).
@@ -51,6 +53,14 @@ Alla shortcode-attribut som matchar en fältnyckel blir förvalt värde. Ligger 
 Villkorliga fält rättar sig efter förvalet redan vid renderingen.
 
 Shortcoden tar också ett `class`-attribut som lägger egna klasser på formulärets rot – se [Olika utseende per formulär](#olika-utseende-per-formulär).
+
+### Autofyll
+
+Fält för besökarens egna uppgifter får ett `autocomplete`-attribut, så att webbläsaren kan fylla i dem och hjälpmedel vet vad de gäller (WCAG 1.3.5, nivå AA). Valet **Autofyll** finns för fälttyperna text, e-post, telefon och URL:
+
+- **Automatiskt** (standard). E-post, telefon och URL efter typen. Textfält efter nyckeln: `namn` → `name`, `fornamn`/`efternamn` → `given-name`/`family-name`, `foretag` → `organization`, `titel` → `organization-title`, `adress`, `postnummer`, `ort` och `land`. Okända fält får inget attribut – hellre inget än en gissning som fyller i fel uppgift. Befintliga formulär med sådana fält klarar sig alltså utan att någon öppnar dem.
+- **Ett uttryckligt värde** (Namn, Förnamn, Företag/organisation …) när fältet heter något annat.
+- **Inget** för fält som inte är en uppgift om besökaren, t.ex. *Namn på er kontaktperson hos oss*.
 
 ### Tack-sida i stället för tack-rutan
 
@@ -176,6 +186,7 @@ add_filter( 'relativt_form_submit_icon_class', fn( $c ) => trim( "$c ct-fancy-ic
 | `relativt_form_max_links` | `3` | Max antal länkar i en textruta innan inskicket avvisas. `0` stänger av |
 | `relativt_form_utm_cookie` | `'auto'` | Kampanjkakans samtyckesläge: `auto`, `always` eller `never` |
 | `relativt_form_consent_categories` | `attribution`: statistics, marketing · `click_ids`: marketing | Samtyckeskategorierna för kampanjkakans två delar, se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke) |
+| `relativt_form_privacy_erase` | `true` | Sätt `false` för ett inskick som inte får raderas via integritetsverktyget (får inskickets id), se [Personuppgifter](#personuppgifter) |
 | `relativt_form_client_ip` | `REMOTE_ADDR` | Peka ut besökarens riktiga IP bakom proxy/CDN |
 | `relativt_form_stats_channel` | inbyggd klassning | Klassa om ett inskicks kanal på statistiksidan, se [Statistik](#statistik) |
 
@@ -273,7 +284,7 @@ Attributionen sparas i förstapartskakan **`xf_src`** (90 dagar från när kampa
 
 Klick-id är annonsplattformarnas egna identifierare för ett enskilt klick, därför kräver de mer. Saknas samtycket till en del:
 
-- värden från **den här sidans** URL hålls i minnet – ett inskick från landningssidan får dem, men de följer inte med till nästa sida;
+- värden från **den här sidans** URL hålls i minnet och följer inte med till nästa sida. UTM-parametrar, landningssida och hänvisare följer med ett inskick från landningssidan. **Klick-id följer bara med inskicket om samtycket till dem finns när det skickas** – i inskicket kopplas de till namn och e-postadress, och sparas sedan i databasen och i mailet;
 - delen tas bort ur en befintlig kaka, och läses inte heller ur den;
 - ändras samtycket på sidan (även nedgradering från marknadsföring till bara statistik) skrivs kakan om direkt, med oförändrad livslängd. Avskalade värden kommer inte tillbaka om samtycket ges igen.
 
@@ -292,7 +303,7 @@ Kategorinamnen är de som Relativt Cookie Consent och WP Consent API delar: `sta
 
 I läget `auto` läses samtycket från det första som finns, i den här ordningen:
 
-1. **[Relativt Cookie Consent](https://github.com/relativtwebb/relativt-cookie-consent).** Samtyckeskakan läses vid sidladdningen, och motorn lyssnar på `rcc_consent_updated`.
+1. **[Relativt Cookie Consent](https://github.com/relativtwebb/relativt-cookie-consent).** Samtycket läses med `window.rcc.getConsent()`, som bortser från ett samtycke med äldre samtyckesversion än sajtens, och motorn lyssnar på `rcc_consent_updated` (och `rcc_ready`, om cookie-pluginets skript körs efter formulärets). Har cookie-pluginets skript inte körts alls när sidan laddat färdigt – fördröjt av ett optimeringsplugin, till exempel – läses samtyckeskakan direkt, men bara om dess version stämmer med sajtens samtyckesversion.
 2. **[WP Consent API](https://wordpress.org/plugins/wp-consent-api/).** Samtycket läses med `wp_has_consent()` och följs via `wp_listen_for_consent_change`. Kakan registreras med `wp_add_cookie_info()`, så samtyckesverktyg som bygger cookie-deklarationen därifrån listar den. API:et räknas bara när ett samtyckesverktyg satt en samtyckestyp (`optin`/`optout`) – utan typ svarar `wp_has_consent()` ja på allt, och det svaret används inte.
 3. **JS-kroken**, för egna samtyckeslösningar:
 
@@ -393,7 +404,8 @@ Definitionen innehåller fälten (som byggaren sparat dem, rubriker inräknade; 
    - `403 { code: "turnstile" }` → återställ widgeten, visa `message` vid den.
    - övrigt (`429 rate`, `400 sig`, `404`, `500 mail`) → visa `message`, annars `texts.error`.
 5. **Posta direkt från webbläsaren till WordPress, inte via en server-proxy** (t.ex. en Next route handler). Bakom en proxy delar alla besökare proxyns IP, och frekvensspärren – fem inskick per tio minuter – gäller då hela sajten på en gång. Ligger WordPress själv bakom en proxy/CDN pekar sajten ut rätt header med `relativt_form_client_ip` (se [Filter](#filter)).
-6. **UTM:** utan pluginets JS skrivs ingen `xf_src`-kaka. Frontend kan skicka `utm` själv i samma format (`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`, `gclid`, `fbclid`, `landing`, `referrer`); annars är fälten tomma i mailet. Inget mer behövs. Sparar frontenden värdena mellan sidvisningar gäller samma samtyckesregler som för `xf_src` – se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke).
+6. **UTM:** utan pluginets JS skrivs ingen `xf_src`-kaka. Frontend kan skicka `utm` själv i samma format (`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`, `gclid`, `fbclid`, `landing`, `referrer`); annars är fälten tomma i mailet. Inget mer behövs. Samma samtyckesregler gäller som för pluginets eget skript – servern kan inte kontrollera samtycket, så det är frontendens ansvar: skicka `gclid`/`fbclid` bara med samtycke till marknadsföring, och spara inga värden mellan sidvisningar utan samtycke. Se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke).
+7. **Autofyll:** fältens `autocomplete` är färdigt att sätta som attribut (`''` = inget attribut), se [Autofyll](#autofyll).
 
 **Turnstile i headless:** är `turnstile.enabled` sant renderar frontend widgeten med `turnstile.site_key` (lägg till frontendens domän på widgeten hos Cloudflare) och skickar token som `turnstile`. Återställ widgeten efter varje slutgiltigt misslyckat svar – men inte vid de tysta omförsöken för `toofast` och `nonce`, där är token fortfarande oanvänd.
 
@@ -426,6 +438,7 @@ export interface FormField {
   width: 'full' | 'half';
   cond_field: string;
   cond_value: string;
+  autocomplete: string;              // färdigt värde för attributet, '' = inget
 }
 
 export interface FormDefinition {
@@ -515,6 +528,25 @@ Importen läser aldrig in fältnamn rakt av — allt passerar en vitlista, och d
 
 **Formulär → Standardvärden** sätter avsändare, tacktexter och samtyckestext en gång per sajt. Ett formulär som lämnar motsvarande fält tomt ärver värdet därifrån. Formulärets eget värde vinner alltid.
 
+## Personuppgifter
+
+Inskicken innehåller personuppgifter. Pluginet gör det här; integritetspolicyn, den rättsliga grunden och avtalen med webbhotell och e-postleverantör är sajtens.
+
+**Begäran om registerutdrag eller radering.** Inskicken ingår i WordPress egna verktyg: **Verktyg → Exportera personuppgifter** och **Verktyg → Radera personuppgifter**. Ett inskick hittas om adressen står i något av formulärets e-postfält, oavsett versaler – en adress som bara nämns i ett meddelande räknas inte. Exporten tar med fältvärdena och metadatan (sida, samtycke, webbläsare, IP om den sparats, kampanjdata). Raderingen tar bort inskicken helt. Måste ett inskick sparas av annat skäl:
+
+```php
+add_filter( 'relativt_form_privacy_erase', fn( $erase, $entry_id ) =>
+	/* t.ex. inskick som hör till en pågående affär */ $erase, 10, 2 );
+```
+
+Inskick som hålls kvar redovisas i verktyget.
+
+**Samtyckesrutan.** Är **Kräv ikryssad ruta** på sparas *Godkänt:* och samtyckestexten som gällde med inskicket, och visas i inskicket, mailet och CSV-exporten. Tidpunkten är inskickets datum och tid. Utan rutan sparas inget samtycke – texten under knappen är då bara information. För de flesta kontaktformulär är den rättsliga grunden en förfrågan eller berättigat intresse, och då behövs ingen ruta alls.
+
+**IP-adress.** Sparas bara om **Spara IP-adress** är på för formuläret – av som standard sedan 1.8.0. Frekvensspärren mot spam använder IP-adressen ändå, men bara som en hash i en tillfällig spärr. Formulär som sparats tidigare behåller sitt val.
+
+**Gallring.** Inskick raderas efter **Radera inskick efter (dagar)**, 365 som standard. 0 betyder aldrig.
+
 ## Tidszon
 
 Tidsstämplarna – Datum och Tid i mailen och inskicksvyn, inskickens publiceringstid, CSV-exporten – följer **sajtens tidszonsinställning**, precis som resten av WordPress.
@@ -535,8 +567,8 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 497 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
-npx playwright test         # 146 tester i riktig webbläsare, desktop och mobil
+php tests/server-test.php   # 543 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
+npx playwright test         # 160 tester i riktig webbläsare, desktop och mobil
 ```
 
 Har du redan en Chromium på maskinen som Playwright inte installerat själv, peka ut den med `CHROMIUM_PATH=/sökväg/till/chrome npx playwright test`. Utan variabeln används Playwrights egen.
