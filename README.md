@@ -11,7 +11,7 @@ Byggd för byråarbete: samma motor på flera kundsajter, formulär som kan flyt
 - **Mottagarregler.** Skicka till olika adresser beroende på vad besökaren svarat. Regler får skrivas med antingen etiketten eller det tekniska värdet — båda träffar.
 - **Validering** av e-post, telefon och URL, spegelvänd mellan PHP och JavaScript så klienten och servern aldrig är oense. Svenska nummer normaliseras till ett format, internationella släpps igenom. URL:er normaliseras med `https://` om schemat saknas, så länken alltid går att klicka på i mailet.
 - **Spamskydd** utan CAPTCHA: honungsfälla, HMAC-signerad tidsstämpel med minsta tid, frekvensspärr per IP och länkspärr i textrutor. Valfritt per formulär: [Cloudflare Turnstile](#cloudflare-turnstile).
-- **UTM-attribution** via förstapartskaka, så att inskicket bär med sig vilken kampanj besökaren kom ifrån. Finns [Relativt Cookie Consent](https://github.com/relativtwebb/relativt-cookie-consent) på sajten skrivs kakan först när besökaren samtyckt – se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke).
+- **UTM-attribution** via förstapartskaka, så att inskicket bär med sig vilken kampanj besökaren kom ifrån. Kakan skrivs bara med samtycke via [Relativt Cookie Consent](https://github.com/relativtwebb/relativt-cookie-consent), WP Consent API eller en egen JS-krok, och annonsklick-id (`gclid`/`fbclid`) bara med samtycke till marknadsföring – se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke).
 - **Inskickslagring** med konfigurerbar gallring och CSV-export.
 - **Statistik** över inskickens metadata: över tid, kanaler, kampanjer, sidor, enhet och klockslag – se [Statistik](#statistik).
 - **Export och import av formulärdefinitioner** som JSON.
@@ -175,6 +175,7 @@ add_filter( 'relativt_form_submit_icon_class', fn( $c ) => trim( "$c ct-fancy-ic
 | `relativt_form_messages` | svenska texter | Byt besökartexterna (felmeddelanden m.m.). Samma lista driver PHP och JS |
 | `relativt_form_max_links` | `3` | Max antal länkar i en textruta innan inskicket avvisas. `0` stänger av |
 | `relativt_form_utm_cookie` | `'auto'` | Kampanjkakans samtyckesläge: `auto`, `always` eller `never` |
+| `relativt_form_consent_categories` | `attribution`: statistics, marketing · `click_ids`: marketing | Samtyckeskategorierna för kampanjkakans två delar, se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke) |
 | `relativt_form_client_ip` | `REMOTE_ADDR` | Peka ut besökarens riktiga IP bakom proxy/CDN |
 | `relativt_form_stats_channel` | inbyggd klassning | Klassa om ett inskicks kanal på statistiksidan, se [Statistik](#statistik) |
 
@@ -254,22 +255,79 @@ add_filter( 'relativt_form_stats_channel', function ( $channel, $meta ) {
 ### Vad siffrorna inte täcker
 
 - **Bara sparade inskick.** Formulär med *Spara inskick* avslaget räknas inte, och gallrade inskick är borta. Sidan pekar ut båda fallen för den valda perioden.
-- **Samtycke.** Utan godkänd kampanjkaka lever attributionen bara på sidan besökaren landade på. Klickar besökaren vidare innan formuläret skickas blir källan *Direkt / okänd*.
+- **Samtycke.** Utan godkänd kampanjkaka lever attributionen bara på sidan besökaren landade på. Klickar besökaren vidare innan formuläret skickas blir källan *Direkt / okänd*. Klick-id (`gclid`/`fbclid`) sparas bara med samtycke till marknadsföring, så Annonsklick och kanalerna för betald trafik kan visa färre inskick än annonsplattformen när besökaren bara godkänt statistik.
 - **iPad** med iPadOS utger sig för att vara en Mac och räknas som dator.
 
 Sammanställningen cachas i sex timmar, men ett nytt eller raderat inskick bryter cachen direkt. Inskicken läses i batcher om 500 med bara de metanycklar sidan behöver, så minnet växer inte med historiken. Fältvärdena läses bara när något fält följs, och reduceras direkt till de följda fälten – namn, e-post och fritext läses aldrig. Eget intervall hålls mellan år 2000 och i dag, högst tio år.
 
 ## Kampanjkakan och samtycke
 
-Attributionen sparas i förstapartskakan **`xf_src`** (90 dagar): UTM-parametrar, `gclid`/`fbclid`, landningssida och hänvisande sida. Den är inte nödvändig för att formuläret ska fungera, så den lyder under samtyckesreglerna – ta med den i sajtens cookie-policy.
+Attributionen sparas i förstapartskakan **`xf_src`** (90 dagar från när kampanjen fångades): UTM-parametrar, landningssida, hänvisande sida och – med samtycke till marknadsföring – `gclid`/`fbclid`. Den är inte nödvändig för att formuläret ska fungera, så den lyder under samtyckesreglerna – ta med den i sajtens cookie-policy.
 
-Läget styrs av filtret `relativt_form_utm_cookie`:
+### Kakans två delar
 
-- **`auto`** (standard). Är [Relativt Cookie Consent](https://github.com/relativtwebb/relativt-cookie-consent) aktivt på sajten skrivs kakan först när besökaren godkänt **statistik eller marknadsföring**, tas bort om samtycket dras tillbaka, och skrivs i efterhand om samtycket kommer senare på sidan (motorn lyssnar på `rcc_consent_updated`). Utan samtyckesverktyg skrivs kakan direkt – då är det sajtens ansvar att dokumentera den.
-- **`always`.** Skriv alltid. För sajter som hanterar samtycket på annat håll, t.ex. genom att blockera skriptet tills samtycke finns.
+| Del | Innehåll | Kräver samtycke till (standard) |
+|---|---|---|
+| `attribution` | `utm_*`, landningssida, hänvisande sida | statistik **eller** marknadsföring |
+| `click_ids` | `gclid`, `fbclid` | marknadsföring |
+
+Klick-id är annonsplattformarnas egna identifierare för ett enskilt klick, därför kräver de mer. Saknas samtycket till en del:
+
+- värden från **den här sidans** URL hålls i minnet – ett inskick från landningssidan får dem, men de följer inte med till nästa sida;
+- delen tas bort ur en befintlig kaka, och läses inte heller ur den;
+- ändras samtycket på sidan (även nedgradering från marknadsföring till bara statistik) skrivs kakan om direkt, med oförändrad livslängd. Avskalade värden kommer inte tillbaka om samtycket ges igen.
+
+Kategorierna styrs med filtret `relativt_form_consent_categories`. Någon kategori i listan räcker; en del som saknas behåller standardvärdet, och en tom lista betyder att delen aldrig sparas:
+
+```php
+// Attributionen räknas som marknadsföring på den här sajten.
+add_filter( 'relativt_form_consent_categories', fn( $c ) => array_merge( $c, [
+	'attribution' => [ 'marketing' ],
+] ) );
+```
+
+Kategorinamnen är de som Relativt Cookie Consent och WP Consent API delar: `statistics`, `statistics-anonymous`, `marketing`, `preferences`, `functional`.
+
+### Samtyckesverktyg
+
+I läget `auto` läses samtycket från det första som finns, i den här ordningen:
+
+1. **[Relativt Cookie Consent](https://github.com/relativtwebb/relativt-cookie-consent).** Samtyckeskakan läses vid sidladdningen, och motorn lyssnar på `rcc_consent_updated`.
+2. **[WP Consent API](https://wordpress.org/plugins/wp-consent-api/).** Samtycket läses med `wp_has_consent()` och följs via `wp_listen_for_consent_change`. Kakan registreras med `wp_add_cookie_info()`, så samtyckesverktyg som bygger cookie-deklarationen därifrån listar den. API:et räknas bara när ett samtyckesverktyg satt en samtyckestyp (`optin`/`optout`) – utan typ svarar `wp_has_consent()` ja på allt, och det svaret används inte.
+3. **JS-kroken**, för egna samtyckeslösningar:
+
+   ```js
+   // Svara true/false per kategori. Får definieras före eller efter formulärskriptet.
+   window.relativtFormConsent = (category) => minCmp.harSamtycke(category);
+
+   // När samtycket ändras. detail är valfri och kan bära beskedet direkt.
+   document.dispatchEvent(new CustomEvent('relativt-form:consent', { detail: { statistics: true, marketing: false } }));
+   ```
+
+   `true`, `'allow'` och `'granted'` räknas som ja; allt annat, och en krok som kastar fel, som nej.
+
+**Finns inget av dem skrivs kakan inte** – attributionen hålls bara i minnet på landningssidan, och en befintlig `xf_src` tas bort. (Före 1.7.0 skrevs kakan direkt i det läget.)
+
+Innan samtycket är avgjort lämnas kakan orörd. WP Consent API:s skript körs efter formulärskriptet, och en JS-krok kan definieras i ett senare skript, så "inget samtyckesverktyg" avgörs först när sidan laddat färdigt.
+
+Felsök en integration i webbläsarens konsol:
+
+```js
+relativtForm.consent();
+// { mode: 'auto', tool: 'wp-consent-api', attribution: true, clickIds: false }
+```
+
+### Läget
+
+Filtret `relativt_form_utm_cookie`:
+
+- **`auto`** (standard). Som ovan.
+- **`always`.** Skriv alltid, med klick-id – beteendet utan samtyckesverktyg före 1.7.0. För sajter som hanterar samtycket på annat håll, t.ex. genom att blockera skriptet tills samtycke finns.
 - **`never`.** Skriv aldrig. Attributionen lever då bara i minnet, så den följer med inskick från landningssidan men inte mellan sidladdningar.
 
-Innan samtycket är avgjort hålls attributionen i minnet: landar besökaren på kampanjsidan och skickar formuläret där följer kampanjen med i inskicket även utan kaka.
+```php
+add_filter( 'relativt_form_utm_cookie', fn() => 'always' );
+```
 
 ## Cloudflare Turnstile
 
@@ -335,7 +393,7 @@ Definitionen innehåller fälten (som byggaren sparat dem, rubriker inräknade; 
    - `403 { code: "turnstile" }` → återställ widgeten, visa `message` vid den.
    - övrigt (`429 rate`, `400 sig`, `404`, `500 mail`) → visa `message`, annars `texts.error`.
 5. **Posta direkt från webbläsaren till WordPress, inte via en server-proxy** (t.ex. en Next route handler). Bakom en proxy delar alla besökare proxyns IP, och frekvensspärren – fem inskick per tio minuter – gäller då hela sajten på en gång. Ligger WordPress själv bakom en proxy/CDN pekar sajten ut rätt header med `relativt_form_client_ip` (se [Filter](#filter)).
-6. **UTM:** utan pluginets JS skrivs ingen `xf_src`-kaka. Frontend kan skicka `utm` själv i samma format (`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`, `gclid`, `fbclid`, `landing`, `referrer`); annars är fälten tomma i mailet. Inget mer behövs.
+6. **UTM:** utan pluginets JS skrivs ingen `xf_src`-kaka. Frontend kan skicka `utm` själv i samma format (`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`, `gclid`, `fbclid`, `landing`, `referrer`); annars är fälten tomma i mailet. Inget mer behövs. Sparar frontenden värdena mellan sidvisningar gäller samma samtyckesregler som för `xf_src` – se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke).
 
 **Turnstile i headless:** är `turnstile.enabled` sant renderar frontend widgeten med `turnstile.site_key` (lägg till frontendens domän på widgeten hos Cloudflare) och skickar token som `turnstile`. Återställ widgeten efter varje slutgiltigt misslyckat svar – men inte vid de tysta omförsöken för `toofast` och `nonce`, där är token fortfarande oanvänd.
 
@@ -477,8 +535,8 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 479 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
-npx playwright test         # 118 tester i riktig webbläsare, desktop och mobil
+php tests/server-test.php   # 497 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
+npx playwright test         # 146 tester i riktig webbläsare, desktop och mobil
 ```
 
 Har du redan en Chromium på maskinen som Playwright inte installerat själv, peka ut den med `CHROMIUM_PATH=/sökväg/till/chrome npx playwright test`. Utan variabeln används Playwrights egen.

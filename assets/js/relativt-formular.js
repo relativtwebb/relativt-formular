@@ -11,8 +11,9 @@
  * Laddas globalt via enqueue-arrayen. Inga beroenden.
  *
  * Konfigurationen (window.relativtFormConfig) skrivs av PHP:s register_assets
- * före den här filen: felmeddelanden, länkspärrens tak och samtyckesläget för
- * kampanjkakan. Saknas objektet – som i demon – gäller standardvärdena nedan.
+ * före den här filen: felmeddelanden, länkspärrens tak, samtyckesläget och
+ * samtyckeskategorierna för kampanjkakan, och vilka samtyckesverktyg som finns.
+ * Saknas objektet – som i demon – gäller standardvärdena nedan.
  */
 
 (() => {
@@ -28,27 +29,54 @@
 
 	const COOKIE = 'xf_src';
 	const DAYS = 90;
-	const CAMPAIGN_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'gclid', 'fbclid'];
+	const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
+	const CLICK_KEYS = ['gclid', 'fbclid'];
+	const CAMPAIGN_KEYS = [...UTM_KEYS, ...CLICK_KEYS];
+	/** Attributionen: det som räcker med statistiksamtycke för. */
+	const BASE_KEYS = [...UTM_KEYS, 'landing', 'referrer'];
 
 	/*
 	 * Samtyckesläge för kakan, satt via filtret relativt_form_utm_cookie:
 	 *
-	 *   'auto'   (standard) – finns Relativt Cookie Consent på sajten skrivs
-	 *            kakan först när besökaren godkänt statistik eller
-	 *            marknadsföring. Utan samtyckesverktyg skrivs den direkt,
-	 *            som i 1.0.
-	 *   'always' – skriv alltid. För sajter som hanterar samtycket på annat
-	 *            håll och blockerar skriptet därifrån.
-	 *   'never'  – skriv aldrig. Attributionen lever då bara i minnet på
-	 *            sidan besökaren landade på.
+	 *   'auto'   (standard) – kakan skrivs bara med samtycke från ett
+	 *            samtyckesverktyg, i den här prioritetsordningen:
+	 *              1. Relativt Cookie Consent (rccCookie i konfigurationen)
+	 *              2. WP Consent API (wp_has_consent)
+	 *              3. den generella kroken window.relativtFormConsent
+	 *            Finns inget av dem skrivs kakan inte alls (före 1.7.0 skrevs
+	 *            den direkt).
+	 *   'always' – skriv alltid, med klick-id. Det gamla beteendet, för sajter
+	 *            som hanterar samtycket på annat håll och blockerar skriptet
+	 *            därifrån.
+	 *   'never'  – skriv aldrig.
 	 *
-	 * Att cookie-pluginet finns avgörs i PHP (rccCookie skickas bara med då) –
-	 * JS kan inte lita på window.rcc, eftersom skriptordningen inte är
-	 * garanterad. Utan beslut i banners är kakan oskriven; själva minnesposten
-	 * finns ändå, så attribution fungerar på landningssidan även före beslutet.
+	 * Kakan har två delar med var sin samtyckeskategori (filtret
+	 * relativt_form_consent_categories, någon kategori i listan räcker):
+	 *
+	 *   attribution – UTM-parametrar, landningssida, hänvisande sida.
+	 *                 Standard: statistics eller marketing.
+	 *   clickIds    – gclid och fbclid. Annonsplattformarnas identifierare för
+	 *                 ett enskilt klick. Standard: marketing.
+	 *
+	 * Det kakan inte får innehålla hålls bara i minnet: värden från den här
+	 * sidans URL följer med ett inskick härifrån, men inte till nästa sida.
+	 * Det kakan inte längre får innehålla läses inte heller ur den – det
+	 * plockas bort, både ur kakan och ur minnet.
 	 */
 	const UTM_MODE = ['always', 'never'].includes(CONFIG.utmCookie) ? CONFIG.utmCookie : 'auto';
 	const RCC_COOKIE = typeof CONFIG.rccCookie === 'string' && CONFIG.rccCookie !== '' ? CONFIG.rccCookie : null;
+	const WP_CONSENT_API = CONFIG.wpConsentApi === true;
+
+	const categoryList = (value, fallback) => (Array.isArray(value)
+		? value.filter((category) => typeof category === 'string' && category !== '')
+		: fallback);
+
+	const CATEGORIES = {
+		attribution: categoryList(CONFIG.consentCategories?.attribution, ['statistics', 'marketing']),
+		clickIds: categoryList(CONFIG.consentCategories?.clickIds, ['marketing']),
+	};
+
+	const hasCookie = (name) => document.cookie.split('; ').some((row) => row.startsWith(`${name}=`));
 
 	const readCookie = (name) => {
 		const match = document.cookie.split('; ').find((row) => row.startsWith(`${name}=`));
@@ -60,8 +88,14 @@
 		}
 	};
 
+	/**
+	 * Livslängden räknas från posten (t), inte från skrivtillfället. En kaka
+	 * som skrivs om – klick-id som plockas bort, samtycke som kommer senare –
+	 * får alltså aldrig förlängd livstid.
+	 */
 	const writeCookie = (name, value) => {
-		const expires = new Date(Date.now() + DAYS * 864e5).toUTCString();
+		const start = Number(value?.t) || Date.now();
+		const expires = new Date(start + DAYS * 864e5).toUTCString();
 		const secure = location.protocol === 'https:' ? '; Secure' : '';
 		document.cookie = `${name}=${encodeURIComponent(JSON.stringify(value))}; expires=${expires}; path=/; SameSite=Lax${secure}`;
 	};
@@ -70,70 +104,219 @@
 		document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax`;
 	};
 
-	/** Godkänt = statistik ELLER marknadsföring – kampanjattribution rör båda. */
-	const consentGranted = (consent) => !!(consent && (consent.statistics || consent.marketing));
+	/* -- Samtyckesverktygen ---------------------------------------------- */
 
-	const mayPersistSource = () => {
-		if (UTM_MODE === 'always') return true;
-		if (UTM_MODE === 'never') return false;
-		if (!RCC_COOKIE) return true; // auto utan samtyckesverktyg: som i 1.0.
-		return consentGranted(window.rcc?.getConsent?.() ?? readCookie(RCC_COOKIE));
-	};
+	/** true, 'allow' (WP Consent API) och 'granted' (Consent Mode) räknas som ja. */
+	const isYes = (value) => value === true || value === 'allow' || value === 'granted';
+
+	// Senaste besked från respektive verktygs ändringshändelse. Händelsen kan
+	// komma innan verktyget hunnit spara beskedet där det annars läses.
+	let rccLatest = null;
+	const wpLatest = {};
+	let hookLatest = null;
+
+	/*
+	 * WP Consent API köar sitt skript med mycket hög prioritet, så det körs
+	 * EFTER det här. Och en egen samtyckeslösning kan definiera kroken i ett
+	 * senare skript. Inget samtyckesverktyg är därför inte avgjort förrän
+	 * sidan laddat färdigt – fram till dess lämnas kakan orörd.
+	 */
+	let settled = document.readyState === 'complete';
+
+	const wpConsentType = () => (typeof window.wp_consent_type !== 'undefined'
+		? window.wp_consent_type
+		: window.wp_fallback_consent_type);
 
 	/**
-	 * Skrivs vid första besöket, och skrivs om när besökaren kommer tillbaka
-	 * via en NY kampanjlänk. Ett direktbesök däremellan rör aldrig posten – det
-	 * är hela poängen med att spara den. Utan samtycke skrivs ingenting;
-	 * posten hålls i minnet och kakan skrivs först när samtycket kommer.
+	 * Vilket samtyckesverktyg som gäller just nu: 'rcc', 'wp-consent-api',
+	 * 'hook', null (inget) eller 'pending' (inte avgjort ännu).
+	 *
+	 * WP Consent API utan samtyckestyp betyder att inget samtyckesverktyg
+	 * kopplat in sig, och då svarar wp_has_consent() ja på allt. Det svaret
+	 * används inte – API:et räknas bara när en typ (optin/optout) är satt.
+	 * Med wp_consent_api_waitfor_consent_hook väntar vi på typen
+	 * (wp_consent_type_defined) så länge det tar.
 	 */
-	const captureSource = () => {
-		const params = new URLSearchParams(location.search);
-		const incoming = {};
+	const consentTool = () => {
+		if (RCC_COOKIE) return 'rcc';
 
-		for (const key of CAMPAIGN_KEYS) {
-			const value = params.get(key);
-			if (value) incoming[key] = value.slice(0, 200);
+		if (typeof window.wp_has_consent === 'function') {
+			if (wpConsentType()) return 'wp-consent-api';
+			if (!settled || window.waitfor_consent_hook) return 'pending';
+		} else if (WP_CONSENT_API && !settled) {
+			return 'pending';
 		}
 
-		const existing = readCookie(COOKIE);
-		const hasCampaign = Object.keys(incoming).length > 0;
-		const allowed = mayPersistSource();
+		if (typeof window.relativtFormConsent === 'function' || hookLatest) return 'hook';
 
-		if (existing && !hasCampaign) {
-			// Städa bort kakan om samtycket dragits tillbaka sedan den skrevs.
-			if (!allowed) removeCookie(COOKIE);
-			return existing;
-		}
-
-		const referrer = document.referrer && !document.referrer.includes(location.host) ? document.referrer : '';
-
-		const record = {
-			...incoming,
-			landing: `${location.origin}${location.pathname}`,
-			referrer: referrer || existing?.referrer || '',
-			t: Date.now(),
-		};
-
-		if (allowed) {
-			writeCookie(COOKIE, record);
-		} else {
-			removeCookie(COOKIE);
-		}
-		return record;
+		return settled ? null : 'pending';
 	};
 
-	const source = captureSource();
-
-	// Samtycket kan komma – eller dras tillbaka – långt efter sidladdningen.
-	if (UTM_MODE === 'auto' && RCC_COOKIE) {
-		document.addEventListener('rcc_consent_updated', (event) => {
-			if (consentGranted(event.detail)) {
-				writeCookie(COOKIE, source);
-			} else {
-				removeCookie(COOKIE);
+	const granted = (tool, category) => {
+		try {
+			switch (tool) {
+				case 'rcc': {
+					const consent = rccLatest ?? window.rcc?.getConsent?.() ?? readCookie(RCC_COOKIE);
+					return !!(consent && isYes(consent[category]));
+				}
+				case 'wp-consent-api':
+					return category in wpLatest ? wpLatest[category] : !!window.wp_has_consent(category);
+				case 'hook':
+					if (hookLatest && category in hookLatest) return isYes(hookLatest[category]);
+					return typeof window.relativtFormConsent === 'function' && isYes(window.relativtFormConsent(category));
+				default:
+					return false;
 			}
-		});
+		} catch {
+			// Ett trasigt samtyckesverktyg ska aldrig betyda ja.
+			return false;
+		}
+	};
+
+	const NOTHING = { base: false, clicks: false };
+
+	/** Vad kakan får innehålla just nu, eller null om det inte är avgjort. */
+	const permissions = () => {
+		if (UTM_MODE === 'always') return { base: true, clicks: true };
+		if (UTM_MODE === 'never') return NOTHING;
+
+		const tool = consentTool();
+		if (tool === 'pending') return null;
+		if (!tool) return NOTHING;
+
+		return {
+			base: CATEGORIES.attribution.some((category) => granted(tool, category)),
+			clicks: CATEGORIES.clickIds.some((category) => granted(tool, category)),
+		};
+	};
+
+	/** De delar av posten som får sparas, eller null om ingenting återstår. */
+	const pick = (record, perms) => {
+		if (!record || typeof record !== 'object' || !perms) return null;
+
+		const keys = [...(perms.base ? BASE_KEYS : []), ...(perms.clicks ? CLICK_KEYS : [])];
+		const out = {};
+		let filled = false;
+
+		for (const key of keys) {
+			if (typeof record[key] !== 'string') continue;
+			out[key] = record[key];
+			filled = filled || record[key] !== '';
+		}
+
+		if (!filled) return null;
+		out.t = Number(record.t) || Date.now();
+		return out;
+	};
+
+	/* -- Posten -------------------------------------------------------- */
+
+	const params = new URLSearchParams(location.search);
+	const incoming = {};
+	for (const key of CAMPAIGN_KEYS) {
+		const value = params.get(key);
+		if (value) incoming[key] = value.slice(0, 200);
 	}
+	const hasCampaign = Object.keys(incoming).length > 0;
+
+	/** Den här sidans post – innan samtycket är avgjort är det den som gäller. */
+	const pageRecord = {
+		...incoming,
+		landing: `${location.origin}${location.pathname}`,
+		referrer: document.referrer && !document.referrer.includes(location.host) ? document.referrer : '',
+		t: Date.now(),
+	};
+
+	/** Sätts när samtycket först är avgjort. */
+	let state = null;
+
+	/**
+	 * Kakan skrivs vid första besöket, och skrivs om när besökaren kommer
+	 * tillbaka via en NY kampanjlänk. Ett direktbesök däremellan rör aldrig
+	 * posten – det är hela poängen med att spara den.
+	 *
+	 * Ur en befintlig kaka läses bara det som får sparas nu. Dras samtycket
+	 * till marknadsföring tillbaka försvinner alltså klick-id även ur minnet,
+	 * och de kommer inte tillbaka om samtycket ges igen senare på sidan.
+	 */
+	const initialise = (perms) => {
+		const stored = pick(readCookie(COOKIE), perms);
+		const page = { ...pageRecord, referrer: pageRecord.referrer || stored?.referrer || '' };
+		const fromUrl = hasCampaign || !stored;
+		state = { page, fromUrl, captured: fromUrl ? page : stored };
+	};
+
+	/** Attributionen som följer med ett inskick. */
+	const currentSource = () => {
+		if (!state) return pageRecord;
+		if (state.fromUrl) return state.captured;
+
+		// Posten kom ur kakan: samma gränser som för kakan, även i minnet.
+		const perms = permissions();
+		if (!perms) return state.captured;
+		return pick(state.captured, perms) ?? state.page;
+	};
+
+	/** Skriver, skalar av eller tar bort kakan efter dagens samtycke. */
+	const sync = () => {
+		const perms = permissions();
+		if (!perms) return; // Inte avgjort – kakan lämnas orörd.
+
+		if (!state) initialise(perms);
+
+		const record = pick(state.captured, perms);
+		if (record) {
+			if (JSON.stringify(record) !== JSON.stringify(readCookie(COOKIE))) writeCookie(COOKIE, record);
+		} else if (hasCookie(COOKIE)) {
+			removeCookie(COOKIE);
+		}
+	};
+
+	// Samtycket kan komma, ändras eller dras tillbaka långt efter sidladdningen.
+	if (UTM_MODE === 'auto') {
+		document.addEventListener('rcc_consent_updated', (event) => {
+			if (event.detail && typeof event.detail === 'object') rccLatest = event.detail;
+			sync();
+		});
+
+		document.addEventListener('wp_listen_for_consent_change', (event) => {
+			const changed = event.detail && typeof event.detail === 'object' ? event.detail : {};
+			for (const category of Object.keys(changed)) wpLatest[category] = isYes(changed[category]);
+			sync();
+		});
+		document.addEventListener('wp_consent_type_defined', sync);
+
+		/*
+		 * Den generella kroken för egna samtyckeslösningar: definiera
+		 * window.relativtFormConsent = (kategori) => true/false, och skicka
+		 * relativt-form:consent när samtycket ändras. Händelsens detail kan
+		 * bära beskedet direkt: { statistics: true, marketing: false }.
+		 */
+		document.addEventListener('relativt-form:consent', (event) => {
+			if (event.detail && typeof event.detail === 'object') hookLatest = { ...(hookLatest ?? {}), ...event.detail };
+			sync();
+		});
+
+		if (!settled) {
+			window.addEventListener('load', () => {
+				settled = true;
+				sync();
+			});
+		}
+	}
+
+	sync();
+
+	/** Felsökning: vilket verktyg som läses och vad kakan får innehålla. */
+	const consentStatus = () => {
+		const perms = permissions();
+		return {
+			mode: UTM_MODE,
+			tool: UTM_MODE === 'auto' ? consentTool() : null,
+			attribution: perms ? perms.base : null,
+			clickIds: perms ? perms.clicks : null,
+		};
+	};
 
 	/* =========================================================================
 	 * 2. Formulärlogik
@@ -630,7 +813,7 @@
 				}
 			}
 
-			const utm = { ...source };
+			const utm = { ...currentSource() };
 			delete utm.t;
 
 			return {
@@ -861,5 +1044,5 @@
 	// Formulär som portas in i modalen eller läggs in via ajax.
 	document.addEventListener('modal:open', () => init());
 
-	window.relativtForm = { init, source: () => ({ ...source }) };
+	window.relativtForm = { init, source: () => ({ ...currentSource() }), consent: consentStatus };
 })();

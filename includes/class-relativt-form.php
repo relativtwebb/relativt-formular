@@ -69,6 +69,24 @@ final class Relativt_Form {
 	 */
 	private const MAX_LINKS = 3;
 
+	/** Kampanjkakan. Namnet speglas i JS (COOKIE) och i cookie-deklarationen. */
+	public const SOURCE_COOKIE = 'xf_src';
+
+	/**
+	 * Samtyckeskategorier för kampanjkakans två delar – någon av kategorierna
+	 * i listan räcker. Namnen är de som Relativt Cookie Consent och WP Consent
+	 * API delar (statistics, marketing …). Justeras med filtret
+	 * relativt_form_consent_categories.
+	 *
+	 *   attribution – UTM-parametrar, landningssida och hänvisande sida.
+	 *   click_ids   – gclid och fbclid. Annonsplattformarnas egna
+	 *                 identifierare för ett enskilt klick, alltså marknadsföring.
+	 */
+	public const CONSENT_CATEGORIES = [
+		'attribution' => [ 'statistics', 'marketing' ],
+		'click_ids'   => [ 'marketing' ],
+	];
+
 	/** Formulärdefinitioner per formulär-id, cachade för sidladdningen. */
 	private static array $fields_cache = [];
 
@@ -84,6 +102,15 @@ final class Relativt_Form {
 		add_action( 'acf/init', [ $this, 'register_fields' ] );
 		add_action( 'rest_api_init', [ $this, 'register_routes' ] );
 		add_action( 'wp_enqueue_scripts', [ $this, 'register_assets' ] );
+
+		/*
+		 * WP Consent API. Kompatibilitetsförklaringen är bara ett filter och
+		 * kostar ingenting utan API:et. Kakan registreras på plugins_loaded:
+		 * API:et kan laddas efter det här pluginet (alfabetiskt) och startar
+		 * själv på plugins_loaded prioritet 9.
+		 */
+		add_filter( 'wp_consent_api_registered_' . plugin_basename( defined( 'RELATIVT_FORM_FILE' ) ? RELATIVT_FORM_FILE : __FILE__ ), '__return_true' );
+		add_action( 'plugins_loaded', [ $this, 'register_cookie_info' ] );
 		add_filter( 'script_loader_tag', [ $this, 'turnstile_script_tag' ], 10, 2 );
 
 		// Admin.
@@ -143,21 +170,36 @@ final class Relativt_Form {
 		 * så att klient och server aldrig säger olika saker, och maxLinks
 		 * speglar serverns länkspärr av samma skäl.
 		 *
+		 * Samtyckesverktyg, i prioritetsordning (JS väljer det första som
+		 * finns): Relativt Cookie Consent, WP Consent API, den generella
+		 * JS-kroken window.relativtFormConsent. Finns inget av dem skrivs
+		 * kampanjkakan inte alls i läget auto.
+		 *
 		 * rccCookie skickas bara med när Relativt Cookie Consent är aktivt på
 		 * sajten. Namnet på samtyckescookien är filtrerbart där, så JS kan inte
 		 * gissa det – och att avgöra "finns samtyckesverktyget?" i PHP slipper
 		 * kapplöpningen om vilken skriptfil som råkar köras först.
+		 *
+		 * wpConsentApi säger samma sak om WP Consent API. Dess skript köas med
+		 * mycket hög prioritet och körs därför EFTER det här, så JS behöver
+		 * veta att det ska vänta på wp_has_consent() i stället för att dra
+		 * slutsatsen att inget samtyckesverktyg finns.
 		 */
 		$config = [
-			'utmCookie' => (string) apply_filters( 'relativt_form_utm_cookie', 'auto' ),
-			'maxLinks'  => (int) apply_filters( 'relativt_form_max_links', self::MAX_LINKS ),
-			'messages'  => $this->messages(),
+			'utmCookie'         => (string) apply_filters( 'relativt_form_utm_cookie', 'auto' ),
+			'consentCategories' => $this->consent_categories_for_js(),
+			'maxLinks'          => (int) apply_filters( 'relativt_form_max_links', self::MAX_LINKS ),
+			'messages'          => $this->messages(),
 		];
 
 		if ( defined( 'RCC_VERSION' ) ) {
 			$config['rccCookie'] = function_exists( 'rcc_cookie_name' )
 				? (string) rcc_cookie_name()
 				: 'relativt_cookie_consent';
+		}
+
+		if ( function_exists( 'wp_has_consent' ) ) {
+			$config['wpConsentApi'] = true;
 		}
 
 		wp_add_inline_script(
@@ -176,6 +218,73 @@ final class Relativt_Form {
 		if ( apply_filters( 'relativt_form_always_enqueue', true ) ) {
 			$this->enqueue_assets();
 		}
+	}
+
+	/**
+	 * Kampanjkakans samtyckeskategorier efter filtret.
+	 *
+	 * Filtret får ändra en del i taget; en nyckel som saknas eller inte är en
+	 * lista behåller standardvärdet. En TOM lista är ett giltigt val och
+	 * betyder att den delen aldrig sparas i kakan (den lever då bara i
+	 * minnet på sidan, som utan samtycke).
+	 *
+	 * @return array{attribution: list<string>, click_ids: list<string>}
+	 */
+	public function consent_categories(): array {
+		$filtered = apply_filters( 'relativt_form_consent_categories', self::CONSENT_CATEGORIES );
+		$out      = self::CONSENT_CATEGORIES;
+
+		foreach ( array_keys( self::CONSENT_CATEGORIES ) as $part ) {
+			if ( ! is_array( $filtered ) || ! is_array( $filtered[ $part ] ?? null ) ) {
+				continue;
+			}
+			$clean = [];
+			foreach ( $filtered[ $part ] as $category ) {
+				// Samma teckenmängd som sanitize_key – statistics-anonymous ska gå igenom.
+				$category = is_string( $category ) ? preg_replace( '/[^a-z0-9_\-]/', '', strtolower( $category ) ) : '';
+				if ( '' !== $category && ! in_array( $category, $clean, true ) ) {
+					$clean[] = $category;
+				}
+			}
+			$out[ $part ] = $clean;
+		}
+
+		return $out;
+	}
+
+	/** Samma kategorier med JS-nycklar (camelCase, som resten av konfigurationen). */
+	private function consent_categories_for_js(): array {
+		$c = $this->consent_categories();
+		return [
+			'attribution' => $c['attribution'],
+			'clickIds'    => $c['click_ids'],
+		];
+	}
+
+	/**
+	 * Registrerar kampanjkakan i WP Consent API, så att samtyckesverktyg som
+	 * bygger cookie-deklarationen därifrån listar den. Kategorin är den
+	 * första i attributionslistan – den lägsta nivå där kakan alls kan
+	 * skrivas. Att klick-id kräver mer står i beskrivningen.
+	 */
+	public function register_cookie_info(): void {
+		if ( ! function_exists( 'wp_add_cookie_info' ) ) {
+			return;
+		}
+
+		$categories = $this->consent_categories();
+		$category   = $categories['attribution'][0] ?? ( $categories['click_ids'][0] ?? 'marketing' );
+		$click      = $categories['click_ids'] ? implode( ' eller ', $categories['click_ids'] ) : '';
+
+		wp_add_cookie_info(
+			self::SOURCE_COOKIE,
+			'Relativt Formulär',
+			$category,
+			'90 dagar',
+			'Kommer ihåg vilken kampanj besökaren kom ifrån (UTM-parametrar, landningssida och hänvisande sida), så att ett formulärinskick kan kopplas till kampanjen.'
+				. ( '' !== $click ? sprintf( ' Annonsklick-id (gclid, fbclid) sparas bara med samtycke till %s.', $click ) : ' Annonsklick-id (gclid, fbclid) sparas aldrig.' ),
+			'Kampanjparametrar, landningssida och hänvisande sida'
+		);
 	}
 
 	/** Idempotent – anropas även från shortcoden, för villkorlig laddning. */

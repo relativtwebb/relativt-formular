@@ -607,6 +607,66 @@ add_filter( 'relativt_form_utm_cookie', static fn() => 'never' );
 check( 'samtyckesläget kan filtreras', 'never' === ( xf_read_config()['utmCookie'] ?? '' ) );
 remove_all_filters( 'relativt_form_utm_cookie' );
 
+echo "\nKampanjkakan och samtycke (1.7.0)\n";
+
+$cats = $config['consentCategories'] ?? [];
+check( 'samtyckeskategorierna följer med till JS', [ 'statistics', 'marketing' ] === ( $cats['attribution'] ?? null ) && [ 'marketing' ] === ( $cats['clickIds'] ?? null ) );
+check( 'klick-id kräver bara marknadsföring som standard', [ 'marketing' ] === $engine->consent_categories()['click_ids'] );
+check( 'utan WP Consent API skickas ingen wpConsentApi', ! isset( $config['wpConsentApi'] ) );
+
+add_filter( 'relativt_form_consent_categories', static fn( $c ) => array_merge( $c, [ 'attribution' => [ 'Statistics-Anonymous', 'statistics', 'statistics', '<>', 42 ] ] ) );
+$cats = xf_read_config()['consentCategories'] ?? [];
+check( 'kategorierna kan filtreras del för del', [ 'statistics-anonymous', 'statistics' ] === ( $cats['attribution'] ?? null ) && [ 'marketing' ] === ( $cats['clickIds'] ?? null ), wp_json_encode( $cats ) );
+remove_all_filters( 'relativt_form_consent_categories' );
+
+add_filter( 'relativt_form_consent_categories', static fn( $c ) => [ 'click_ids' => [] ] );
+$cats = $engine->consent_categories();
+check( 'en tom lista är ett giltigt val (sparas aldrig)', [] === $cats['click_ids'] );
+check( 'en saknad del behåller standardvärdet', [ 'statistics', 'marketing' ] === $cats['attribution'] );
+remove_all_filters( 'relativt_form_consent_categories' );
+
+add_filter( 'relativt_form_consent_categories', static fn( $c ) => 'marketing' );
+check( 'ett filter som inte returnerar en lista ger standardvärdena', Relativt_Form::CONSENT_CATEGORIES === $engine->consent_categories() );
+remove_all_filters( 'relativt_form_consent_categories' );
+
+add_filter( 'relativt_form_consent_categories', static fn( $c ) => [ 'attribution' => 'statistics', 'click_ids' => null ] );
+check( 'delar som inte är listor behåller standardvärdet', Relativt_Form::CONSENT_CATEGORIES === $engine->consent_categories() );
+remove_all_filters( 'relativt_form_consent_categories' );
+
+echo "\nWP Consent API (1.7.0)\n";
+
+check( 'pluginet förklarar sig kompatibelt med WP Consent API', (bool) apply_filters( 'wp_consent_api_registered_relativt-formular/relativt-formular.php', false ) );
+check( 'kakan registreras på plugins_loaded', in_array( 'register_cookie_info', hooked_methods( 'plugins_loaded' ), true ) );
+
+$GLOBALS['__cookie_info'] = [];
+$engine->register_cookie_info();
+check( 'utan WP Consent API registreras ingenting, och inget går sönder', [] === $GLOBALS['__cookie_info'] );
+
+if ( ! function_exists( 'wp_add_cookie_info' ) ) {
+	function wp_add_cookie_info( ...$args ) { $GLOBALS['__cookie_info'][] = $args; }
+}
+if ( ! function_exists( 'wp_has_consent' ) ) {
+	function wp_has_consent( $category ) { return false; }
+}
+
+check( 'med WP Consent API får JS veta det', true === ( xf_read_config()['wpConsentApi'] ?? null ) );
+
+$engine->register_cookie_info();
+$info = $GLOBALS['__cookie_info'][0] ?? [];
+check( 'kakan registreras med namn och avsändare', 'xf_src' === ( $info[0] ?? '' ) && 'Relativt Formulär' === ( $info[1] ?? '' ) );
+check( 'under statistik – den lägsta nivå där den alls skrivs', 'statistics' === ( $info[2] ?? '' ) );
+check( 'med livslängd och syfte', '90 dagar' === ( $info[3] ?? '' ) && str_contains( (string) ( $info[4] ?? '' ), 'UTM-parametrar' ) );
+check( 'beskrivningen säger att klick-id kräver marknadsföring', str_contains( (string) ( $info[4] ?? '' ), 'gclid, fbclid) sparas bara med samtycke till marketing' ) );
+
+$GLOBALS['__cookie_info'] = [];
+add_filter( 'relativt_form_consent_categories', static fn( $c ) => [ 'attribution' => [ 'marketing' ], 'click_ids' => [] ] );
+$engine->register_cookie_info();
+$info = $GLOBALS['__cookie_info'][0] ?? [];
+check( 'kategorin följer filtret', 'marketing' === ( $info[2] ?? '' ) );
+check( 'och beskrivningen likaså', str_contains( (string) ( $info[4] ?? '' ), 'sparas aldrig' ) );
+remove_all_filters( 'relativt_form_consent_categories' );
+$GLOBALS['__cookie_info'] = [];
+
 echo "\nREST-inskicksflödet\n";
 
 /** En komplett, giltig nyttolast – testerna byter ut det de vill bryta. */

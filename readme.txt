@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.6.1
+Stable tag: 1.7.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -21,7 +21,22 @@ Kräver Advanced Custom Fields Pro.
 
 Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
+== Upgrade Notice ==
+
+= 1.7.0 =
+Utan samtyckesverktyg skrivs kampanjkakan inte längre. Se CHANGELOG för hur
+det gamla beteendet behålls.
+
 == Changelog ==
+
+= 1.7.0 =
+BETEENDEÄNDRING: på sajter utan samtyckesverktyg skrivs kampanjkakan xf_src
+inte längre – attributionen hålls bara i minnet på landningssidan, och en
+befintlig kaka tas bort. Vill ni ha det gamla beteendet: filtret
+relativt_form_utm_cookie → 'always'. Klick-id (gclid, fbclid) kräver nu
+samtycke till marknadsföring; statistik räcker för UTM, landningssida och
+hänvisare. Nytt: stöd för WP Consent API, en JS-krok för egna
+samtyckeslösningar och filtrerbara samtyckeskategorier.
 
 = 1.6.1 =
 Statistiksidan: listor där inte alla inskick har ett värde – hänvisande

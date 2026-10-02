@@ -3,6 +3,82 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.7.0] – 2026-10-02
+
+> **Beteendeändring – läs före uppdatering.** På sajter **utan**
+> samtyckesverktyg skrivs kampanjkakan `xf_src` inte längre. Före 1.7.0
+> skrevs den direkt i standardläget `auto` när inget samtyckesverktyg fanns;
+> det är fel standard på en EU-sajt. Nu hålls attributionen bara i minnet:
+> ett inskick från landningssidan får kampanjen, men den följer inte med
+> till nästa sida. En befintlig `xf_src` från en äldre version tas bort vid
+> nästa sidvisning.
+>
+> Sajter med Relativt Cookie Consent berörs bara av den nya kategoriregeln
+> för klick-id nedan. Den som vill ha det gamla beteendet – kakan skrivs
+> alltid, med klick-id – sätter läget `always`:
+>
+> ```php
+> add_filter( 'relativt_form_utm_cookie', fn() => 'always' );
+> ```
+
+### Ändrat
+- **Klick-id kräver samtycke till marknadsföring.** `gclid` och `fbclid` är
+  annonsplattformarnas identifierare för ett enskilt klick, så samtycke till
+  statistik räcker inte längre för dem:
+  - UTM-parametrar, landningssida och hänvisande sida: statistik **eller**
+    marknadsföring, som förut;
+  - `gclid` och `fbclid`: bara marknadsföring. Utan det hålls de i minnet på
+    sidan (ett inskick därifrån får dem) och tas bort ur en befintlig kaka.
+- **Samma regel när samtycket ändras**, även vid nedgradering från
+  marknadsföring till bara statistik: kakan skrivs om utan klick-id, med
+  oförändrad livslängd. Det kakan inte längre får innehålla läses inte heller
+  ur den, och avskalade värden kommer inte tillbaka om samtycket ges igen.
+- Kakans livslängd räknas från när kampanjen fångades, inte från senaste
+  skrivningen – en omskrivning förlänger den aldrig.
+- **Utan samtyckesverktyg skrivs kakan inte** (se rutan ovan).
+
+### Nytt
+- **Filtret `relativt_form_consent_categories`** styr kategorierna för
+  kakans två delar, `attribution` och `click_ids` (någon kategori i listan
+  räcker). En del som saknas behåller standardvärdet; en tom lista betyder
+  att delen aldrig sparas.
+- **WP Consent API.** Är API:et aktivt läses samtycket med `wp_has_consent()`
+  och följs via `wp_listen_for_consent_change`. Kakan registreras med
+  `wp_add_cookie_info()` (kategori: den första för attributionen, normalt
+  `statistics`), och pluginet förklarar sig kompatibelt
+  (`wp_consent_api_registered_…`). API:et utan samtyckestyp – alltså utan
+  något samtyckesverktyg som kopplat in sig – räknas inte: då svarar
+  `wp_has_consent()` ja på allt, och det svaret används inte.
+- **Generell JS-krok för egna samtyckeslösningar:**
+  `window.relativtFormConsent = (kategori) => true/false`, och händelsen
+  `relativt-form:consent` när samtycket ändras (`detail` kan bära beskedet
+  direkt, t.ex. `{ statistics: true, marketing: false }`). Kroken får
+  definieras efter formulärskriptet.
+- **Prioritet:** Relativt Cookie Consent, sedan WP Consent API, sedan
+  JS-kroken. Det första som finns gäller.
+- `window.relativtForm.consent()` visar läge, verktyg och vad kakan får
+  innehålla – för felsökning av en samtyckesintegration.
+
+### Tekniskt
+- WP Consent API:s skript köas med mycket hög prioritet och körs efter
+  formulärskriptet. Därför avgörs "inget samtyckesverktyg" först när sidan
+  laddat färdigt; fram till dess lämnas kakan orörd och attributionen hålls i
+  minnet. PHP skickar `wpConsentApi: true` så att skriptet vet att det ska
+  vänta.
+- Ett samtyckesverktyg som kastar fel tolkas aldrig som ja.
+
+### Tester
+- 18 nya serverassertions (497 totalt): kategorierna i konfigurationen,
+  filtret del för del, tom lista, ogiltiga filtervärden, WP Consent
+  API-flaggan, `wp_add_cookie_info` med och utan API:et, kompatibilitets-
+  förklaringen.
+- 14 nya Playwright-tester (146 totalt med desktop och mobil): statistik
+  respektive marknadsföring, nedgradering med oförändrad livslängd,
+  återkallat samtycke mellan sidladdningar, filtrerade kategorier, inget
+  samtyckesverktyg, gammal kaka, `always`, WP Consent API (med och utan
+  samtyckestyp, laddat efter formulärskriptet), JS-kroken, trasig krok och
+  prioritetsordningen. De befintliga UTM-testerna körs nu med samtycke.
+
 ## [1.6.1] – 2026-10-02
 
 ### Ändrat

@@ -408,6 +408,9 @@ function wp_unslash( $v ) { return $v; }
 function plugin_dir_path( $file ) { return rtrim( dirname( $file ), '/' ) . '/'; }
 function plugin_dir_url( $file ) { return '/wp-content/plugins/relativt-formular/'; }
 function plugin_basename( $file ) { return 'relativt-formular/relativt-formular.php'; }
+if ( ! function_exists( '__return_true' ) ) {
+	function __return_true() { return true; }
+}
 function register_activation_hook( $file, $cb ) { return true; }
 function register_deactivation_hook( $file, $cb ) { return true; }
 function flush_rewrite_rules() { return true; }
