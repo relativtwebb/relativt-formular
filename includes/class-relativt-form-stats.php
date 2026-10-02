@@ -32,7 +32,7 @@ final class Relativt_Form_Stats {
 	public const PAGE = 'relativt-form-stats';
 
 	/** Byts när rapportens format ändras, så att gamla cachade rapporter ignoreras. */
-	private const CACHE_VERSION = 3;
+	private const CACHE_VERSION = 4;
 
 	/** Hur länge en sammanställning cachas. Nya inskick bryter cachen direkt. */
 	private const CACHE_TTL = 6 * 3600;
@@ -442,6 +442,7 @@ final class Relativt_Form_Stats {
 			'with_utm'      => 0,
 			'click_only'    => 0,
 			'clicks'        => [],
+			'with_click'    => 0,
 			'mail_failed'   => 0,
 			'series'        => self::buckets( $range['from'], $range['to'], $range['granularity'] ),
 			'forms'         => [],
@@ -501,6 +502,9 @@ final class Relativt_Form_Stats {
 					self::bump( $r['clicks'], $k );
 					$has_click = true;
 				}
+			}
+			if ( $has_click ) {
+				$r['with_click']++;
 			}
 			if ( $has_utm || $has_click ) {
 				$r['with_campaign']++;
@@ -564,6 +568,8 @@ final class Relativt_Form_Stats {
 		foreach ( [ 'forms', 'channels', 'utm_source', 'utm_medium', 'utm_campaign', 'referrers', 'landing', 'pages', 'devices', 'browsers' ] as $k ) {
 			arsort( $r[ $k ] );
 			$r[ $k . '_distinct' ] = count( $r[ $k ] );
+			// Antal inskick med ett värde, räknat före kapningen – resten visas som en egen rad.
+			$r[ $k . '_n' ]        = array_sum( $r[ $k ] );
 			$r[ $k ]               = array_slice( $r[ $k ], 0, self::KEEP, true );
 		}
 
@@ -959,21 +965,28 @@ final class Relativt_Form_Stats {
 			: '';
 
 		$out .= '<div class="xf-grid xf-grid-4">';
-		$out .= $this->card( 'Kampanjkälla (utm_source)', $this->bar_list( $r['utm_source'], $r['total'], 'Källa', [], $r['utm_source_distinct'], $utm_empty ) );
-		$out .= $this->card( 'Medium (utm_medium)', $this->bar_list( $r['utm_medium'], $r['total'], 'Medium', [], $r['utm_medium_distinct'], $utm_empty ) );
-		$out .= $this->card( 'Kampanj (utm_campaign)', $this->bar_list( $r['utm_campaign'], $r['total'], 'Kampanj', [], $r['utm_campaign_distinct'], $utm_empty ) );
+		foreach ( [ 'utm_source' => [ 'Kampanjkälla', 'Källa' ], 'utm_medium' => [ 'Medium', 'Medium' ], 'utm_campaign' => [ 'Kampanj', 'Kampanj' ] ] as $k => [ $title, $heading ] ) {
+			$out .= $this->card(
+				"{$title} ({$k})",
+				$this->bar_list( $r[ $k ], $r['total'], $heading, distinct: $r[ $k . '_distinct' ], empty: $utm_empty, rest: $r[ $k ] ? "Utan {$k}" : '', covered: $r[ $k . '_n' ] )
+			);
+		}
 		$out .= $this->card(
 			'Annonsklick',
-			$this->bar_list( $r['clicks'], $r['total'], 'Klick-id', [ 'gclid' => 'Google Ads (gclid)', 'fbclid' => 'Facebook/Instagram (fbclid)' ], 0, 'Inga annonsklick under perioden.' )
+			$this->bar_list( $r['clicks'], $r['total'], 'Klick-id', [ 'gclid' => 'Google Ads (gclid)', 'fbclid' => 'Facebook/Instagram (fbclid)' ], empty: 'Inga annonsklick under perioden.', rest: $r['clicks'] ? 'Utan annonsklick' : '', covered: $r['with_click'] )
 				. '<p class="xf-note">Läggs på av plattformen, inte av den som taggat länken. fbclid följer med alla länkar från Facebook och Instagram, även vanliga inlägg – det är inte nödvändigtvis en annons.</p>'
 		);
 		$out .= '</div>';
 
 		$out .= '<h2 class="xf-section">Sidor</h2>';
 		$out .= '<div class="xf-grid xf-grid-3">';
-		$out .= $this->card( 'Hänvisande webbplatser', $this->bar_list( $r['referrers'], $r['total'], 'Webbplats', [], $r['referrers_distinct'] ) );
-		$out .= $this->card( 'Landningssidor', $this->bar_list( $r['landing'], $r['total'], 'Sida', [], $r['landing_distinct'] ) );
-		$out .= $this->card( 'Skickat från', $this->bar_list( $r['pages'], $r['total'], 'Sida', [], $r['pages_distinct'] ) );
+		$out .= $this->card(
+			'Hänvisande webbplatser',
+			$this->bar_list( $r['referrers'], $r['total'], 'Webbplats', distinct: $r['referrers_distinct'], rest: 'Ingen extern webbplats', covered: $r['referrers_n'] )
+				. ( $r['total'] > $r['referrers_n'] ? '<p class="xf-note">Ingen extern webbplats = direkttrafik, okänd källa eller trafik från sajten själv. De flesta syns som Direkt / okänd under Kanaler.</p>' : '' )
+		);
+		$out .= $this->card( 'Landningssidor', $this->bar_list( $r['landing'], $r['total'], 'Sida', distinct: $r['landing_distinct'], rest: 'Uppgift saknas', covered: $r['landing_n'] ) );
+		$out .= $this->card( 'Skickat från', $this->bar_list( $r['pages'], $r['total'], 'Sida', distinct: $r['pages_distinct'], rest: 'Uppgift saknas', covered: $r['pages_n'] ) );
 		$out .= '</div>';
 
 		$out .= $this->card( 'Veckodag och klockslag', self::heatmap( $r['heat'] ), 'xf-wide' );
@@ -996,15 +1009,6 @@ final class Relativt_Form_Stats {
 			foreach ( $form['fields'] as $key => $def ) {
 				$slot   = $r['answers'][ $fid ][ $key ] ?? [ 'base' => 0, 'answered' => 0, 'values' => [], 'distinct' => 0 ];
 				$none   = $slot['base'] - $slot['answered'];
-				$counts = $slot['values'];
-				$labels = [];
-
-				// "Ej besvarat" sist och alltid med, även när listan kapas.
-				if ( $none > 0 ) {
-					$counts               = array_slice( $counts, 0, self::SHOW - 1, true );
-					$counts['__xf_none']  = $none;
-					$labels['__xf_none']  = 'Ej besvarat';
-				}
 
 				$notes = [];
 				if ( 'checkboxes' === $def['type'] ) {
@@ -1015,7 +1019,15 @@ final class Relativt_Form_Stats {
 				}
 
 				$title = $def['label'] . ( $many ? ' · ' . $form['title'] : '' );
-				$body  = $this->bar_list( $counts, (int) $slot['base'], 'Svar', $labels, (int) ( $slot['distinct'] ?? 0 ), 'Inga inskick från formuläret under perioden.' );
+				$body  = $this->bar_list(
+					$slot['values'],
+					(int) $slot['base'],
+					'Svar',
+					distinct: (int) ( $slot['distinct'] ?? 0 ),
+					empty: 'Inga inskick från formuläret under perioden.',
+					rest: 'Ej besvarat',
+					covered: (int) $slot['answered']
+				);
 				$body .= $notes ? '<p class="xf-note">' . esc_html( implode( ' ', $notes ) ) . '</p>' : '';
 
 				$out .= $this->card( $title, $body );
@@ -1075,27 +1087,51 @@ final class Relativt_Form_Stats {
 	 * Topplista med stapel per rad. Stapeln är relativ till listans största
 	 * värde, andelen till alla inskick i perioden.
 	 */
-	private function bar_list( array $counts, int $total, string $heading, array $labels = [], int $distinct = 0, string $empty = '' ): string {
-		if ( ! $counts ) {
+	/**
+	 * $rest + $covered: listor där inte alla inskick har ett värde (hänvisare,
+	 * UTM-taggar, svar i följda fält) får en grå sista rad med resten, så att
+	 * andelarna går jämnt upp i 100 % i stället för att lämna en oförklarad
+	 * lucka. $covered = antal inskick MED ett värde; resten = $total − $covered.
+	 * Raden står alltid sist och kapas aldrig bort.
+	 */
+	private function bar_list( array $counts, int $total, string $heading, array $labels = [], int $distinct = 0, string $empty = '', string $rest = '', int $covered = 0 ): string {
+		$remaining = '' !== $rest ? max( 0, $total - $covered ) : 0;
+
+		// Utan värden och utan rest finns inget att visa. Med rest blir det en
+		// ensam grå rad på 100 % – t.ex. ett följt fält som ingen besvarat.
+		if ( ! $counts && ! $remaining ) {
 			return '<p class="xf-none">' . esc_html( '' !== $empty ? $empty : 'Inga uppgifter under perioden.' ) . '</p>';
 		}
 
-		$max  = max( $counts );
-		$rows = '';
-		foreach ( array_slice( $counts, 0, self::SHOW, true ) as $key => $n ) {
-			$label = $labels[ $key ] ?? (string) $key;
-			$rows .= sprintf(
-				'<tr%5$s><td><span class="xf-label" title="%1$s">%1$s</span><span class="xf-bar" aria-hidden="true"><i style="width:%2$s%%"></i></span></td><td class="num">%3$s</td><td class="num">%4$s</td></tr>',
-				esc_html( $label ),
-				esc_attr( (string) max( 1, round( $n / $max * 100, 1 ) ) ),
-				self::num( $n ),
-				$total ? self::num( $n / $total * 100, $n / $total < 0.1 ? 1 : 0 ) . ' %' : '',
-				// "Ej besvarat" är ingen kategori bland de andra – grå stapel så den inte läses som en.
-				'__xf_none' === (string) $key ? ' class="xf-muted"' : ''
-			);
+		$shown     = array_slice( $counts, 0, $remaining ? self::SHOW - 1 : self::SHOW, true );
+		$more      = $distinct > count( $shown ) ? sprintf( '<p class="xf-note">Visar %d av %s.</p>', count( $shown ), self::num( $distinct ) ) : '';
+
+		if ( $remaining ) {
+			$shown['__xf_none']  = $remaining;
+			$labels['__xf_none'] = $rest;
 		}
 
-		$more = $distinct > self::SHOW ? sprintf( '<p class="xf-note">Visar %d av %s.</p>', self::SHOW, self::num( $distinct ) ) : '';
+		/*
+		 * Staplarna skalas mot listans största RIKTIGA värde. Restraden får
+		 * ingen stapel alls: den är ingen kategori bland de andra, och fick den
+		 * vara med i skalan blev de riktiga staplarna små streck bredvid en
+		 * stor grå "Ingen extern webbplats".
+		 */
+		$real = array_diff_key( $shown, [ '__xf_none' => 1 ] );
+		$max  = $real ? max( $real ) : 1;
+		$rows = '';
+		foreach ( $shown as $key => $n ) {
+			$is_rest = '__xf_none' === (string) $key;
+			$label   = $labels[ $key ] ?? (string) $key;
+			$rows   .= sprintf(
+				'<tr%5$s><td><span class="xf-label" title="%1$s">%1$s</span>%2$s</td><td class="num">%3$s</td><td class="num">%4$s</td></tr>',
+				esc_html( $label ),
+				$is_rest ? '' : sprintf( '<span class="xf-bar" aria-hidden="true"><i style="width:%s%%"></i></span>', esc_attr( (string) max( 1, round( $n / $max * 100, 1 ) ) ) ),
+				self::num( $n ),
+				$total ? self::num( $n / $total * 100, $n / $total < 0.1 ? 1 : 0 ) . ' %' : '',
+				$is_rest ? ' class="xf-muted"' : ''
+			);
+		}
 
 		return sprintf(
 			'<table class="xf-list"><thead><tr><th scope="col">%s</th><th scope="col" class="num">Inskick</th><th scope="col" class="num">Andel</th></tr></thead><tbody>%s</tbody></table>%s',
@@ -1307,8 +1343,7 @@ final class Relativt_Form_Stats {
 		.xf-stats .xf-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
 		.xf-stats .xf-bar { display: block; height: 6px; margin: 4px 8px 0 0; }
 		.xf-stats .xf-bar i { display: block; height: 100%; background: var(--xf-accent); border-radius: 0 3px 3px 0; }
-		.xf-stats tr.xf-muted .xf-bar i { background: #c3c4c7; }
-		.xf-stats tr.xf-muted .xf-label { color: var(--xf-muted); }
+		.xf-stats tr.xf-muted td { color: var(--xf-muted); }
 		.xf-stats .xf-chart-wrap { overflow-x: auto; }
 		.xf-stats .xf-chart { display: block; width: 100%; min-width: 640px; height: auto; margin-top: 4px; }
 		.xf-stats .xf-gap { height: 16px; }

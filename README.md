@@ -208,6 +208,8 @@ Välj period (7, 30 eller 90 dagar, 12 månader, i år, alla sparade inskick ell
 - **Kanaler, per formulär, enhet och webbläsare.**
 - **Kampanjer:** topplistor för `utm_source`, `utm_medium` och `utm_campaign` (versaler slås ihop), plus **Annonsklick** för inskick med `gclid` (Google Ads automatiska taggning) eller `fbclid` (alla länkar från Facebook och Instagram, även vanliga inlägg). Ett inskick kan ha klick-id utan en enda UTM-tagg, och då räknas det i andelen med kampanjdata men syns bara i Annonsklick.
 - **Sidor:** hänvisande webbplatser, landningssidor och sidorna formuläret skickades från – sökväg utan frågesträng.
+
+Andelarna räknas alltid på alla inskick i perioden. Listor där inte alla inskick har ett värde – hänvisare, UTM-taggar, annonsklick, sidor och följda fält – avslutas med en grå restrad (*Ingen extern webbplats*, *Utan utm_source*, *Ej besvarat* …), så att varje kort går jämnt upp i 100 %.
 - **Veckodag × klockslag** i sajtens tidszon.
 - **Formulärsvar** för fält som följs – se nedan.
 
@@ -475,7 +477,7 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 470 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
+php tests/server-test.php   # 479 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
 npx playwright test         # 118 tester i riktig webbläsare, desktop och mobil
 ```
 

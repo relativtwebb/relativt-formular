@@ -1402,6 +1402,37 @@ $none['prev'] = null;
 $none_html    = $stats->render_report( $none, $range, 0 );
 check( 'utan kampanjdata alls blir det vanliga tomtexten', str_contains( $none_html, 'Inget av 1 inskick har kampanjdata.' ) && str_contains( $none_html, 'Inga annonsklick under perioden.' ) && ! str_contains( $none_html, 'Inga UTM-taggade' ) );
 
+/*
+ * 1.6.1: listor där inte alla inskick har ett värde får en grå restrad, så
+ * att andelarna går jämnt upp. Skärmdumpen: google.com 56 % och ingenting om
+ * vart de andra 44 procenten tog vägen.
+ */
+$card_of = static function ( string $html, string $title ): string {
+	return preg_match( '#<h3>' . preg_quote( esc_html( $title ), '#' ) . '</h3>(.*?)</section>#s', $html, $m ) ? $m[1] : '';
+};
+$shares = static fn( string $card ) => preg_match_all( '#<td class="num">([\d,]+) %</td>#', $card, $m ) ? array_sum( array_map( static fn( $v ) => (float) str_replace( ',', '.', $v ), $m[1] ) ) : 0;
+$refcard = $card_of( $html, 'Hänvisande webbplatser' );
+check( 'hänvisare: resten visas som egen rad', str_contains( $refcard, '<tr class="xf-muted"><td><span class="xf-label" title="Ingen extern webbplats">' ) && str_contains( $refcard, '<td class="num">2</td><td class="num">50 %</td>' ) ); // 2 av 4 har en extern hänvisare.
+check( 'och förklaras', str_contains( $refcard, 'direkttrafik, okänd källa eller trafik från sajten själv' ) );
+check( 'andelarna går jämnt upp i 100 %', 100.0 === (float) $shares( $refcard ), (string) $shares( $refcard ) );
+check( 'utm_source får sin rest', str_contains( $card_of( $html, 'Kampanjkälla (utm_source)' ), '>Utan utm_source<' ) );
+check( 'annonsklick får sin rest', str_contains( $card_of( $html, 'Annonsklick' ), '>Utan annonsklick<' ) );
+check( 'listor som alltid täcker allt får ingen rest', ! str_contains( $card_of( $html, 'Kanaler' ), 'xf-muted' ) );
+
+$many_refs = [];
+for ( $i = 1; $i <= 14; $i++ ) {
+	$many_refs[] = [ 'date' => '2026-09-30 10:00:00', 'form' => 12, 'meta' => [ 'referrer' => "https://sajt{$i}.se/" ] ];
+}
+$many_refs[] = [ 'date' => '2026-09-30 11:00:00', 'form' => 12, 'meta' => [] ];
+$mr         = Relativt_Form_Stats::aggregate( $many_refs, $range, 'exempel.se' );
+$mr['prev'] = null;
+$mrcard     = $card_of( $stats->render_report( $mr, $range, 0 ), 'Hänvisande webbplatser' );
+check( 'kapad lista behåller restraden sist', 10 === substr_count( $mrcard, '<tr' ) - 1 && str_contains( $mrcard, '>Ingen extern webbplats<' ) );
+check( 'och räknar rätt i "Visar"', str_contains( $mrcard, 'Visar 9 av 14.' ) );
+$nr         = Relativt_Form_Stats::aggregate( [ [ 'date' => '2026-09-30 10:00:00', 'form' => 12, 'meta' => [] ] ], $range );
+$nr['prev'] = null;
+check( 'inga hänvisare alls blir en rad på 100 %', str_contains( $card_of( $stats->render_report( $nr, $range, 0 ), 'Hänvisande webbplatser' ), '<td class="num">1</td><td class="num">100 %</td>' ) );
+
 check( 'per formulär döljs när ett formulär är valt', ! str_contains( $stats->render_report( $agg, $range, 12 ), 'Per formulär' ) );
 
 $empty = Relativt_Form_Stats::aggregate( [], $range );

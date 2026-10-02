@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.6.0
+Stable tag: 1.6.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -22,6 +22,12 @@ Kräver Advanced Custom Fields Pro.
 Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
 == Changelog ==
+
+= 1.6.1 =
+Statistiksidan: listor där inte alla inskick har ett värde – hänvisande
+webbplatser, UTM-taggar, annonsklick, sidor och följda fält – får en grå
+sista rad med resten, t.ex. "Ingen extern webbplats", så att andelarna går
+jämnt upp i 100 %.
 
 = 1.6.0 =
 Nytt fältval "Visa i statistiken" för rullistor, val-knappar, radioknappar,

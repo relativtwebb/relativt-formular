@@ -3,6 +3,32 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.6.1] – 2026-10-02
+
+### Ändrat
+- **Restrad i topplistorna.** Andelarna räknas på alla inskick i perioden,
+  men listorna visade bara inskick som hade ett värde – "google.com 56 %"
+  och ingenting om de andra 44 procenten. Listor som inte täcker alla inskick
+  får nu en grå sista rad med resten:
+  - Hänvisande webbplatser → *Ingen extern webbplats*, med en förklaring
+    (direkttrafik, okänd källa eller trafik från sajten själv);
+  - `utm_source` / `utm_medium` / `utm_campaign` → *Utan utm_…*;
+  - Annonsklick → *Utan annonsklick*;
+  - Landningssidor och Skickat från → *Uppgift saknas*;
+  - följda fält → *Ej besvarat* (samma mekanism som i 1.6.0).
+- Restraden står alltid sist, kapas aldrig bort och har ingen stapel – den
+  är ingen kategori bland de andra, och i skalan krympte den de riktiga
+  staplarna till streck. Staplarna skalas mot listans största riktiga värde.
+- "Visar N av M" räknar nu de rader som faktiskt visas.
+- Kanaler, Per formulär, Enhet och Webbläsare täcker alltid alla inskick och
+  får ingen restrad.
+- Cacheversionen höjd.
+
+### Tester
+- Restraden per lista, att andelarna summerar till 100 %, att den står kvar
+  när listan kapas, "Visar 9 av 14", och en lista helt utan värden
+  (479 serverassertions). Playwright-korten väljs nu på exakt rubrik.
+
 ## [1.6.0] – 2026-10-02
 
 Ingenting ändras förrän någon slår på det nya fältvalet. Formulär sparade före
