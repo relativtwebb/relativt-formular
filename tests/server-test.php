@@ -1145,8 +1145,22 @@ xf_ts_reset();
 
 echo "\nStatistik: uppstart\n";
 
+/*
+ * 1.5.1: statistikfilen läses bara in i wp-admin. Frontend-fallet är den här
+ * processen (riggen laddas med is_admin() falskt). Admin-fallet provas i en
+ * egen PHP-process, eftersom uppstarten bara kan köras en gång per process.
+ */
+check( 'statistikfilen läses inte in för besökare', ! class_exists( 'Relativt_Form_Stats', false ) );
+$admin_boot = (string) shell_exec( escapeshellarg( PHP_BINARY ) . ' -r ' . escapeshellarg(
+	'$GLOBALS["__is_admin"] = true; require ' . var_export( __DIR__ . '/harness.php', true ) . ';'
+	. ' $s = class_exists( "Relativt_Form_Stats", false ) ? Relativt_Form_Stats::instance() : null;'
+	. ' echo $s && in_array( [ $s, "add_page" ], array_column( $GLOBALS["__hooks"], "callback" ), true ) ? "startad" : "saknas";'
+) );
+check( 'men startas i wp-admin och hänger på admin_menu', 'startad' === trim( $admin_boot ), trim( $admin_boot ) );
+
+// Resten av testerna kör klassen direkt.
+require_once __DIR__ . '/../includes/class-relativt-form-stats.php';
 $stats = Relativt_Form_Stats::instance();
-check( 'statistikklassen startas med motorn', in_array( [ $stats, 'add_page' ], array_column( $GLOBALS['__hooks'], 'callback' ), true ) );
 check( 'och följer med i zip-filen', str_contains( (string) file_get_contents( __DIR__ . '/../build/build.php' ), "'includes/class-relativt-form-stats.php'" ) );
 
 echo "\nStatistik: kanaler\n";

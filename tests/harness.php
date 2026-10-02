@@ -56,7 +56,9 @@ function hooked_methods( string $hook ): array {
 function wp_next_scheduled() { return time(); }
 // Av som standard. Testerna för admin-notiserna slår på den via $GLOBALS['__can'].
 function current_user_can() { return ! empty( $GLOBALS['__can'] ); }
-function is_admin() { return false; }
+// Frontend som standard. Ett test eller en demo som behöver wp-admin-uppstarten
+// sätter $GLOBALS['__is_admin'] = true INNAN riggen laddas.
+function is_admin() { return ! empty( $GLOBALS['__is_admin'] ); }
 // Deterministiskt men räknar upp, så två formulär på samma sida inte delar id:n.
 function wp_rand( $min = 0, $max = 9999 ) {
 	static $n = 1000;

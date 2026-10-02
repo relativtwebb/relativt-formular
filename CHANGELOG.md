@@ -3,6 +3,19 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.5.1] – 2026-10-02
+
+### Ändrat
+- `includes/class-relativt-form-stats.php` läses bara in när `is_admin()` är
+  sant. Statistiksidan har ingen logik utanför wp-admin, så besökarnas
+  sidvisningar slipper läsa in filen (46 kB, ungefär 1,5 ms per sidvisning
+  på servrar utan opcache). Ingen ändring i funktion.
+
+### Tester
+- Serversviten bevisar att klassen saknas på frontend och, i en egen
+  PHP-process, att den startas och hänger på `admin_menu` i wp-admin
+  (433 assertions).
+
 ## [1.5.0] – 2026-10-02
 
 Ingenting ändras i formulären, mailen, REST-API:et eller den data som sparas

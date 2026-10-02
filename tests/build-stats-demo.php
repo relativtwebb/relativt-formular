@@ -7,6 +7,9 @@
  * Körs: php tests/build-stats-demo.php
  */
 
+// Statistiksidan laddas bara i wp-admin, så demon startar pluginet som där.
+$GLOBALS['__is_admin'] = true;
+
 require __DIR__ . '/harness.php';
 
 mt_srand( 20261002 );
