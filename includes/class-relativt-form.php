@@ -855,6 +855,16 @@ final class Relativt_Form {
 		return $fallback;
 	}
 
+	/** Sparar formuläret inskick i WordPress? Statistiksidan räknar bara sparade inskick. */
+	public function stores_entries( int $form_id ): bool {
+		return (bool) $this->setting( $form_id, 'xf_store', true );
+	}
+
+	/** Gallringstiden i dagar, 0 = aldrig. Samma tolkning som run_cleanup(). */
+	public function retention_days( int $form_id ): int {
+		return max( 0, (int) $this->setting( $form_id, 'xf_retention', 0 ) );
+	}
+
 	/* ---------------------------------------------------------------------
 	 * Shortcode och rendering
 	 * ------------------------------------------------------------------ */

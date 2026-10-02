@@ -1143,6 +1143,243 @@ $GLOBALS['__form']    = xf_test_form();
 $GLOBALS['__options'] = [];
 xf_ts_reset();
 
+echo "\nStatistik: uppstart\n";
+
+$stats = Relativt_Form_Stats::instance();
+check( 'statistikklassen startas med motorn', in_array( [ $stats, 'add_page' ], array_column( $GLOBALS['__hooks'], 'callback' ), true ) );
+check( 'och följer med i zip-filen', str_contains( (string) file_get_contents( __DIR__ . '/../build/build.php' ), "'includes/class-relativt-form-stats.php'" ) );
+
+echo "\nStatistik: kanaler\n";
+
+$ch = static fn( array $utm = [], string $ref = '' ) => Relativt_Form_Stats::channel( [ 'utm' => $utm, 'referrer' => $ref ], 'exempel.se' );
+check( 'gclid är betald sök', 'paid_search' === $ch( [ 'gclid' => 'abc' ] ) );
+check( 'google / cpc är betald sök', 'paid_search' === $ch( [ 'utm_source' => 'google', 'utm_medium' => 'cpc' ] ) );
+check( 'linkedin / paid_social är betald social', 'paid_social' === $ch( [ 'utm_source' => 'linkedin', 'utm_medium' => 'paid_social' ] ) );
+check( 'linkedin / cpc är betald social, inte sök', 'paid_social' === $ch( [ 'utm_source' => 'LinkedIn', 'utm_medium' => 'CPC' ] ) );
+check( 'display utan källa är övriga annonser', 'paid_other' === $ch( [ 'utm_source' => 'adform', 'utm_medium' => 'display' ] ) );
+check( 'fbclid utan annonsparametrar är social', 'social' === $ch( [ 'fbclid' => 'xyz' ] ) );
+check( 'utm_medium social är social', 'social' === $ch( [ 'utm_source' => 'nyhetsinlagg', 'utm_medium' => 'social' ] ) );
+check( 'hänvisning från lnkd.in är social', 'social' === $ch( [], 'https://lnkd.in/abc' ) );
+check( 'nyhetsbrev via utm_medium email', 'email' === $ch( [ 'utm_source' => 'kundbrev', 'utm_medium' => 'email' ] ) );
+check( 'mailchimp som källa är e-post', 'email' === $ch( [ 'utm_source' => 'mailchimp' ] ) );
+check( 'webbmail som hänvisare är e-post', 'email' === $ch( [], 'https://mail.google.com/' ) );
+check( 'chatgpt.com som utm_source är AI', 'ai' === $ch( [ 'utm_source' => 'chatgpt.com' ] ) );
+check( 'perplexity som hänvisare är AI', 'ai' === $ch( [], 'https://www.perplexity.ai/search?q=x' ) );
+check( 'gemini.google.com är AI, inte sök', 'ai' === $ch( [], 'https://gemini.google.com/app' ) );
+check( 'google.se som hänvisare är organisk sök', 'search' === $ch( [], 'https://www.google.se/' ) );
+check( 'google.co.uk också', 'search' === $ch( [], 'https://www.google.co.uk/' ) );
+check( 'bing som hänvisare är organisk sök', 'search' === $ch( [], 'https://www.bing.com/search?q=x' ) );
+check( 'utm_medium organic är organisk sök', 'search' === $ch( [ 'utm_source' => 'google', 'utm_medium' => 'organic' ] ) );
+check( 'okänd taggad kampanj är övriga kampanjer', 'campaign' === $ch( [ 'utm_source' => 'qr', 'utm_medium' => 'print' ] ) );
+check( 'extern sida utan taggar är hänvisning', 'referral' === $ch( [], 'https://branschforum.se/artikel' ) );
+check( 'den egna sajten som hänvisare räknas som direkt', 'direct' === $ch( [], 'https://www.exempel.se/om-oss/' ) );
+check( 'ingenting alls är direkt', 'direct' === $ch() );
+check( 'trasig metadata ger direkt i stället för fel', 'direct' === Relativt_Form_Stats::channel( [ 'utm' => 'trasig' ] ) );
+check( 'facebook_ads / cpc är betald social', 'paid_social' === $ch( [ 'utm_source' => 'facebook_ads', 'utm_medium' => 'cpc' ] ) );
+check( '"LinkedIn Ads" / cpc är betald social', 'paid_social' === $ch( [ 'utm_source' => 'LinkedIn Ads', 'utm_medium' => 'cpc' ] ) );
+check( 'paidsearch utan avgränsare är betald sök', 'paid_search' === $ch( [ 'utm_source' => 'bing', 'utm_medium' => 'paidsearch' ] ) );
+check( 'docs.google.com är hänvisning, inte sök', 'referral' === $ch( [], 'https://docs.google.com/document/d/1' ) );
+check( 'sajtens egen underdomän är intern', 'direct' === $ch( [], 'https://shop.exempel.se/kassa' ) );
+check( 'men en domän som bara slutar likadant är det inte', 'referral' === $ch( [], 'https://inteexempel.se/' ) );
+
+add_filter( 'relativt_form_stats_channel', static fn( $c, $meta ) => 'nyhetsbrevet' === ( $meta['utm']['utm_source'] ?? '' ) ? 'email' : $c, 10, 2 );
+check( 'filtret kan klassa om', 'email' === $ch( [ 'utm_source' => 'nyhetsbrevet' ] ) );
+add_filter( 'relativt_form_stats_channel', static fn( $c ) => 'pahittad' );
+check( 'en okänd kanal från filtret ignoreras', 'campaign' === $ch( [ 'utm_source' => 'qr' ] ) );
+remove_all_filters( 'relativt_form_stats_channel' );
+
+echo "\nStatistik: enhet, webbläsare och sidor\n";
+
+$ua = [
+	'iphone'  => 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+	'android' => 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36',
+	'tab'     => 'Mozilla/5.0 (Linux; Android 13; SM-X700) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36',
+	'edge'    => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36 Edg/129.0',
+	'mac'     => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+	'firefox' => 'Mozilla/5.0 (Windows NT 10.0; rv:131.0) Gecko/20100101 Firefox/131.0',
+	'li'      => 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [LinkedInApp]/9.30',
+];
+check( 'iPhone är mobil', 'Mobil' === Relativt_Form_Stats::device( $ua['iphone'] ) );
+check( 'Android-telefon är mobil', 'Mobil' === Relativt_Form_Stats::device( $ua['android'] ) );
+check( 'Android utan Mobile är surfplatta', 'Surfplatta' === Relativt_Form_Stats::device( $ua['tab'] ) );
+check( 'Windows är dator', 'Dator' === Relativt_Form_Stats::device( $ua['edge'] ) );
+check( 'tom user agent är okänd', 'Okänd' === Relativt_Form_Stats::device( '' ) );
+check( 'Edge känns igen före Chrome', 'Edge' === Relativt_Form_Stats::browser( $ua['edge'] ) );
+check( 'Chrome', 'Chrome' === Relativt_Form_Stats::browser( $ua['android'] ) );
+check( 'Safari', 'Safari' === Relativt_Form_Stats::browser( $ua['mac'] ) );
+check( 'Firefox', 'Firefox' === Relativt_Form_Stats::browser( $ua['firefox'] ) );
+check( 'LinkedIns appwebbläsare räknas för sig', 'LinkedIn-appen' === Relativt_Form_Stats::browser( $ua['li'] ) );
+
+check( 'egen sida blir sökväg utan frågesträng', '/kontakt' === Relativt_Form_Stats::page_key( 'https://www.exempel.se/kontakt/?utm_source=x', 'exempel.se' ) );
+check( 'startsidan blir /', '/' === Relativt_Form_Stats::page_key( 'https://exempel.se/', 'exempel.se' ) );
+check( 'annan värd behåller värdnamnet', 'app.exempel.com/kontakt' === Relativt_Form_Stats::page_key( 'https://app.exempel.com/kontakt', 'exempel.se' ) );
+check( 'tom url ger tom nyckel', '' === Relativt_Form_Stats::page_key( '', 'exempel.se' ) );
+
+echo "\nStatistik: perioder\n";
+
+$r30 = Relativt_Form_Stats::resolve_range( [], '2026-10-02' );
+check( 'standard är senaste 30 dagarna', '30' === $r30['key'] && '2026-09-03' === $r30['from'] && '2026-10-02' === $r30['to'] && 30 === $r30['days'] );
+check( 'jämförs med de 30 dagarna före', '2026-08-04' === $r30['prev_from'] && '2026-09-02' === $r30['prev_to'], $r30['prev_from'] . '–' . $r30['prev_to'] );
+check( '30 dagar visas per dag', 'day' === $r30['granularity'] );
+$r90 = Relativt_Form_Stats::resolve_range( [ 'period' => '90' ], '2026-10-02' );
+check( '90 dagar visas per vecka', 'week' === $r90['granularity'] );
+$ytd = Relativt_Form_Stats::resolve_range( [ 'period' => 'ytd' ], '2026-10-02' );
+check( 'i år börjar 1 januari', '2026-01-01' === $ytd['from'] && 'month' === $ytd['granularity'] );
+check( 'och jämförs med samma datum i fjol', '2025-01-01' === $ytd['prev_from'] && '2025-10-02' === $ytd['prev_to'] );
+$custom = Relativt_Form_Stats::resolve_range( [ 'period' => 'custom', 'from' => '2026-09-30', 'to' => '2026-09-01' ], '2026-10-02' );
+check( 'eget intervall åt fel håll vänds', '2026-09-01' === $custom['from'] && '2026-09-30' === $custom['to'] );
+check( 'och får en läsbar etikett', '1 sep – 30 sep 2026' === $custom['label'], $custom['label'] );
+$bad = Relativt_Form_Stats::resolve_range( [ 'period' => 'custom', 'from' => '2026-02-30', 'to' => 'igår' ], '2026-10-02' );
+check( 'ogiltigt datum faller tillbaka till 30 dagar', '30' === $bad['key'] );
+$fake = Relativt_Form_Stats::resolve_range( [ 'period' => '<script>' ], '2026-10-02' );
+check( 'okänt periodval faller tillbaka till 30 dagar', '30' === $fake['key'] );
+$all = Relativt_Form_Stats::resolve_range( [ 'period' => 'all' ], '2026-10-02', '2025-03-15' );
+check( 'alla inskick börjar vid det äldsta', '2025-03-15' === $all['from'] && '' === $all['prev_from'] );
+
+$weeks = Relativt_Form_Stats::buckets( '2026-09-01', '2026-09-30', 'week' );
+check( 'veckostaplarna är ISO-veckor', array_keys( $weeks ) === [ '2026-W36', '2026-W37', '2026-W38', '2026-W39', '2026-W40' ], implode( ',', array_keys( $weeks ) ) );
+check( 'och börjar på noll', 0 === array_sum( array_column( $weeks, 'count' ) ) );
+check( 'dagstaplar har svensk etikett', '1 sep' === Relativt_Form_Stats::buckets( '2026-09-01', '2026-09-01', 'day' )['2026-09-01']['label'] );
+check( 'årsskiftet hamnar i rätt ISO-vecka', '2026-W53' === Relativt_Form_Stats::bucket( '2027-01-01', 'week' ) );
+
+$huge = Relativt_Form_Stats::resolve_range( [ 'period' => 'custom', 'from' => '1000-01-01', 'to' => '9999-12-31' ], '2026-10-02' );
+check( 'orimligt intervall slutar i dag', '2026-10-02' === $huge['to'] );
+check( 'och kapas till tio år', $huge['days'] <= 3653 && '2016-10-02' <= $huge['from'], $huge['from'] );
+check( 'jämförelseperioden hamnar aldrig före år 0', (int) substr( $huge['prev_from'], 0, 4 ) > 1990, $huge['prev_from'] );
+$future = Relativt_Form_Stats::resolve_range( [ 'period' => 'custom', 'from' => '2030-01-01', 'to' => '2030-02-01' ], '2026-10-02' );
+check( 'intervall i framtiden krymper till i dag', '2026-10-02' === $future['from'] && '2026-10-02' === $future['to'] );
+$old = Relativt_Form_Stats::resolve_range( [ 'period' => 'all' ], '2026-10-02', '1970-01-01' );
+check( 'alla inskick börjar tidigast år 2000', '2016-10-02' <= $old['from'] && 'month' === $old['granularity'] );
+$leap = Relativt_Form_Stats::resolve_range( [ 'period' => 'ytd' ], '2028-02-29' );
+check( 'i år på skottdagen jämförs med 28 februari', '2027-02-28' === $leap['prev_to'], $leap['prev_to'] );
+$prev_tz = date_default_timezone_get();
+date_default_timezone_set( 'America/Santiago' );
+check( 'en annan PHP-tidszon tappar ingen dag', 30 === count( Relativt_Form_Stats::buckets( '2026-09-01', '2026-09-30', 'day' ) ) );
+date_default_timezone_set( $prev_tz );
+
+$axis = Relativt_Form_Stats::column_chart( Relativt_Form_Stats::buckets( '2026-09-01', '2026-09-03', 'day' ) + [ 'x' => [ 'label' => 'x', 'title' => 'x', 'count' => 9, 'days' => 1, 'full' => 1 ] ], 'day' );
+preg_match_all( '/text-anchor="end">([^<]+)</', $axis, $ticks );
+check( 'axeln visar jämna heltal', [ '0', '3', '6', '9', '12' ] === $ticks[1], implode( ',', $ticks[1] ) );
+
+echo "\nStatistik: sammanställning\n";
+
+$rows = [
+	[ 'date' => '2026-09-28 09:15:00', 'form' => 12, 'mail_ok' => '1', 'meta' => [ 'page' => 'https://exempel.se/kontakt/', 'landing' => 'https://exempel.se/tjanster/', 'referrer' => 'https://www.google.se/', 'ua' => $ua['edge'], 'utm' => [] ] ],
+	[ 'date' => '2026-09-28 09:40:00', 'form' => 12, 'mail_ok' => '0', 'meta' => [ 'page' => 'https://exempel.se/kontakt/', 'landing' => 'https://exempel.se/kampanj/?utm_source=LinkedIn', 'referrer' => '', 'ua' => $ua['iphone'], 'utm' => [ 'utm_source' => 'LinkedIn', 'utm_medium' => 'paid_social', 'utm_campaign' => 'Höst26' ] ] ],
+	[ 'date' => '2026-09-30 14:05:00', 'form' => 99, 'mail_ok' => '', 'meta' => [ 'page' => 'https://exempel.se/', 'landing' => 'https://exempel.se/', 'referrer' => 'https://exempel.se/om/', 'ua' => '', 'utm' => [ 'gclid' => 'abc' ] ] ],
+	[ 'date' => '2026-10-01 23:59:00', 'form' => 12, 'mail_ok' => '1', 'meta' => 'trasig' ],
+	[ 'date' => 'inget datum', 'form' => 12, 'meta' => [] ],
+];
+$range = Relativt_Form_Stats::resolve_range( [ 'period' => '7' ], '2026-10-02' );
+$agg   = Relativt_Form_Stats::aggregate( $rows, $range, 'exempel.se' );
+check( 'rader utan datum hoppas över', 4 === $agg['total'] );
+check( 'staplarna räknas per dag', 2 === $agg['series']['2026-09-28']['count'] && 1 === $agg['series']['2026-10-01']['count'] && 0 === $agg['series']['2026-09-29']['count'] );
+check( 'alla dagar i perioden finns med', 7 === count( $agg['series'] ) );
+check( 'per formulär', [ '12' => 3, '99' => 1 ] === $agg['forms'] );
+check( 'kanalerna räknas', 1 === ( $agg['channels']['search'] ?? 0 ) && 1 === ( $agg['channels']['paid_social'] ?? 0 ) && 1 === ( $agg['channels']['paid_search'] ?? 0 ) && 1 === ( $agg['channels']['direct'] ?? 0 ) );
+check( 'utm-värden slås ihop oavsett versaler', [ 'linkedin' => 1 ] === $agg['utm_source'] && [ 'höst26' => 1 ] === $agg['utm_campaign'] );
+check( 'kampanjdata räknar även klick-id', 2 === $agg['with_campaign'] );
+check( 'egna sajten räknas inte som hänvisare', [ 'google.se' => 1 ] === $agg['referrers'] );
+check( 'landningssidor grupperas utan frågesträng', 1 === ( $agg['landing']['/kampanj'] ?? 0 ) && 1 === ( $agg['landing']['/'] ?? 0 ) );
+check( 'skickat från grupperas', 2 === ( $agg['pages']['/kontakt'] ?? 0 ) );
+check( 'enheter räknas', 1 === ( $agg['devices']['Mobil'] ?? 0 ) && 1 === ( $agg['devices']['Dator'] ?? 0 ) && 2 === ( $agg['devices']['Okänd'] ?? 0 ) );
+check( 'misslyckade mail räknas, tom status räknas inte', 1 === $agg['mail_failed'] );
+check( 'veckodag och timme', 2 === ( $agg['heat'][1][9] ?? 0 ) && 1 === ( $agg['heat'][4][23] ?? 0 ) && 1 === ( $agg['heat'][3][14] ?? 0 ) );
+check( 'topplistorna sorteras fallande', 12 === array_key_first( $agg['forms'] ) );
+
+echo "\nStatistik: databas och cache\n";
+
+$db = new Xf_Fake_Wpdb();
+for ( $i = 1; $i <= 1203; $i++ ) {
+	$db->entries[ 5000 + $i ] = [
+		'date' => 0 === $i % 2 ? '2026-09-20 10:00:00' : '2026-09-05 16:30:00',
+		'meta' => [
+			'_xf_form_id' => 0 === $i % 4 ? 14 : 12,
+			'_xf_mail_ok' => '1',
+			'_xf_values'  => [ [ 'key' => 'epost', 'value' => 'hemlig@exempel.se' ] ],
+			'_xf_email'   => 'hemlig@exempel.se',
+			'_xf_meta'    => [ 'ip' => '203.0.113.9', 'ua' => $ua['iphone'], 'utm' => [ 'utm_source' => 0 === $i % 3 ? 'nyhetsbrev' : '' ] ],
+		],
+	];
+}
+// Utanför perioden – ska varken räknas eller läsas.
+$db->entries[4000] = [ 'date' => '2026-08-01 12:00:00', 'meta' => [ '_xf_form_id' => 12, '_xf_meta' => [] ] ];
+$db->entries[4001] = [ 'date' => '2026-08-20 12:00:00', 'meta' => [ '_xf_form_id' => 12, '_xf_meta' => [] ] ];
+$GLOBALS['wpdb']         = $db;
+$GLOBALS['__transients'] = [];
+
+$rows_seen = iterator_to_array( call( $stats, 'rows', [ '2026-09-03', '2026-10-02', 0 ] ), false );
+check( 'alla inskick i perioden läses över flera batcher', 1203 === count( $rows_seen ), (string) count( $rows_seen ) );
+$batches = array_values( array_filter( $db->queries, static fn( $q ) => str_contains( $q, 'SELECT p.ID, p.post_date' ) ) );
+check( 'i batcher om 500 med id som bokmärke, inte OFFSET', 3 === count( $batches ) && str_contains( $batches[1], 'p.ID > 5500' ) && ! str_contains( implode( ' ', $batches ), 'OFFSET' ) );
+check( 'bara publicerade inskick i perioden', str_contains( $batches[0], "p.post_status = 'publish'" ) && str_contains( $batches[0], "p.post_date >= '2026-09-03 00:00:00' AND p.post_date <= '2026-10-02 23:59:59'" ) );
+$metaq = array_values( array_filter( $db->queries, static fn( $q ) => str_contains( $q, 'post_id IN' ) ) );
+check( 'metadatan hämtas med en fråga per batch', 3 === count( $metaq ) );
+check( 'och bara de tre nycklar statistiken behöver', str_contains( $metaq[0], "meta_key IN ('_xf_form_id', '_xf_meta', '_xf_mail_ok')" ) );
+check( 'serialiserad metadata packas upp', 'Mobil' === Relativt_Form_Stats::device( (string) ( $rows_seen[0]['meta']['ua'] ?? '' ) ) && 12 === $rows_seen[0]['form'] );
+check( 'IP-adressen släpps vid inläsningen', ! array_key_exists( 'ip', $rows_seen[0]['meta'] ) );
+check( 'fältvärden och e-post följer aldrig med', ! str_contains( serialize( $rows_seen ), 'hemlig@' ) );
+
+$db->queries = [];
+$rep = $stats->report( $r30, 0 );
+check( 'rapporten räknar perioden', 1203 === $rep['total'] && 1203 === array_sum( array_column( $rep['series'], 'count' ) ) );
+check( 'jämförelseperioden räknas med COUNT', 1 === $rep['prev'] && [] !== array_filter( $db->queries, static fn( $q ) => str_starts_with( $q, 'SELECT COUNT(*) FROM wp_posts p' ) ) );
+
+$db->queries = [];
+$again = $stats->report( $r30, 0 );
+check( 'andra visningen kommer ur cachen', 1 === count( $db->queries ) && 1203 === $again['total'] );
+check( 'fingeravtrycket frågar bara efter publicerade inskick', str_contains( $db->queries[0], "post_type = 'relativt_entry' AND post_status = 'publish'" ) );
+
+$db->entries[9999] = [ 'date' => '2026-10-02 08:00:00', 'meta' => [ '_xf_form_id' => 12, '_xf_meta' => [] ] ];
+check( 'ett nytt inskick bryter cachen direkt', 1204 === $stats->report( $r30, 0 )['total'] );
+$db->mail_rev++;
+$db->queries = [];
+$stats->report( $r30, 0 );
+check( 'mailstatus som skrivs efteråt bryter cachen', count( $db->queries ) > 1 );
+unset( $db->entries[5001], $db->entries[5003] );
+check( 'gallrade inskick bryter cachen', 1202 === $stats->report( $r30, 0 )['total'] );
+
+$only = $stats->report( $r30, 14 );
+$joined = array_filter( $db->queries, static fn( $q ) => str_contains( $q, "f.meta_key = '_xf_form_id' AND f.meta_value = '14'" ) );
+check( 'formulärfiltret joinar på _xf_form_id', 300 === $only['total'] && [] !== $joined, (string) $only['total'] );
+check( 'äldsta inskicket hittas för "alla"', '2026-08-01' === call( $stats, 'earliest', [ 0 ] ) );
+
+echo "\nStatistik: sidan\n";
+
+$rows[1]['meta']['utm']['utm_campaign'] = '<script>alert(1)</script>';
+$rows[1]['meta']['referrer']            = 'https://<img src=x onerror=alert(1)>.se/';
+$agg         = Relativt_Form_Stats::aggregate( $rows, $range, 'exempel.se' );
+$agg['prev'] = 2;
+$html        = $stats->render_report( $agg, $range, 0 );
+check( 'nyckeltalen visas', str_contains( $html, 'xf-tile-value">4<' ) );
+check( 'ökningen mot föregående period', str_contains( $html, '+100 %' ) && str_contains( $html, '▲' ) );
+check( 'misslyckade mail länkar till filtrerad lista', str_contains( $html, 'xf_mail=failed' ) );
+check( 'kanaler med svenska namn', str_contains( $html, 'Betald social' ) && str_contains( $html, 'Organisk sök' ) );
+check( 'formulär som inte finns kvar namnges', str_contains( $html, 'Borttaget formulär (#99)' ) );
+check( 'diagrammet har tabellvy', str_contains( $html, '<svg class="xf-chart"' ) && str_contains( $html, 'Visa som tabell' ) );
+check( 'utm-värden escapas', ! str_contains( $html, '<script>alert' ) && str_contains( $html, '&lt;script&gt;' ) );
+check( 'inga rå taggar från hänvisaren', ! str_contains( $html, '<img src=x' ) );
+check( 'värmekartan har sju rader', 7 === substr_count( $html, '<tr><th scope="row">' ) );
+check( 'per formulär döljs när ett formulär är valt', ! str_contains( $stats->render_report( $agg, $range, 12 ), 'Per formulär' ) );
+
+$empty = Relativt_Form_Stats::aggregate( [], $range );
+$empty['prev'] = 0;
+check( 'tom period säger det i klartext', str_contains( $stats->render_report( $empty, $range, 0 ), 'Inga sparade inskick under senaste 7 dagarna' ) );
+
+$GLOBALS['__form']['xf_store']     = 0;
+$coverage = call( $stats, 'coverage_notice', [ $r30, 0, [ new WP_Post( 12, 'Offert' ) ], '2026-10-02' ] );
+check( 'formulär som inte sparar inskick pekas ut', str_contains( $coverage, 'räknas därför inte: <strong>Offert</strong>' ) );
+$GLOBALS['__form']['xf_store']     = 1;
+$GLOBALS['__form']['xf_retention'] = 14;
+$coverage = call( $stats, 'coverage_notice', [ $r30, 0, [ new WP_Post( 12, 'Offert' ) ], '2026-10-02' ] );
+check( 'gallring som klipper perioden pekas ut', str_contains( $coverage, 'Offert (14 dagar)' ) );
+$GLOBALS['__form'] = xf_test_form();
+$coverage = call( $stats, 'coverage_notice', [ $r30, 0, [ new WP_Post( 12, 'Offert' ) ], '2026-10-02' ] );
+check( 'ingen varning när gallringen ligger utanför perioden', ! str_contains( $coverage, 'gallringsgränsen' ) );
+
+unset( $GLOBALS['wpdb'] );
+$GLOBALS['__transients'] = [];
+
 echo "\n" . str_repeat( '─', 50 ) . "\n";
 printf( "%d godkända, %d underkända\n\n", $passed, $failed );
 exit( $failed > 0 ? 1 : 0 );

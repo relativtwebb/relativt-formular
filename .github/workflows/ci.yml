@@ -55,7 +55,7 @@ jobs:
       # Demon genereras av den riktiga renderaren, så webbläsartesterna kör
       # mot samma markup som en kundsajt får.
       - name: Bygg demon
-        run: php tests/build-demo.php
+        run: php tests/build-demo.php && php tests/build-stats-demo.php
 
       - name: Playwright
         run: npx playwright test

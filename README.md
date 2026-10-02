@@ -13,6 +13,7 @@ Byggd för byråarbete: samma motor på flera kundsajter, formulär som kan flyt
 - **Spamskydd** utan CAPTCHA: honungsfälla, HMAC-signerad tidsstämpel med minsta tid, frekvensspärr per IP och länkspärr i textrutor. Valfritt per formulär: [Cloudflare Turnstile](#cloudflare-turnstile).
 - **UTM-attribution** via förstapartskaka, så att inskicket bär med sig vilken kampanj besökaren kom ifrån. Finns [Relativt Cookie Consent](https://github.com/relativtwebb/relativt-cookie-consent) på sajten skrivs kakan först när besökaren samtyckt – se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke).
 - **Inskickslagring** med konfigurerbar gallring och CSV-export.
+- **Statistik** över inskickens metadata: över tid, kanaler, kampanjer, sidor, enhet och klockslag – se [Statistik](#statistik).
 - **Export och import av formulärdefinitioner** som JSON.
 - **Headless.** Formulärdefinitionen finns som publikt REST-endpoint, så en frontend (t.ex. Next.js) kan rendera formuläret själv och skicka till samma API – se [Headless: rendera formuläret själv](#headless-rendera-formuläret-själv).
 
@@ -175,6 +176,7 @@ add_filter( 'relativt_form_submit_icon_class', fn( $c ) => trim( "$c ct-fancy-ic
 | `relativt_form_max_links` | `3` | Max antal länkar i en textruta innan inskicket avvisas. `0` stänger av |
 | `relativt_form_utm_cookie` | `'auto'` | Kampanjkakans samtyckesläge: `auto`, `always` eller `never` |
 | `relativt_form_client_ip` | `REMOTE_ADDR` | Peka ut besökarens riktiga IP bakom proxy/CDN |
+| `relativt_form_stats_channel` | inbyggd klassning | Klassa om ett inskicks kanal på statistiksidan, se [Statistik](#statistik) |
 
 **Om `relativt_form_client_ip`:** bakom Cloudflare eller annan proxy är `REMOTE_ADDR` proxyns adress – då delar alla besökare samma frekvensspärr (fem inskick per tio minuter för hela sajten) och IP-loggen blir meningslös. På en Cloudflare-sajt:
 
@@ -194,6 +196,52 @@ add_filter( 'relativt_form_messages', fn( $m ) => array_merge( $m, [
 ```
 
 **Om `always_enqueue`:** standard är att ladda överallt. Renderas formuläret i en modal som byggs i sidfoten — vilket är fallet i de flesta sidbyggare — hinner en villkorlig laddning inte med, och stilmallen skulle hamna efter sidan ritats. Vet sajten att formuläret bara finns i innehållet går det att stänga av.
+
+## Statistik
+
+**Formulär → Statistik** sammanställer metadatan som redan sparas med varje inskick. Ingenting nytt samlas in, och sidan kräver samma behörighet som inskickslistan (`edit_pages`).
+
+Välj period (7, 30 eller 90 dagar, 12 månader, i år, alla sparade inskick eller eget intervall) och ett eller alla formulär. Sidan visar:
+
+- **Nyckeltal:** antal inskick jämfört med föregående period (”I år” jämförs med samma datum i fjol), snitt per vecka, andel med kampanjdata och misslyckade notismail med länk till inskicken.
+- **Inskick över tid** per dag, vecka eller månad beroende på periodens längd, med verktygstips per stapel och tabellvy. En vecka eller månad som perioden bara delvis täcker säger det.
+- **Kanaler, per formulär, enhet och webbläsare.**
+- **Kampanjer:** topplistor för `utm_source`, `utm_medium` och `utm_campaign` (versaler slås ihop).
+- **Sidor:** hänvisande webbplatser, landningssidor och sidorna formuläret skickades från – sökväg utan frågesträng.
+- **Veckodag × klockslag** i sajtens tidszon.
+
+### Så räknas kanalen
+
+Kampanjparametrar vinner över hänvisande sida, och en uttrycklig annonsmarkering vinner över allt:
+
+| Kanal | När |
+|---|---|
+| Betald social | `utm_medium` med t.ex. `cpc`, `paid`, `paid_social`, `display` **och** social källa (`linkedin`, `facebook`, `fbclid` …) |
+| Betald sök | `gclid`, eller annonsmedium med sökmotor som källa eller `cpc`/`ppc`/`search` i mediet |
+| Övriga annonser | Annonsmedium i övrigt (t.ex. `display` från ett annonsnätverk) |
+| AI-assistenter | Hänvisning eller `utm_source` från ChatGPT, Perplexity, Claude, Gemini, Copilot m.fl. |
+| E-post | `utm_medium` `email`/`newsletter`/`nyhetsbrev`, källa som Mailchimp, eller webbmail som hänvisare |
+| Social | `utm_medium` `social`, social källa, `fbclid` utan annonsmedium, eller hänvisning från sociala plattformar |
+| Organisk sök | `utm_medium=organic` eller hänvisning från sökmotor |
+| Övriga kampanjer | Andra UTM-taggar (t.ex. `qr` / `print`) |
+| Hänvisning | Annan extern webbplats |
+| Direkt / okänd | Ingen kampanj och ingen extern hänvisare |
+
+Egna utm-konventioner klassas om med filtret – kanalnyckeln måste vara en av de ovan (`paid_search`, `paid_social`, `paid_other`, `search`, `social`, `ai`, `email`, `campaign`, `referral`, `direct`):
+
+```php
+add_filter( 'relativt_form_stats_channel', function ( $channel, $meta ) {
+	return 'kundbrev' === ( $meta['utm']['utm_source'] ?? '' ) ? 'email' : $channel;
+}, 10, 2 );
+```
+
+### Vad siffrorna inte täcker
+
+- **Bara sparade inskick.** Formulär med *Spara inskick* avslaget räknas inte, och gallrade inskick är borta. Sidan pekar ut båda fallen för den valda perioden.
+- **Samtycke.** Utan godkänd kampanjkaka lever attributionen bara på sidan besökaren landade på. Klickar besökaren vidare innan formuläret skickas blir källan *Direkt / okänd*.
+- **iPad** med iPadOS utger sig för att vara en Mac och räknas som dator.
+
+Sammanställningen cachas i sex timmar, men ett nytt eller raderat inskick bryter cachen direkt. Inskicken läses i batcher om 500 med bara de tre metanycklar sidan behöver – fältvärden och e-post läses aldrig – så minnet växer inte med historiken. Eget intervall hålls mellan år 2000 och i dag, högst tio år.
 
 ## Kampanjkakan och samtycke
 
@@ -413,15 +461,15 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 317 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import
-npx playwright test         # 110 tester i riktig webbläsare, desktop och mobil
+php tests/server-test.php   # 432 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
+npx playwright test         # 118 tester i riktig webbläsare, desktop och mobil
 ```
 
 Har du redan en Chromium på maskinen som Playwright inte installerat själv, peka ut den med `CHROMIUM_PATH=/sökväg/till/chrome npx playwright test`. Utan variabeln används Playwrights egen.
 
 IDN-testet (`kontakt@räksmörgås.se`) hoppas över om PHP-tillägget `intl` saknas, eftersom motorn hoppar över punycode-översättningen i samma läge. CI installerar `intl`, så den vägen testas där.
 
-Demon som webbläsartesterna körs mot genereras av den riktiga renderaren via reflektion (`php tests/build-demo.php`). Den kan alltså inte glida ifrån koden. Cloudflares Turnstile-skript ersätts där av en stub med samma yta, så testerna inte beror på nätverket.
+Demon som webbläsartesterna körs mot genereras av den riktiga renderaren via reflektion (`php tests/build-demo.php`). Den kan alltså inte glida ifrån koden. Cloudflares Turnstile-skript ersätts där av en stub med samma yta, så testerna inte beror på nätverket. Statistiksidan får en egen demo med påhittade inskick på samma sätt (`php tests/build-stats-demo.php` → `demo-stats.html`).
 
 Båda sviterna kör automatiskt vid varje push. Servertesterna körs mot PHP 8.0, 8.2 och 8.4 — det är den matrisen som bevisar `Requires PHP: 8.0`, inte headern i sig.
 

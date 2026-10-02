@@ -3,6 +3,63 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.5.0] – 2026-10-02
+
+Ingenting ändras i formulären, mailen, REST-API:et eller den data som sparas
+med varje inskick. Det nya är en sida som läser det som redan finns.
+
+### Nytt
+- **Formulär → Statistik.** Sammanställer metadatan från sparade inskick för
+  vald period (7/30/90 dagar, 12 månader, i år, alla sparade inskick eller
+  eget intervall) och ett eller alla formulär:
+  - nyckeltal: antal inskick mot föregående period (”I år” mot samma datum i
+    fjol), snitt per vecka, andel med kampanjdata och misslyckade notismail
+    med länk till de drabbade inskicken;
+  - inskick över tid per dag, vecka eller månad, med verktygstips per stapel
+    och tabellvy – en vecka eller månad som perioden bara delvis täcker säger
+    det i stället för att se ut som ett ras;
+  - kanaler (betald sök, betald social, övriga annonser, organisk sök, social,
+    AI-assistenter, e-post, övriga kampanjer, hänvisning, direkt/okänd),
+    inskick per formulär, enhet och webbläsare (appwebbläsare som LinkedIns
+    räknas för sig);
+  - topplistor för `utm_source`, `utm_medium`, `utm_campaign`, hänvisande
+    webbplatser, landningssidor och sidorna formuläret skickades från;
+  - veckodag × klockslag i sajtens tidszon.
+- Filtret `relativt_form_stats_channel( $channel, $meta )` för sajter med
+  egna utm-konventioner.
+- `Relativt_Form::stores_entries()` och `retention_days()` – samma tolkning
+  av lagring och gallring som motorn själv använder.
+
+### Detaljer
+- Sidan säger vad siffrorna inte täcker: formulär som inte sparar inskick, och
+  gallring som redan tagit bort början av perioden.
+- Inga personuppgifter visas. Fältvärden och e-post läses aldrig ur
+  databasen, IP-adressen i metadatan släpps direkt vid inläsningen och user
+  agent används bara för enhetstyp och webbläsare.
+- Inskicken läses med egna frågor i batcher om 500, bläddrade på id i stället
+  för OFFSET, och bara metanycklarna `_xf_form_id`, `_xf_meta` och
+  `_xf_mail_ok` hämtas. Jämförelseperioden räknas med `COUNT(*)`.
+- Sammanställningen cachas i sex timmar. Cachenyckeln innehåller antal och
+  högsta id bland de sparade inskicken plus senast skrivna mailstatus, så ett
+  nytt eller gallrat inskick syns direkt – även på sajter med beständig
+  objektcache, där `wp_count_posts()` inte märker gallringen – och ett
+  inskick vars mail fortfarande skickas fryses inte halvfärdigt i cachen.
+- Eget intervall hålls mellan år 2000 och i dag och kapas till tio år.
+- Diagrammen är inline-SVG och CSS – inga externa skript i wp-admin.
+- Kräver samma behörighet som inskickslistan (`edit_pages`).
+
+### Tester
+- 115 nya serverassertions (432 totalt): kanalklassning, enhet/webbläsare,
+  sidnycklar, perioder och jämförelseperioder, ISO-veckor över årsskiftet, skottdagen,
+  orimliga intervall, PHP-tidszon som inte är UTC, axelns skalsteg,
+  sammanställningen, batchläsning med id-bokmärke mot en
+  testdatabas som filtrerar på riktigt, att IP, e-post och fältvärden aldrig
+  följer med, cache och cachebrytning (nytt, gallrat, mailstatus), escaping av
+  kampanjvärden och hänvisare, täckningsnotisen.
+- Ny demo `demo-stats.html` (`tests/build-stats-demo.php`) och fyra
+  Playwright-tester (118 totalt, desktop och mobil): rendering, periodväljaren,
+  verktygstips och tabellvy, ingen sidledsscroll på mobil.
+
 ## [1.4.0] – 2026-10-01
 
 Ingenting ändras för sajter som inte slår på Turnstile. Nyttolasten,

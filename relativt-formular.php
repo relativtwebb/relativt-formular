@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       Relativt Formulär
  * Plugin URI:        https://github.com/relativtwebb/relativt-formular
- * Description:       Formulärmotor för WordPress. Bygg formulär i wp-admin, varje formulär får en egen shortcode. Villkorliga fält, mottagarregler, spamskydd, inskickslagring och UTM-attribution.
- * Version:           1.4.0
+ * Description:       Formulärmotor för WordPress. Bygg formulär i wp-admin, varje formulär får en egen shortcode. Villkorliga fält, mottagarregler, spamskydd, inskickslagring, UTM-attribution och statistik.
+ * Version:           1.5.0
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            Relativt
@@ -26,7 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * värsta fall mitt i en HTTP-header och därmed en trasig sajt.
  */
 if ( ! defined( 'RELATIVT_FORM_VERSION' ) ) {
-	define( 'RELATIVT_FORM_VERSION', '1.4.0' );
+	define( 'RELATIVT_FORM_VERSION', '1.5.0' );
 	define( 'RELATIVT_FORM_FILE', __FILE__ );
 	define( 'RELATIVT_FORM_DIR', plugin_dir_path( __FILE__ ) );
 	define( 'RELATIVT_FORM_URL', plugin_dir_url( __FILE__ ) );
@@ -75,6 +75,7 @@ require_once RELATIVT_FORM_DIR . 'includes/class-relativt-form.php';
 require_once RELATIVT_FORM_DIR . 'includes/class-relativt-form-portability.php';
 require_once RELATIVT_FORM_DIR . 'includes/class-relativt-form-settings.php';
 require_once RELATIVT_FORM_DIR . 'includes/class-relativt-form-updater.php';
+require_once RELATIVT_FORM_DIR . 'includes/class-relativt-form-stats.php';
 
 /* -----------------------------------------------------------------------------
  * Uppstart.
@@ -89,6 +90,7 @@ if ( ! defined( 'RELATIVT_FORM_BOOTED' ) ) {
 	Relativt_Form::instance();
 	Relativt_Form_Portability::instance();
 	Relativt_Form_Settings::instance();
+	Relativt_Form_Stats::instance();
 
 	if ( is_admin() ) {
 		// '8.0' = samma golv som version_compare-spärren ovan. Höjs kravet:

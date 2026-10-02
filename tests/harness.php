@@ -298,7 +298,102 @@ function get_post_status( $id ) {
 	return $GLOBALS['__post_status'][ (int) $id ] ?? ( 12 === (int) $id ? 'publish' : false );
 }
 function get_the_title( $id ) { return 'Kontaktformulär'; }
-function get_posts() { return []; }
+/*
+ * Tomt som standard. Statistiktesterna sätter $GLOBALS['__get_posts'] till en
+ * funktion som svarar på frågan, så att batchläsningen kan provas.
+ */
+function get_posts( $args = [] ) {
+	return isset( $GLOBALS['__get_posts'] ) ? ( $GLOBALS['__get_posts'] )( $args ) : [];
+}
+function home_url( $path = '' ) { return 'https://exempel.se/' . ltrim( (string) $path, '/' ); }
+function maybe_unserialize( $v ) {
+	if ( is_string( $v ) && preg_match( '/^[aOsibd]:/', $v ) ) {
+		$u = @unserialize( $v, [ 'allowed_classes' => false ] );
+		return false !== $u || 'b:0;' === $v ? $u : $v;
+	}
+	return $v;
+}
+
+/*
+ * Minsta möjliga $wpdb för statistiksidan, som läser inskicken med egna
+ * frågor. Svarar på just de frågor Relativt_Form_Stats ställer och filtrerar
+ * på riktigt (datum, formulär, id > senaste, LIMIT), så att batchläsningen,
+ * formulärfiltret och fingeravtrycket provas och inte bara stubbas bort.
+ * Sätts inte som global här – testerna och demon väljer själva när den gäller.
+ *
+ * $entries: id => [ 'date' => 'Y-m-d H:i:s', 'meta' => [ meta_key => värde ] ]
+ */
+class Xf_Fake_Wpdb {
+	public $posts    = 'wp_posts';
+	public $postmeta = 'wp_postmeta';
+	public $entries  = [];
+	public $queries  = [];
+	/** Står för MAX(meta_id) på _xf_mail_ok i fingeravtrycket. */
+	public $mail_rev = 0;
+
+	public function prepare( $sql, ...$args ) {
+		$i = 0;
+		return preg_replace_callback(
+			'/%[sd]/',
+			static function ( $m ) use ( &$i, $args ) {
+				$v = $args[ $i++ ] ?? '';
+				return '%d' === $m[0] ? (string) (int) $v : "'" . addslashes( (string) $v ) . "'";
+			},
+			$sql
+		);
+	}
+
+	private function match( string $sql ): array {
+		preg_match( "/p\.post_date >= '([^']+)' AND p\.post_date <= '([^']+)'/", $sql, $d );
+		preg_match( "/f\.meta_value = '([^']*)'/", $sql, $f );
+		preg_match( '/p\.ID > (\d+)/', $sql, $gt );
+		$out = [];
+		foreach ( $this->entries as $id => $e ) {
+			if ( ( $d && ( $e['date'] < $d[1] || $e['date'] > $d[2] ) )
+				|| ( $f && (string) ( $e['meta']['_xf_form_id'] ?? '' ) !== $f[1] )
+				|| ( $gt && $id <= (int) $gt[1] ) ) {
+				continue;
+			}
+			$out[ $id ] = $e;
+		}
+		ksort( $out );
+		return $out;
+	}
+
+	public function get_results( $sql ) {
+		$this->queries[] = $sql;
+		if ( preg_match( '/^\s*SELECT post_id, meta_key, meta_value FROM wp_postmeta/', $sql ) ) {
+			preg_match( '/post_id IN \(([\d,]+)\)/', $sql, $m );
+			$rows = [];
+			foreach ( explode( ',', $m[1] ?? '' ) as $id ) {
+				foreach ( $this->entries[ (int) $id ]['meta'] ?? [] as $k => $v ) {
+					if ( in_array( $k, [ '_xf_form_id', '_xf_meta', '_xf_mail_ok' ], true ) ) {
+						$rows[] = (object) [ 'post_id' => (string) $id, 'meta_key' => $k, 'meta_value' => is_array( $v ) ? serialize( $v ) : (string) $v ];
+					}
+				}
+			}
+			return $rows;
+		}
+		preg_match( '/LIMIT (\d+)/', $sql, $l );
+		$hits = array_slice( $this->match( $sql ), 0, isset( $l[1] ) ? (int) $l[1] : null, true );
+		return array_map( static fn( $id, $e ) => (object) [ 'ID' => (string) $id, 'post_date' => $e['date'] ], array_keys( $hits ), $hits );
+	}
+
+	public function get_var( $sql ) {
+		$this->queries[] = $sql;
+		$hits            = $this->match( $sql );
+		if ( str_contains( $sql, 'MIN(p.post_date)' ) ) {
+			return $hits ? min( array_column( $hits, 'date' ) ) : null;
+		}
+		return (string) count( $hits );
+	}
+
+	public function get_row( $sql ) {
+		$this->queries[] = $sql;
+		return (object) [ 'n' => count( $this->entries ), 'm' => $this->entries ? max( array_keys( $this->entries ) ) : 0, 's' => $this->mail_rev ];
+	}
+}
+function wp_unslash( $v ) { return $v; }
 
 // --- Pluginskal ---------------------------------------------------------------
 /*

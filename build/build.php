@@ -26,6 +26,7 @@ const SHIP = [
 	'includes/class-relativt-form-portability.php',
 	'includes/class-relativt-form-settings.php',
 	'includes/class-relativt-form-updater.php',
+	'includes/class-relativt-form-stats.php',
 	'assets/css/relativt-formular.css',
 	'assets/js/relativt-formular.js',
 ];

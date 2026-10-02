@@ -1,14 +1,14 @@
 {
   "name": "relativt-formular",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "main": "assets/js/relativt-formular.js",
   "directories": {
     "test": "tests"
   },
   "scripts": {
-    "test": "php tests/server-test.php && php tests/build-demo.php && playwright test",
+    "test": "php tests/server-test.php && php tests/build-demo.php && php tests/build-stats-demo.php && playwright test",
     "test:server": "php tests/server-test.php",
-    "test:browser": "php tests/build-demo.php && playwright test",
+    "test:browser": "php tests/build-demo.php && php tests/build-stats-demo.php && playwright test",
     "build": "php build/build.php"
   },
   "keywords": [
