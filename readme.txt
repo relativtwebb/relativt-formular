@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.5.1
+Stable tag: 1.5.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -22,6 +22,12 @@ Kräver Advanced Custom Fields Pro.
 Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
 == Changelog ==
+
+= 1.5.2 =
+Statistiksidan: inskick som bara har ett annonsklick-id (gclid från Google
+Ads, fbclid från Facebook/Instagram) men inga UTM-taggar redovisas nu för
+sig, i ett nytt kort Annonsklick. UTM-korten förklarar varför de är tomma
+när kampanjdatan bara består av klick-id.
 
 = 1.5.1 =
 Statistiksidans kod läses bara in i wp-admin, inte vid sidvisningar på

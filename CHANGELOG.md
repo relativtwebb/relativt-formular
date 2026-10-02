@@ -3,6 +3,28 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.5.2] – 2026-10-02
+
+### Ändrat
+- **Statistik → Kampanjer redovisar klick-id för sig.** Andelen med
+  kampanjdata räknade redan `gclid` och `fbclid`, men korten visade bara
+  UTM-taggar. Ett inskick som kom via Google Ads automatiska taggning eller en
+  Facebook-länk – med klick-id men utan en enda UTM-tagg – syntes därför i
+  "38 av 100" men inte i något kort, och korten stod tomma.
+  - Raden under rubriken delar upp siffran: *"38 av 100 inskick har
+    kampanjdata – 12 med UTM-taggar och 26 med bara annonsklick-id
+    (gclid/fbclid)."*
+  - Nytt kort **Annonsklick** med antal inskick per klick-id, och en
+    påminnelse om att `fbclid` följer med alla länkar från Facebook och
+    Instagram, inte bara annonser.
+  - Tomma UTM-kort säger *"Inga UTM-taggade inskick. N inskick har bara
+    annonsklick-id"* i stället för bara "Inga uppgifter under perioden".
+- Cacheversionen höjd, så att rapporter cachade av 1.5.0/1.5.1 byggs om.
+
+### Tester
+- Nya assertions för uppdelningen och för just fallet ovan: bara klick-id,
+  inga UTM-taggar (441 totalt). Playwright kontrollerar det nya kortet.
+
 ## [1.5.1] – 2026-10-02
 
 ### Ändrat

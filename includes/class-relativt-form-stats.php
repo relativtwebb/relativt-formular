@@ -30,7 +30,7 @@ final class Relativt_Form_Stats {
 	public const PAGE = 'relativt-form-stats';
 
 	/** Byts när rapportens format ändras, så att gamla cachade rapporter ignoreras. */
-	private const CACHE_VERSION = 1;
+	private const CACHE_VERSION = 2;
 
 	/** Hur länge en sammanställning cachas. Nya inskick bryter cachen direkt. */
 	private const CACHE_TTL = 6 * 3600;
@@ -437,6 +437,9 @@ final class Relativt_Form_Stats {
 		$r = [
 			'total'         => 0,
 			'with_campaign' => 0,
+			'with_utm'      => 0,
+			'click_only'    => 0,
+			'clicks'        => [],
 			'mail_failed'   => 0,
 			'series'        => self::buckets( $range['from'], $range['to'], $range['granularity'] ),
 			'forms'         => [],
@@ -471,8 +474,31 @@ final class Relativt_Form_Stats {
 			self::bump( $r['forms'], (string) (int) ( $row['form'] ?? 0 ) );
 			self::bump( $r['channels'], self::channel( $meta, $site_host ) );
 
-			if ( array_filter( array_map( 'strval', $utm ) ) ) {
+			/*
+			 * Kampanjdata = UTM-taggar ELLER klick-id. Klick-id:t läggs på av
+			 * plattformen själv (Google Ads automatiska taggning, Facebooks
+			 * fbclid på alla utgående länkar), så ett inskick kan ha kampanjdata
+			 * utan en enda UTM-tagg. Det räknas för sig, annars ser UTM-korten
+			 * tomma ut trots att andelen med kampanjdata är hög.
+			 */
+			$has_utm = false;
+			foreach ( [ 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content' ] as $k ) {
+				$has_utm = $has_utm || '' !== trim( (string) ( $utm[ $k ] ?? '' ) );
+			}
+			$has_click = false;
+			foreach ( [ 'gclid', 'fbclid' ] as $k ) {
+				if ( '' !== trim( (string) ( $utm[ $k ] ?? '' ) ) ) {
+					self::bump( $r['clicks'], $k );
+					$has_click = true;
+				}
+			}
+			if ( $has_utm || $has_click ) {
 				$r['with_campaign']++;
+			}
+			if ( $has_utm ) {
+				$r['with_utm']++;
+			} elseif ( $has_click ) {
+				$r['click_only']++;
 			}
 			foreach ( [ 'utm_source', 'utm_medium', 'utm_campaign' ] as $k ) {
 				$v = strtolower( trim( (string) ( $utm[ $k ] ?? '' ) ) );
@@ -796,11 +822,22 @@ final class Relativt_Form_Stats {
 		$out .= '</div>';
 
 		$out .= '<h2 class="xf-section">Kampanjer</h2>';
-		$out .= sprintf( '<p class="xf-note">%s av %s inskick har kampanjparametrar.</p>', self::num( $r['with_campaign'] ), self::num( $r['total'] ) );
-		$out .= '<div class="xf-grid xf-grid-3">';
-		$out .= $this->card( 'Kampanjkälla (utm_source)', $this->bar_list( $r['utm_source'], $r['total'], 'Källa', [], $r['utm_source_distinct'] ) );
-		$out .= $this->card( 'Medium (utm_medium)', $this->bar_list( $r['utm_medium'], $r['total'], 'Medium', [], $r['utm_medium_distinct'] ) );
-		$out .= $this->card( 'Kampanj (utm_campaign)', $this->bar_list( $r['utm_campaign'], $r['total'], 'Kampanj', [], $r['utm_campaign_distinct'] ) );
+		$out .= '<p class="xf-note">' . self::campaign_summary( $r ) . '</p>';
+
+		// Tomma UTM-kort när det ändå finns annonsklick ska säga varför, inte bara "inga uppgifter".
+		$utm_empty = $r['click_only']
+			? sprintf( 'Inga UTM-taggade inskick. %s inskick har bara annonsklick-id – se Annonsklick.', self::num( $r['click_only'] ) )
+			: '';
+
+		$out .= '<div class="xf-grid xf-grid-4">';
+		$out .= $this->card( 'Kampanjkälla (utm_source)', $this->bar_list( $r['utm_source'], $r['total'], 'Källa', [], $r['utm_source_distinct'], $utm_empty ) );
+		$out .= $this->card( 'Medium (utm_medium)', $this->bar_list( $r['utm_medium'], $r['total'], 'Medium', [], $r['utm_medium_distinct'], $utm_empty ) );
+		$out .= $this->card( 'Kampanj (utm_campaign)', $this->bar_list( $r['utm_campaign'], $r['total'], 'Kampanj', [], $r['utm_campaign_distinct'], $utm_empty ) );
+		$out .= $this->card(
+			'Annonsklick',
+			$this->bar_list( $r['clicks'], $r['total'], 'Klick-id', [ 'gclid' => 'Google Ads (gclid)', 'fbclid' => 'Facebook/Instagram (fbclid)' ], 0, 'Inga annonsklick under perioden.' )
+				. '<p class="xf-note">Läggs på av plattformen, inte av den som taggat länken. fbclid följer med alla länkar från Facebook och Instagram, även vanliga inlägg – det är inte nödvändigtvis en annons.</p>'
+		);
 		$out .= '</div>';
 
 		$out .= '<h2 class="xf-section">Sidor</h2>';
@@ -865,9 +902,9 @@ final class Relativt_Form_Stats {
 	 * Topplista med stapel per rad. Stapeln är relativ till listans största
 	 * värde, andelen till alla inskick i perioden.
 	 */
-	private function bar_list( array $counts, int $total, string $heading, array $labels = [], int $distinct = 0 ): string {
+	private function bar_list( array $counts, int $total, string $heading, array $labels = [], int $distinct = 0, string $empty = '' ): string {
 		if ( ! $counts ) {
-			return '<p class="xf-none">Inga uppgifter under perioden.</p>';
+			return '<p class="xf-none">' . esc_html( '' !== $empty ? $empty : 'Inga uppgifter under perioden.' ) . '</p>';
 		}
 
 		$max  = max( $counts );
@@ -891,6 +928,23 @@ final class Relativt_Form_Stats {
 			$rows,
 			$more
 		);
+	}
+
+	/** "38 av 100 inskick har kampanjdata – 12 med UTM-taggar och 26 med bara annonsklick-id." */
+	private static function campaign_summary( array $r ): string {
+		if ( ! $r['with_campaign'] ) {
+			return sprintf( 'Inget av %s inskick har kampanjdata.', self::num( $r['total'] ) );
+		}
+
+		$parts = [];
+		if ( $r['with_utm'] ) {
+			$parts[] = sprintf( '%s med UTM-taggar', self::num( $r['with_utm'] ) );
+		}
+		if ( $r['click_only'] ) {
+			$parts[] = sprintf( '%s med bara annonsklick-id (gclid/fbclid)', self::num( $r['click_only'] ) );
+		}
+
+		return sprintf( '%s av %s inskick har kampanjdata – %s.', self::num( $r['with_campaign'] ), self::num( $r['total'] ), implode( ' och ', $parts ) );
 	}
 
 	private function form_list( array $r ): string {
@@ -1066,6 +1120,7 @@ final class Relativt_Form_Stats {
 		.xf-stats .xf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 12px; }
 		.xf-stats .xf-grid > .xf-card { margin-bottom: 0; }
 		.xf-stats .xf-grid { margin-bottom: 12px; }
+		.xf-stats .xf-grid-4 { grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); }
 		.xf-stats .xf-section { margin: 24px 0 4px; font-size: 16px; }
 		.xf-stats .xf-note, .xf-stats .xf-none { color: var(--xf-muted); font-size: 12px; margin: 6px 0 0; }
 		.xf-stats .xf-section + .xf-note { margin: 0 0 10px; }

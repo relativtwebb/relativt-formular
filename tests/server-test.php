@@ -1293,6 +1293,8 @@ check( 'per formulär', [ '12' => 3, '99' => 1 ] === $agg['forms'] );
 check( 'kanalerna räknas', 1 === ( $agg['channels']['search'] ?? 0 ) && 1 === ( $agg['channels']['paid_social'] ?? 0 ) && 1 === ( $agg['channels']['paid_search'] ?? 0 ) && 1 === ( $agg['channels']['direct'] ?? 0 ) );
 check( 'utm-värden slås ihop oavsett versaler', [ 'linkedin' => 1 ] === $agg['utm_source'] && [ 'höst26' => 1 ] === $agg['utm_campaign'] );
 check( 'kampanjdata räknar även klick-id', 2 === $agg['with_campaign'] );
+check( 'UTM-taggade och bara klick-id räknas för sig', 1 === $agg['with_utm'] && 1 === $agg['click_only'] );
+check( 'klick-id:na räknas per typ', [ 'gclid' => 1 ] === $agg['clicks'] );
 check( 'egna sajten räknas inte som hänvisare', [ 'google.se' => 1 ] === $agg['referrers'] );
 check( 'landningssidor grupperas utan frågesträng', 1 === ( $agg['landing']['/kampanj'] ?? 0 ) && 1 === ( $agg['landing']['/'] ?? 0 ) );
 check( 'skickat från grupperas', 2 === ( $agg['pages']['/kontakt'] ?? 0 ) );
@@ -1374,6 +1376,29 @@ check( 'diagrammet har tabellvy', str_contains( $html, '<svg class="xf-chart"' )
 check( 'utm-värden escapas', ! str_contains( $html, '<script>alert' ) && str_contains( $html, '&lt;script&gt;' ) );
 check( 'inga rå taggar från hänvisaren', ! str_contains( $html, '<img src=x' ) );
 check( 'värmekartan har sju rader', 7 === substr_count( $html, '<tr><th scope="row">' ) );
+check( 'kampanjraden delar upp UTM och klick-id', str_contains( $html, '2 av 4 inskick har kampanjdata – 1 med UTM-taggar och 1 med bara annonsklick-id (gclid/fbclid).' ) );
+check( 'annonsklicken har ett eget kort', str_contains( $html, '<h3>Annonsklick</h3>' ) && str_contains( $html, 'Google Ads (gclid)' ) );
+
+/*
+ * 1.5.2: skärmdumpen som visade felet – 38 av 100 med kampanjdata men tre
+ * tomma UTM-kort, eftersom alla 38 bara hade gclid/fbclid.
+ */
+$clicks_only = [
+	[ 'date' => '2026-09-28 10:00:00', 'form' => 12, 'meta' => [ 'utm' => [ 'gclid' => 'abc' ] ] ],
+	[ 'date' => '2026-09-29 10:00:00', 'form' => 12, 'meta' => [ 'utm' => [ 'fbclid' => 'xyz' ] ] ],
+	[ 'date' => '2026-09-30 10:00:00', 'form' => 12, 'meta' => [ 'utm' => [] ] ],
+];
+$co         = Relativt_Form_Stats::aggregate( $clicks_only, $range, 'exempel.se' );
+$co['prev'] = null;
+$co_html    = $stats->render_report( $co, $range, 0 );
+check( 'bara klick-id: raden säger det', str_contains( $co_html, '2 av 3 inskick har kampanjdata – 2 med bara annonsklick-id' ) && ! str_contains( $co_html, 'med UTM-taggar' ) );
+check( 'och de tomma UTM-korten förklarar varför', 3 === substr_count( $co_html, 'Inga UTM-taggade inskick. 2 inskick har bara annonsklick-id' ) );
+check( 'medan annonsklicken visas', str_contains( $co_html, 'Facebook/Instagram (fbclid)' ) );
+$none = Relativt_Form_Stats::aggregate( [ $clicks_only[2] ], $range );
+$none['prev'] = null;
+$none_html    = $stats->render_report( $none, $range, 0 );
+check( 'utan kampanjdata alls blir det vanliga tomtexten', str_contains( $none_html, 'Inget av 1 inskick har kampanjdata.' ) && str_contains( $none_html, 'Inga annonsklick under perioden.' ) && ! str_contains( $none_html, 'Inga UTM-taggade' ) );
+
 check( 'per formulär döljs när ett formulär är valt', ! str_contains( $stats->render_report( $agg, $range, 12 ), 'Per formulär' ) );
 
 $empty = Relativt_Form_Stats::aggregate( [], $range );

@@ -206,7 +206,7 @@ Välj period (7, 30 eller 90 dagar, 12 månader, i år, alla sparade inskick ell
 - **Nyckeltal:** antal inskick jämfört med föregående period (”I år” jämförs med samma datum i fjol), snitt per vecka, andel med kampanjdata och misslyckade notismail med länk till inskicken.
 - **Inskick över tid** per dag, vecka eller månad beroende på periodens längd, med verktygstips per stapel och tabellvy. En vecka eller månad som perioden bara delvis täcker säger det.
 - **Kanaler, per formulär, enhet och webbläsare.**
-- **Kampanjer:** topplistor för `utm_source`, `utm_medium` och `utm_campaign` (versaler slås ihop).
+- **Kampanjer:** topplistor för `utm_source`, `utm_medium` och `utm_campaign` (versaler slås ihop), plus **Annonsklick** för inskick med `gclid` (Google Ads automatiska taggning) eller `fbclid` (alla länkar från Facebook och Instagram, även vanliga inlägg). Ett inskick kan ha klick-id utan en enda UTM-tagg, och då räknas det i andelen med kampanjdata men syns bara i Annonsklick.
 - **Sidor:** hänvisande webbplatser, landningssidor och sidorna formuläret skickades från – sökväg utan frågesträng.
 - **Veckodag × klockslag** i sajtens tidszon.
 
@@ -461,7 +461,7 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 433 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
+php tests/server-test.php   # 441 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
 npx playwright test         # 118 tester i riktig webbläsare, desktop och mobil
 ```
 

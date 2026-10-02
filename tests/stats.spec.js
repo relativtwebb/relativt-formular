@@ -13,6 +13,7 @@ test('statistiksidan visar nyckeltal, diagram och topplistor', async ({ page }) 
 	await expect(page.locator('.xf-tile').first()).toContainText('Inskick');
 	await expect(page.locator('svg.xf-chart .xf-bar-mark').first()).toBeVisible();
 	await expect(page.locator('.xf-card', { hasText: 'Kanaler' })).toContainText('Organisk sök');
+	await expect(page.locator('.xf-card', { hasText: 'Annonsklick' })).toContainText('Google Ads (gclid)');
 	await expect(page.locator('.xf-heat tbody tr')).toHaveCount(7);
 	await expect(page.locator('.xf-heat tbody td')).toHaveCount(7 * 24);
 });
