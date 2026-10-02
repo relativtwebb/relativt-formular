@@ -12,9 +12,11 @@
  * formulär som inte sparar inskick syns inte alls. Sidan säger det i klartext
  * i stället för att låta siffrorna se fullständiga ut.
  *
- * Inga personuppgifter visas. E-post och fältvärden läses aldrig ur
- * databasen, IP-adressen i metadatan släpps direkt vid inläsningen, och user
- * agent används bara för att räkna enhetstyp och webbläsare.
+ * Inga personuppgifter visas. E-post och fritext läses aldrig ur databasen,
+ * IP-adressen i metadatan släpps direkt vid inläsningen, och user agent
+ * används bara för att räkna enhetstyp och webbläsare. Fältvärden läses bara
+ * för fält som uttryckligen har "Visa i statistiken" påslaget – och det går
+ * bara att slå på för val-fält och dolda fält, aldrig för fritext.
  *
  * @package Relativt_Formular
  */
@@ -30,7 +32,7 @@ final class Relativt_Form_Stats {
 	public const PAGE = 'relativt-form-stats';
 
 	/** Byts när rapportens format ändras, så att gamla cachade rapporter ignoreras. */
-	private const CACHE_VERSION = 2;
+	private const CACHE_VERSION = 3;
 
 	/** Hur länge en sammanställning cachas. Nya inskick bryter cachen direkt. */
 	private const CACHE_TTL = 6 * 3600;
@@ -433,7 +435,7 @@ final class Relativt_Form_Stats {
 	 *
 	 * Varje rad: [ 'date' => 'Y-m-d H:i:s', 'form' => int, 'meta' => array, 'mail_ok' => '1'|'0'|'' ].
 	 */
-	public static function aggregate( iterable $rows, array $range, string $site_host = '' ): array {
+	public static function aggregate( iterable $rows, array $range, string $site_host = '', array $tracked = [] ): array {
 		$r = [
 			'total'         => 0,
 			'with_campaign' => 0,
@@ -453,7 +455,15 @@ final class Relativt_Form_Stats {
 			'devices'       => [],
 			'browsers'      => [],
 			'heat'          => [],
+			'answers'       => [],
 		];
+
+		// Ett tomt resultat per följt fält, så att ett fält utan svar ändå får sitt kort.
+		foreach ( $tracked as $fid => $form ) {
+			foreach ( $form['fields'] as $key => $def ) {
+				$r['answers'][ $fid ][ $key ] = [ 'base' => 0, 'answered' => 0, 'values' => [] ];
+			}
+		}
 
 		foreach ( $rows as $row ) {
 			$meta = is_array( $row['meta'] ?? null ) ? $row['meta'] : [];
@@ -528,6 +538,20 @@ final class Relativt_Form_Stats {
 				$r['mail_failed']++;
 			}
 
+			$fid = (int) ( $row['form'] ?? 0 );
+			foreach ( $tracked[ $fid ]['fields'] ?? [] as $key => $def ) {
+				$slot = &$r['answers'][ $fid ][ $key ];
+				$slot['base']++;
+				$labels = self::answer_labels( $def, (array) ( $row['answers'][ $key ] ?? [] ) );
+				if ( $labels ) {
+					$slot['answered']++;
+					foreach ( $labels as $label ) {
+						self::bump( $slot['values'], $label );
+					}
+				}
+				unset( $slot );
+			}
+
 			// Klockslaget tas ur inskickets datum, som WordPress stämplar i sajtens tidszon.
 			// Läses som text, inte via strtotime(), så att PHP:s egen tidszon inte flyttar timmen.
 			if ( preg_match( '/^\d{4}-\d{2}-\d{2}[ T](\d{2})/', $date, $hm ) ) {
@@ -543,7 +567,56 @@ final class Relativt_Form_Stats {
 			$r[ $k ]               = array_slice( $r[ $k ], 0, self::KEEP, true );
 		}
 
+		foreach ( $r['answers'] as $fid => $fields ) {
+			foreach ( $fields as $key => $slot ) {
+				arsort( $slot['values'] );
+				$slot['distinct']               = count( $slot['values'] );
+				$slot['values']                 = array_slice( $slot['values'], 0, self::KEEP, true );
+				$r['answers'][ $fid ][ $key ]   = $slot;
+			}
+		}
+
 		return $r;
+	}
+
+	/**
+	 * Svaret i ett följt fält som etiketter att räkna på.
+	 *
+	 * Val-fält räknas på det tekniska värdet och visas med den etikett fältet
+	 * har NU – byter någon "Företag" till "Företagskund" slås gamla och nya
+	 * inskick ihop. Finns värdet inte längre bland valen används etiketten
+	 * som sparades med inskicket. Flerval ger en etikett per ikryssat val.
+	 *
+	 * @param array $def    [ 'type' => …, 'choices' => [ värde => etikett ] ]
+	 * @param array $answer [ 'value' => sparad etikett, 'raw' => tekniskt värde ]
+	 * @return string[]
+	 */
+	public static function answer_labels( array $def, array $answer ): array {
+		$choices = is_array( $def['choices'] ?? null ) ? $def['choices'] : [];
+		$value   = trim( (string) ( $answer['value'] ?? '' ) );
+		$raw     = trim( (string) ( $answer['raw'] ?? '' ) );
+
+		switch ( $def['type'] ?? '' ) {
+			case 'checkboxes':
+				$pieces = '' !== $raw ? explode( ', ', $raw ) : [];
+				$labels = array_map( static fn( $p ) => $choices[ $p ] ?? null, $pieces );
+				if ( ! $pieces || in_array( null, $labels, true ) ) {
+					$labels = '' !== $value ? explode( ', ', $value ) : [];
+				}
+				return array_values( array_filter( array_map( 'trim', $labels ), 'strlen' ) );
+
+			case 'select':
+			case 'buttons':
+			case 'radio':
+				if ( '' !== $raw && isset( $choices[ $raw ] ) ) {
+					return [ (string) $choices[ $raw ] ];
+				}
+				return '' !== $value ? [ $value ] : [];
+
+			default:
+				// Kryssruta (Ja/Nej) och dolda fält: det sparade värdet, kapat.
+				return '' !== $value ? [ mb_substr( $value, 0, 100 ) ] : [];
+		}
 	}
 
 	private static function bump( array &$list, string $key ): void {
@@ -558,8 +631,8 @@ final class Relativt_Form_Stats {
 	 * Läses med egna frågor i stället för get_posts(). Två skäl:
 	 *
 	 * 1. get_posts() fyller metacachen med ALLA nycklar per inskick – även
-	 *    fältvärdena och e-postadressen, som statistiken aldrig ska röra.
-	 *    Här hämtas bara de tre nycklar sidan behöver.
+	 *    fältvärdena och e-postadressen. Här hämtas bara de nycklar sidan
+	 *    behöver, och fältvärdena bara när något fält följs.
 	 * 2. get_posts() bläddrar med OFFSET, som sorterar om hela urvalet för
 	 *    varje sida och hoppar över rader om gallringen raderar mitt i.
 	 *    Här bläddras det på id (ID > senaste), som går rakt på primärnyckeln.
@@ -589,8 +662,16 @@ final class Relativt_Form_Stats {
 		return isset( $wpdb ) && is_object( $wpdb );
 	}
 
-	/** Inskicken i perioden, batchvis. */
-	private function rows( string $from, string $to, int $form_id ): Generator {
+	/**
+	 * Inskicken i perioden, batchvis.
+	 *
+	 * Fältvärdena (_xf_values) hämtas BARA när något fält följs, och reduceras
+	 * direkt till de följda fälten – namn, e-post och fritext lämnar aldrig
+	 * den här metoden.
+	 *
+	 * @param array<int,string[]> $tracked_keys formulär-id => följda fältnycklar
+	 */
+	private function rows( string $from, string $to, int $form_id, array $tracked_keys = [] ): Generator {
 		global $wpdb;
 
 		if ( ! self::has_db() ) {
@@ -615,9 +696,10 @@ final class Relativt_Form_Stats {
 			$meta = [];
 
 			// Id:na är heltal ur frågan ovan, så IN-listan behöver ingen prepare.
+			$keys  = "'_xf_form_id', '_xf_meta', '_xf_mail_ok'" . ( $tracked_keys ? ", '_xf_values'" : '' );
 			$found = (array) $wpdb->get_results(
 				"SELECT post_id, meta_key, meta_value FROM {$wpdb->postmeta}
-				WHERE meta_key IN ('_xf_form_id', '_xf_meta', '_xf_mail_ok') AND post_id IN (" . implode( ',', $ids ) . ')'
+				WHERE meta_key IN ({$keys}) AND post_id IN (" . implode( ',', $ids ) . ')'
 			);
 			foreach ( $found as $m ) {
 				$meta[ (int) $m->post_id ][ $m->meta_key ] = $m->meta_value;
@@ -632,11 +714,24 @@ final class Relativt_Form_Stats {
 					unset( $data['ip'] );
 				}
 
+				$fid     = (int) ( $m['_xf_form_id'] ?? 0 );
+				$answers = [];
+				if ( isset( $tracked_keys[ $fid ] ) ) {
+					$values = maybe_unserialize( (string) ( $m['_xf_values'] ?? '' ) );
+					foreach ( is_array( $values ) ? $values : [] as $v ) {
+						$k = (string) ( $v['key'] ?? '' );
+						if ( in_array( $k, $tracked_keys[ $fid ], true ) ) {
+							$answers[ $k ] = [ 'value' => (string) ( $v['value'] ?? '' ), 'raw' => (string) ( $v['raw'] ?? '' ) ];
+						}
+					}
+				}
+
 				yield [
 					'date'    => (string) $post->post_date,
-					'form'    => (int) ( $m['_xf_form_id'] ?? 0 ),
+					'form'    => $fid,
 					'meta'    => $data,
 					'mail_ok' => (string) ( $m['_xf_mail_ok'] ?? '' ),
+					'answers' => $answers,
 				];
 			}
 		} while ( count( $posts ) === self::BATCH );
@@ -700,15 +795,17 @@ final class Relativt_Form_Stats {
 	 * nytt eller raderat inskick syns direkt i stället för först när cachen
 	 * löper ut.
 	 */
-	public function report( array $range, int $form_id ): array {
-		$key    = 'xf_stats_' . md5( wp_json_encode( [ self::CACHE_VERSION, $range, $form_id, self::fingerprint(), self::site_host() ] ) );
+	public function report( array $range, int $form_id, array $tracked = [] ): array {
+		// De följda fälten ingår i nyckeln – kryssar någon i ett fält till syns det direkt.
+		$key    = 'xf_stats_' . md5( wp_json_encode( [ self::CACHE_VERSION, $range, $form_id, self::fingerprint(), self::site_host(), $tracked ] ) );
 		$cached = get_transient( $key );
 
 		if ( is_array( $cached ) ) {
 			return $cached;
 		}
 
-		$report         = self::aggregate( $this->rows( $range['from'], $range['to'], $form_id ), $range, self::site_host() );
+		$keys           = array_map( static fn( $f ) => array_map( 'strval', array_keys( $f['fields'] ) ), $tracked );
+		$report         = self::aggregate( $this->rows( $range['from'], $range['to'], $form_id, $keys ), $range, self::site_host(), $tracked );
 		$report['prev'] = '' !== $range['prev_from'] ? $this->count_entries( $range['prev_from'], $range['prev_to'], $form_id ) : null;
 
 		set_transient( $key, $report, self::CACHE_TTL );
@@ -736,8 +833,38 @@ final class Relativt_Form_Stats {
 		echo self::styles(); // phpcs:ignore WordPress.Security.EscapeOutput -- statisk CSS.
 		echo $this->filter_form( $range, $form_id, $forms ); // phpcs:ignore WordPress.Security.EscapeOutput -- escapas i metoden.
 		echo $this->coverage_notice( $range, $form_id, $forms, $today ); // phpcs:ignore WordPress.Security.EscapeOutput
-		echo $this->render_report( $this->report( $range, $form_id ), $range, $form_id ); // phpcs:ignore WordPress.Security.EscapeOutput
+		$tracked = $this->tracked_fields( $form_id, $forms );
+		echo $this->render_report( $this->report( $range, $form_id, $tracked ), $range, $form_id, $tracked ); // phpcs:ignore WordPress.Security.EscapeOutput
 		echo '</div>';
+	}
+
+	/**
+	 * Fälten som har "Visa i statistiken" påslaget, i de formulär som ingår i
+	 * urvalet.
+	 *
+	 * @return array<int,array{title:string,fields:array<string,array{label:string,type:string,choices:array}>}>
+	 */
+	public function tracked_fields( int $form_id, array $forms ): array {
+		$engine  = Relativt_Form::instance();
+		$tracked = [];
+
+		foreach ( $forms as $f ) {
+			if ( $form_id && (int) $f->ID !== $form_id ) {
+				continue;
+			}
+			foreach ( $engine->get_fields( (int) $f->ID ) as $field ) {
+				if ( ! empty( $field['stats'] ) && '' !== $field['key'] ) {
+					$tracked[ (int) $f->ID ]['title']                    = (string) ( $f->post_title ?: '#' . $f->ID );
+					$tracked[ (int) $f->ID ]['fields'][ $field['key'] ] = [
+						'label'   => '' !== $field['label'] ? $field['label'] : $field['key'],
+						'type'    => $field['type'],
+						'choices' => $field['choices'],
+					];
+				}
+			}
+		}
+
+		return $tracked;
 	}
 
 	private function filter_form( array $range, int $form_id, array $forms ): string {
@@ -804,7 +931,7 @@ final class Relativt_Form_Stats {
 		return '<p class="xf-stats-coverage">' . implode( ' ', $lines ) . '</p>';
 	}
 
-	public function render_report( array $r, array $range, int $form_id ): string {
+	public function render_report( array $r, array $range, int $form_id, array $tracked = [] ): string {
 		if ( 0 === $r['total'] ) {
 			$out = $this->tiles( $r, $range, $form_id );
 			return $out . '<div class="xf-card xf-empty"><p>Inga sparade inskick under ' . esc_html( mb_strtolower( $range['label'] ) ) . '.</p></div>';
@@ -820,6 +947,8 @@ final class Relativt_Form_Stats {
 		}
 		$out .= $this->card( 'Enhet och webbläsare', $this->bar_list( $r['devices'], $r['total'], 'Enhet' ) . '<div class="xf-gap"></div>' . $this->bar_list( $r['browsers'], $r['total'], 'Webbläsare' ) . '<p class="xf-note">iPad med iPadOS utger sig för att vara en Mac och räknas som dator.</p>' );
 		$out .= '</div>';
+
+		$out .= $this->answers_section( $r, $tracked );
 
 		$out .= '<h2 class="xf-section">Kampanjer</h2>';
 		$out .= '<p class="xf-note">' . self::campaign_summary( $r ) . '</p>';
@@ -850,6 +979,50 @@ final class Relativt_Form_Stats {
 		$out .= $this->card( 'Veckodag och klockslag', self::heatmap( $r['heat'] ), 'xf-wide' );
 
 		return $out;
+	}
+
+	/** Formulärsvar: ett kort per fält med "Visa i statistiken" påslaget. */
+	private function answers_section( array $r, array $tracked ): string {
+		$out = '<h2 class="xf-section">Formulärsvar</h2>';
+
+		if ( ! $tracked ) {
+			return $out . '<p class="xf-note">Inga fält följs. Slå på <strong>Visa i statistiken</strong> på ett fält i formulärbyggaren – rullista, val-knappar, radioknappar, flerval, kryssruta eller dolt fält – så visas fördelningen av svaren här.</p>';
+		}
+
+		$many = count( $tracked ) > 1;
+		$out .= '<div class="xf-grid">';
+
+		foreach ( $tracked as $fid => $form ) {
+			foreach ( $form['fields'] as $key => $def ) {
+				$slot   = $r['answers'][ $fid ][ $key ] ?? [ 'base' => 0, 'answered' => 0, 'values' => [], 'distinct' => 0 ];
+				$none   = $slot['base'] - $slot['answered'];
+				$counts = $slot['values'];
+				$labels = [];
+
+				// "Ej besvarat" sist och alltid med, även när listan kapas.
+				if ( $none > 0 ) {
+					$counts               = array_slice( $counts, 0, self::SHOW - 1, true );
+					$counts['__xf_none']  = $none;
+					$labels['__xf_none']  = 'Ej besvarat';
+				}
+
+				$notes = [];
+				if ( 'checkboxes' === $def['type'] ) {
+					$notes[] = 'Flera val möjliga – andelarna kan bli mer än 100 % tillsammans.';
+				}
+				if ( $none > 0 ) {
+					$notes[] = 'Ej besvarat = fältet lämnades tomt eller var dolt av ett villkor.';
+				}
+
+				$title = $def['label'] . ( $many ? ' · ' . $form['title'] : '' );
+				$body  = $this->bar_list( $counts, (int) $slot['base'], 'Svar', $labels, (int) ( $slot['distinct'] ?? 0 ), 'Inga inskick från formuläret under perioden.' );
+				$body .= $notes ? '<p class="xf-note">' . esc_html( implode( ' ', $notes ) ) . '</p>' : '';
+
+				$out .= $this->card( $title, $body );
+			}
+		}
+
+		return $out . '</div>';
 	}
 
 	private function card( string $title, string $body, string $class = '' ): string {
@@ -912,11 +1085,13 @@ final class Relativt_Form_Stats {
 		foreach ( array_slice( $counts, 0, self::SHOW, true ) as $key => $n ) {
 			$label = $labels[ $key ] ?? (string) $key;
 			$rows .= sprintf(
-				'<tr><td><span class="xf-label" title="%1$s">%1$s</span><span class="xf-bar" aria-hidden="true"><i style="width:%2$s%%"></i></span></td><td class="num">%3$s</td><td class="num">%4$s</td></tr>',
+				'<tr%5$s><td><span class="xf-label" title="%1$s">%1$s</span><span class="xf-bar" aria-hidden="true"><i style="width:%2$s%%"></i></span></td><td class="num">%3$s</td><td class="num">%4$s</td></tr>',
 				esc_html( $label ),
 				esc_attr( (string) max( 1, round( $n / $max * 100, 1 ) ) ),
 				self::num( $n ),
-				$total ? self::num( $n / $total * 100, $n / $total < 0.1 ? 1 : 0 ) . ' %' : ''
+				$total ? self::num( $n / $total * 100, $n / $total < 0.1 ? 1 : 0 ) . ' %' : '',
+				// "Ej besvarat" är ingen kategori bland de andra – grå stapel så den inte läses som en.
+				'__xf_none' === (string) $key ? ' class="xf-muted"' : ''
 			);
 		}
 
@@ -1132,6 +1307,8 @@ final class Relativt_Form_Stats {
 		.xf-stats .xf-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
 		.xf-stats .xf-bar { display: block; height: 6px; margin: 4px 8px 0 0; }
 		.xf-stats .xf-bar i { display: block; height: 100%; background: var(--xf-accent); border-radius: 0 3px 3px 0; }
+		.xf-stats tr.xf-muted .xf-bar i { background: #c3c4c7; }
+		.xf-stats tr.xf-muted .xf-label { color: var(--xf-muted); }
 		.xf-stats .xf-chart-wrap { overflow-x: auto; }
 		.xf-stats .xf-chart { display: block; width: 100%; min-width: 640px; height: auto; margin-top: 4px; }
 		.xf-stats .xf-gap { height: 16px; }

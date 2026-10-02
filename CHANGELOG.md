@@ -3,6 +3,44 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.6.0] – 2026-10-02
+
+Ingenting ändras förrän någon slår på det nya fältvalet. Formulär sparade före
+1.6.0 saknar nyckeln och beter sig som förut.
+
+### Nytt
+- **Fältvalet Visa i statistiken.** Finns för rullista, val-knappar,
+  radioknappar, flerval, kryssruta och dolt fält (`Relativt_Form::STATS_TYPES`).
+  Av som standard. `get_fields()` kontrollerar typen igen, så ett fält som
+  byter typ till fritext slutar räknas även om valet ligger kvar sparat.
+- **Formulär → Statistik → Formulärsvar.** Ett kort per följt fält med
+  fördelningen av svaren under perioden:
+  - val räknas på det tekniska värdet och visas med dagens etikett, så en
+    omdöpt etikett inte delar upp statistiken; borttagna val visas med
+    etiketten som sparades med inskicket;
+  - flerval ger en rad per val (andelarna kan summera över 100 %);
+  - **Ej besvarat** (grå stapel) för tomma fält och fält dolda av villkor –
+    andelarna räknas på alla inskick från formuläret;
+  - med *Alla formulär* står formulärets namn i kortets rubrik;
+  - utan följda fält visar sektionen var valet slås på.
+- Valet följer med i JSON-export/import. Det tas bort ur det publika
+  headless-endpointet – det är en admininställning, inte en del av formuläret.
+- Fältkartan i sidokolumnen märker följda fält med "i statistiken".
+
+### Integritet
+- `_xf_values` läses bara när minst ett fält följs, och reduceras direkt vid
+  inläsningen till de följda fälten. Namn, e-post och fritext lämnar aldrig
+  inläsningen. Utan följda fält är frågorna exakt som i 1.5.2.
+- Dolda fält kapas till 100 tecken i statistiken.
+
+### Tester
+- 29 nya serverassertions (470 totalt): fältvalet och vilka typer det visas
+  för, att fritext aldrig kan följas, export, etikettlogiken (omdöpta och
+  borttagna val, flerval, kryssruta, dolda fält), att `_xf_values` bara läses
+  när något följs och att namn/e-post aldrig följer med, fördelning och
+  Ej besvarat, cachebrytning när ett fält slås på, sektionen på sidan.
+- Statistikdemon följer två fält; Playwright kontrollerar korten.
+
 ## [1.5.2] – 2026-10-02
 
 ### Ändrat

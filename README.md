@@ -209,6 +209,20 @@ Välj period (7, 30 eller 90 dagar, 12 månader, i år, alla sparade inskick ell
 - **Kampanjer:** topplistor för `utm_source`, `utm_medium` och `utm_campaign` (versaler slås ihop), plus **Annonsklick** för inskick med `gclid` (Google Ads automatiska taggning) eller `fbclid` (alla länkar från Facebook och Instagram, även vanliga inlägg). Ett inskick kan ha klick-id utan en enda UTM-tagg, och då räknas det i andelen med kampanjdata men syns bara i Annonsklick.
 - **Sidor:** hänvisande webbplatser, landningssidor och sidorna formuläret skickades från – sökväg utan frågesträng.
 - **Veckodag × klockslag** i sajtens tidszon.
+- **Formulärsvar** för fält som följs – se nedan.
+
+### Följa fält i statistiken
+
+Slå på **Visa i statistiken** på ett fält i formulärbyggaren, så får fältet ett eget kort under *Formulärsvar* med fördelningen av svaren – t.ex. hur stor andel som valt *Företag* respektive *Privatperson* i ett "Jag är"-fält.
+
+- Går bara att slå på för **rullista, val-knappar, radioknappar, flerval, kryssruta och dolda fält**. Fritext – namn, e-post, telefon, textrutor – kan aldrig följas, så inga personuppgifter hamnar i statistiken.
+- Val räknas på det tekniska värdet och visas med den etikett valet har *nu*. Byter du en etikett slås gamla och nya inskick ihop. Ett val som tagits bort visas med etiketten det hade när inskicket kom in.
+- **Ej besvarat** (grå stapel) är inskick där fältet lämnades tomt eller var dolt av ett villkor. Andelarna räknas på alla inskick från formuläret under perioden.
+- Flerval kan ge mer än 100 % tillsammans, eftersom ett inskick kan ha flera val.
+- Med *Alla formulär* valt får varje kort formulärets namn i rubriken.
+- Valet följer med när formuläret exporteras och importeras, men aldrig i det publika headless-endpointet.
+- Gäller även inskick som kom in innan valet slogs på, så länge de inte har gallrats.
+
 
 ### Så räknas kanalen
 
@@ -241,7 +255,7 @@ add_filter( 'relativt_form_stats_channel', function ( $channel, $meta ) {
 - **Samtycke.** Utan godkänd kampanjkaka lever attributionen bara på sidan besökaren landade på. Klickar besökaren vidare innan formuläret skickas blir källan *Direkt / okänd*.
 - **iPad** med iPadOS utger sig för att vara en Mac och räknas som dator.
 
-Sammanställningen cachas i sex timmar, men ett nytt eller raderat inskick bryter cachen direkt. Inskicken läses i batcher om 500 med bara de tre metanycklar sidan behöver – fältvärden och e-post läses aldrig – så minnet växer inte med historiken. Eget intervall hålls mellan år 2000 och i dag, högst tio år.
+Sammanställningen cachas i sex timmar, men ett nytt eller raderat inskick bryter cachen direkt. Inskicken läses i batcher om 500 med bara de metanycklar sidan behöver, så minnet växer inte med historiken. Fältvärdena läses bara när något fält följs, och reduceras direkt till de följda fälten – namn, e-post och fritext läses aldrig. Eget intervall hålls mellan år 2000 och i dag, högst tio år.
 
 ## Kampanjkakan och samtycke
 
@@ -461,7 +475,7 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 441 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
+php tests/server-test.php   # 470 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
 npx playwright test         # 118 tester i riktig webbläsare, desktop och mobil
 ```
 

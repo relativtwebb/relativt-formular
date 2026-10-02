@@ -52,6 +52,13 @@ final class Relativt_Form {
 	/** Fälttyper som har valbara alternativ. */
 	private const CHOICE_TYPES = [ 'select', 'buttons', 'radio', 'checkboxes' ];
 
+	/**
+	 * Fälttyper som kan följas på statistiksidan. Bara fält med ett begränsat
+	 * antal värden som formulärbyggaren själv bestämt (plus dolda fält, som
+	 * sätts via shortcode eller URL) – aldrig fritext som namn eller e-post.
+	 */
+	public const STATS_TYPES = [ 'select', 'buttons', 'radio', 'checkboxes', 'checkbox', 'hidden' ];
+
 	/** Fälttyper som inte tar emot användarinmatning. */
 	private const STATIC_TYPES = [ 'heading' ];
 
@@ -461,6 +468,25 @@ final class Relativt_Form {
 							'wrapper' => [ 'width' => '33' ],
 							'choices' => [ 'full' => 'Hel bredd', 'half' => 'Halv bredd' ],
 						],
+						/*
+						 * 1.6.0. Valfritt per fält, av som standard. Visas bara
+						 * för typerna i STATS_TYPES – get_fields() kontrollerar
+						 * typen igen, så ett fält som byter typ efteråt inte
+						 * börjar räknas av misstag.
+						 */
+						[
+							'key'               => 'field_xf_f_stats',
+							'label'             => 'Visa i statistiken',
+							'name'              => 'stats',
+							'type'              => 'true_false',
+							'ui'                => 1,
+							'default_value'     => 0,
+							'instructions'      => 'Fördelningen av svaren visas under Formulär → Statistik.',
+							'conditional_logic' => array_map(
+								static fn( $t ) => [ [ 'field' => 'field_xf_f_type', 'operator' => '==', 'value' => $t ] ],
+								self::STATS_TYPES
+							),
+						],
 						[
 							'key'          => 'field_xf_f_cond_field',
 							'label'        => 'Visa endast om',
@@ -800,6 +826,7 @@ final class Relativt_Form {
 				'width'       => ( $row['width'] ?? 'full' ) === 'half' ? 'half' : 'full',
 				'cond_field'  => sanitize_key( (string) ( $row['cond_field'] ?? '' ) ),
 				'cond_value'  => (string) ( $row['cond_value'] ?? '' ),
+				'stats'       => ! empty( $row['stats'] ) && in_array( $type, self::STATS_TYPES, true ),
 			];
 		}
 
@@ -1259,6 +1286,8 @@ final class Relativt_Form {
 		return array_map(
 			static function ( array $f ): array {
 				$f['choices'] = (object) $f['choices'];
+				// Statistikvalet är en admininställning, inte en del av formuläret.
+				unset( $f['stats'] );
 				return $f;
 			},
 			$this->get_fields( $form_id )
@@ -2472,12 +2501,13 @@ final class Relativt_Form {
 			}
 
 			printf(
-				'<tr><td><strong>%s</strong>%s%s<br><code>%s</code></td><td>%s</td></tr>',
+				'<tr><td><strong>%s</strong>%s%s<br><code>%s</code></td><td>%s%s</td></tr>',
 				esc_html( '' !== $f['label'] ? $f['label'] : '(utan etikett)' ),
 				$f['required'] ? ' <span style="color:#b32d2e" title="Obligatoriskt">*</span>' : '',
 				$cond, // phpcs:ignore
 				esc_html( $f['key'] ),
-				esc_html( $types[ $f['type'] ] ?? $f['type'] )
+				esc_html( $types[ $f['type'] ] ?? $f['type'] ),
+				$f['stats'] ? '<br><span class="xf-map-stats" style="color:#646970;font-size:11px">i statistiken</span>' : ''
 			);
 		}
 		echo '</tbody></table>';

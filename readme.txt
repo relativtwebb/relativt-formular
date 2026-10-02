@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.5.2
+Stable tag: 1.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -22,6 +22,12 @@ Kräver Advanced Custom Fields Pro.
 Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
 == Changelog ==
+
+= 1.6.0 =
+Nytt fältval "Visa i statistiken" för rullistor, val-knappar, radioknappar,
+flerval, kryssrutor och dolda fält. Följda fält får ett eget kort under
+Formulär → Statistik med fördelningen av svaren. Fritext kan aldrig följas.
+Av som standard – ingenting ändras förrän valet slås på.
 
 = 1.5.2 =
 Statistiksidan: inskick som bara har ett annonsklick-id (gclid från Google

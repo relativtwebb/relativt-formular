@@ -366,10 +366,12 @@ class Xf_Fake_Wpdb {
 		$this->queries[] = $sql;
 		if ( preg_match( '/^\s*SELECT post_id, meta_key, meta_value FROM wp_postmeta/', $sql ) ) {
 			preg_match( '/post_id IN \(([\d,]+)\)/', $sql, $m );
+			preg_match( "/meta_key IN \\(([^)]+)\\)/", $sql, $mk );
+			$wanted = array_map( static fn( $k ) => trim( $k, " '" ), explode( ',', $mk[1] ?? '' ) );
 			$rows = [];
 			foreach ( explode( ',', $m[1] ?? '' ) as $id ) {
 				foreach ( $this->entries[ (int) $id ]['meta'] ?? [] as $k => $v ) {
-					if ( in_array( $k, [ '_xf_form_id', '_xf_meta', '_xf_mail_ok' ], true ) ) {
+					if ( in_array( $k, $wanted, true ) ) {
 						$rows[] = (object) [ 'post_id' => (string) $id, 'meta_key' => $k, 'meta_value' => is_array( $v ) ? serialize( $v ) : (string) $v ];
 					}
 				}

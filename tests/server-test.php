@@ -791,7 +791,10 @@ $def = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
 
 check( 'publicerat formulär svarar med en definition', is_array( $def ) && 12 === ( $def['id'] ?? 0 ) );
 check( 'titeln följer med', 'Kontaktformulär' === ( $def['title'] ?? '' ) );
-check( 'fälten är get_fields(), oförändrade i JSON', json_decode( wp_json_encode( $def['fields'] ?? null ), true ) === json_decode( wp_json_encode( $engine->get_fields( 12 ) ), true ) );
+// 1.6.0: statistikvalet är en admininställning och tas bort ur den publika definitionen.
+$public_expected = array_map( static function ( $f ) { unset( $f['stats'] ); return $f; }, $engine->get_fields( 12 ) );
+check( 'fälten är get_fields() utan statistikvalet, oförändrade i JSON', json_decode( wp_json_encode( $def['fields'] ?? null ), true ) === json_decode( wp_json_encode( $public_expected ), true ) );
+check( 'statistikvalet följer aldrig med i den publika definitionen', ! str_contains( (string) wp_json_encode( $def['fields'] ?? null ), '"stats"' ) );
 check( 'choices är alltid ett objekt i JSON, även tomt', str_contains( wp_json_encode( $def['fields'], JSON_UNESCAPED_UNICODE ), '"key":"namn","label":"Namn","show_label":true,"placeholder":"För- och efternamn","help":"","choices":{}' ) );
 check( 'och värde => etikett behålls', '{"foretag":"Företag","kandidat":"Kandidat"}' === wp_json_encode( $def['fields'][0]['choices'] ?? null, JSON_UNESCAPED_UNICODE ) );
 check( 'knapptexterna följer med', 'Skicka' === ( $def['texts']['submit'] ?? '' ) && 'Skickar…' === ( $def['texts']['sending'] ?? '' ) );
@@ -1415,6 +1418,86 @@ check( 'gallring som klipper perioden pekas ut', str_contains( $coverage, 'Offer
 $GLOBALS['__form'] = xf_test_form();
 $coverage = call( $stats, 'coverage_notice', [ $r30, 0, [ new WP_Post( 12, 'Offert' ) ], '2026-10-02' ] );
 check( 'ingen varning när gallringen ligger utanför perioden', ! str_contains( $coverage, 'gallringsgränsen' ) );
+
+echo "\nStatistik: följda fält (1.6.0)\n";
+
+// Byggaren: fältvalet finns, är av som standard och visas bara för typer som får följas.
+$stats_def = sub_field_def( 'field_xf_f_stats' );
+check( 'fältvalet Visa i statistiken finns i byggaren', 'stats' === ( $stats_def['name'] ?? '' ) && 0 === ( $stats_def['default_value'] ?? null ) );
+$shown_for = array_map( static fn( $g ) => $g[0]['value'], $stats_def['conditional_logic'] ?? [] );
+check( 'och visas bara för val-fält, kryssruta och dolda fält', Relativt_Form::STATS_TYPES === $shown_for && ! in_array( 'text', $shown_for, true ) && ! in_array( 'email', $shown_for, true ) );
+
+$GLOBALS['__form']['xf_fields'][0]['stats'] = 1;                 // jagar (val-knappar)
+$GLOBALS['__form']['xf_fields'][1]['stats'] = 1;                 // namn (text) – får INTE följas
+$GLOBALS['__form']['xf_fields'][] = [ 'type' => 'checkboxes', 'key' => 'intresse', 'label' => 'Intresse', 'choices' => "a : Automation\nb : Bemanning\nc : Coaching", 'stats' => 1 ];
+Relativt_Form::flush_fields_cache();
+$by_key = array_column( $engine->get_fields( 12 ), null, 'key' );
+check( 'get_fields bär statistikvalet', true === $by_key['jagar']['stats'] && false === $by_key['foretag']['stats'] );
+check( 'ett textfält kan aldrig följas, även om valet sparats', false === $by_key['namn']['stats'] );
+
+$payload_st = Relativt_Form_Portability::instance()->build_payload( 12 );
+$exp_jagar  = array_values( array_filter( $payload_st['settings']['xf_fields'], static fn( $row ) => 'jagar' === ( $row['key'] ?? '' ) ) )[0] ?? [];
+check( 'statistikvalet följer med vid export', 1 === (int) ( $exp_jagar['stats'] ?? 0 ) );
+
+$tracked = $stats->tracked_fields( 0, [ new WP_Post( 12, 'Kontakt' ) ] );
+check( 'de följda fälten hittas per formulär', [ 'jagar', 'intresse' ] === array_keys( $tracked[12]['fields'] ?? [] ) && 'Kontakt' === $tracked[12]['title'] );
+check( 'med fältets nuvarande val', [ 'foretag' => 'Företag', 'kandidat' => 'Kandidat' ] === $tracked[12]['fields']['jagar']['choices'] );
+check( 'inget följs i ett formulär utanför urvalet', [] === $stats->tracked_fields( 99, [ new WP_Post( 12, 'Kontakt' ) ] ) );
+
+$jdef = $tracked[12]['fields']['jagar'];
+$cdef = $tracked[12]['fields']['intresse'];
+check( 'val räknas på tekniskt värde med dagens etikett', [ 'Företag' ] === Relativt_Form_Stats::answer_labels( $jdef, [ 'value' => 'Företagskund', 'raw' => 'foretag' ] ) );
+check( 'borttaget val faller tillbaka på sparad etikett', [ 'Ingenjör' ] === Relativt_Form_Stats::answer_labels( $jdef, [ 'value' => 'Ingenjör', 'raw' => 'ingenjor' ] ) );
+check( 'flerval ger en etikett per val', [ 'Automation', 'Coaching' ] === Relativt_Form_Stats::answer_labels( $cdef, [ 'value' => 'Automation, Coaching', 'raw' => 'a, c' ] ) );
+check( 'flerval med okänt värde faller tillbaka på sparade etiketter', [ 'Automation', 'Gammalt' ] === Relativt_Form_Stats::answer_labels( $cdef, [ 'value' => 'Automation, Gammalt', 'raw' => 'a, x' ] ) );
+check( 'kryssruta räknas som Ja/Nej', [ 'Nej' ] === Relativt_Form_Stats::answer_labels( [ 'type' => 'checkbox' ], [ 'value' => 'Nej', 'raw' => '' ] ) );
+check( 'dolt fält räknas på värdet, kapat', 100 === mb_strlen( Relativt_Form_Stats::answer_labels( [ 'type' => 'hidden' ], [ 'value' => str_repeat( 'x', 300 ) ] )[0] ) );
+check( 'tomt svar räknas inte som besvarat', [] === Relativt_Form_Stats::answer_labels( $jdef, [ 'value' => '', 'raw' => '' ] ) );
+
+// Databasvägen: _xf_values hämtas bara när något följs, och bara de följda fälten lämnar rows().
+foreach ( $db->entries as $id => &$e ) {
+	if ( ( $e['meta']['_xf_form_id'] ?? 0 ) === 12 && $id > 5000 ) {
+		$e['meta']['_xf_values'] = [
+			[ 'key' => 'namn', 'label' => 'Namn', 'type' => 'text', 'value' => 'Hemlig Person', 'raw' => 'Hemlig Person' ],
+			[ 'key' => 'epost', 'label' => 'E-post', 'type' => 'email', 'value' => 'hemlig@exempel.se', 'raw' => 'hemlig@exempel.se' ],
+			[ 'key' => 'jagar', 'label' => 'Jag är', 'type' => 'buttons', 'value' => 0 === $id % 3 ? 'Kandidat' : 'Företag', 'raw' => 0 === $id % 3 ? 'kandidat' : 'foretag' ],
+		];
+	}
+}
+unset( $e );
+$db->queries = [];
+$tk          = [ 12 => [ 'jagar', 'intresse' ] ];
+$rows_t      = iterator_to_array( call( $stats, 'rows', [ '2026-09-03', '2026-10-02', 0, $tk ] ), false );
+$metaq_t     = array_values( array_filter( $db->queries, static fn( $q ) => str_contains( $q, 'post_id IN' ) ) );
+check( 'fältvärdena hämtas när något fält följs', str_contains( $metaq_t[0], "'_xf_values'" ) );
+check( 'bara de följda fälten följer med', [ 'jagar' ] === array_keys( $rows_t[0]['answers'] ) );
+check( 'namn och e-post lämnar aldrig rows()', ! str_contains( serialize( $rows_t ), 'Hemlig' ) && ! str_contains( serialize( $rows_t ), 'hemlig@' ) );
+$db->queries = [];
+iterator_to_array( call( $stats, 'rows', [ '2026-09-03', '2026-10-02', 0, [] ] ), false );
+check( 'utan följda fält hämtas inga fältvärden', ! str_contains( implode( ' ', $db->queries ), '_xf_values' ) );
+
+$GLOBALS['__transients'] = [];
+$rep_t = $stats->report( $r30, 0, $tracked );
+$jag   = $rep_t['answers'][12]['jagar'] ?? [];
+check( 'fördelningen räknas', $jag['base'] === $jag['answered'] && $jag['values']['Företag'] + $jag['values']['Kandidat'] === $jag['base'] && $jag['values']['Företag'] > $jag['values']['Kandidat'] );
+check( 'fält utan svar får ändå ett tomt resultat', 0 === ( $rep_t['answers'][12]['intresse']['answered'] ?? -1 ) && $jag['base'] === $rep_t['answers'][12]['intresse']['base'] );
+$db->queries = [];
+$stats->report( $r30, 0, [] );
+check( 'att slå på eller av ett fält bryter cachen', count( $db->queries ) > 1 );
+
+$rep_t['prev'] = null;
+$html_t = $stats->render_report( $rep_t, $r30, 0, $tracked );
+check( 'formulärsvaren får en egen sektion', str_contains( $html_t, '<h2 class="xf-section">Formulärsvar</h2>' ) && str_contains( $html_t, '<h3>Jag är</h3>' ) );
+check( 'med svaren och deras andelar', str_contains( $html_t, '>Företag<' ) && str_contains( $html_t, '>Kandidat<' ) );
+check( 'ej besvarat visas och förklaras', str_contains( $html_t, '>Ej besvarat<' ) && str_contains( $html_t, 'dolt av ett villkor' ) );
+check( 'flerval förklarar att andelarna kan summera över 100 %', str_contains( $html_t, 'Flera val möjliga' ) );
+$two = $tracked + [ 14 => [ 'title' => 'Offert', 'fields' => [ 'roll' => [ 'label' => 'Roll', 'type' => 'select', 'choices' => [] ] ] ] ];
+check( 'med flera formulär står formulärnamnet i rubriken', str_contains( $stats->render_report( $rep_t, $r30, 0, $two ), '<h3>Jag är · Kontakt</h3>' ) );
+check( 'utan följda fält visas en hänvisning till byggaren', str_contains( $stats->render_report( $rep_t, $r30, 0, [] ), 'Inga fält följs' ) );
+
+$GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
+$GLOBALS['__transients'] = [];
 
 unset( $GLOBALS['wpdb'] );
 $GLOBALS['__transients'] = [];

@@ -1,6 +1,6 @@
 {
   "name": "relativt-formular",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "main": "assets/js/relativt-formular.js",
   "directories": {
     "test": "tests"

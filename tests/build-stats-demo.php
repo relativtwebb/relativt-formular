@@ -78,6 +78,30 @@ for ( $d = 89; $d >= 0; $d-- ) {
 	}
 }
 
+/*
+ * Följda fält (1.6.0): "Jag är" och "Vad behöver ni hjälp med?" ur
+ * testformuläret. Det senare visas bara för företag, så kandidaterna blir
+ * "Ej besvarat" – precis som på en riktig sajt med villkorsfält.
+ */
+$GLOBALS['__form']['xf_fields'][0]['stats'] = 1;
+$GLOBALS['__form']['xf_fields'][5]['stats'] = 1;
+Relativt_Form::flush_fields_cache();
+$needs = [ 'Rekrytering', 'Rekrytering', 'Rekrytering', 'Bemanning', 'Bemanning', 'Interim', 'Annat' ];
+foreach ( $db->entries as &$entry ) {
+	if ( 12 !== $entry['meta']['_xf_form_id'] ) {
+		continue;
+	}
+	$company = mt_rand( 1, 100 ) <= 64;
+	$entry['meta']['_xf_values'] = [
+		[ 'key' => 'jagar', 'label' => 'Jag är', 'type' => 'buttons', 'value' => $company ? 'Företag' : 'Kandidat', 'raw' => $company ? 'foretag' : 'kandidat' ],
+	];
+	if ( $company ) {
+		$need = $needs[ mt_rand( 0, count( $needs ) - 1 ) ];
+		$entry['meta']['_xf_values'][] = [ 'key' => 'behov', 'label' => 'Vad behöver ni hjälp med?', 'type' => 'select', 'value' => $need, 'raw' => $need ];
+	}
+}
+unset( $entry );
+
 // Formulär 14 finns inte längre – demon visar hur ett borttaget formulär redovisas.
 $forms = [ new WP_Post( 12, 'Kontaktformulär' ) ];
 

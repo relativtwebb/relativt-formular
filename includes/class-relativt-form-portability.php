@@ -78,6 +78,7 @@ final class Relativt_Form_Portability {
 		'width'       => 'width',
 		'cond_field'  => 'key',
 		'cond_value'  => 'text',
+		'stats'       => 'bool',
 	];
 
 	private const RULE_ROW = [

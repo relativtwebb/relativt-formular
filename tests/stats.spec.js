@@ -14,6 +14,9 @@ test('statistiksidan visar nyckeltal, diagram och topplistor', async ({ page }) 
 	await expect(page.locator('svg.xf-chart .xf-bar-mark').first()).toBeVisible();
 	await expect(page.locator('.xf-card', { hasText: 'Kanaler' })).toContainText('Organisk sök');
 	await expect(page.locator('.xf-card', { hasText: 'Annonsklick' })).toContainText('Google Ads (gclid)');
+	// Följda fält (1.6.0): demon följer "Jag är" och ett villkorsfält.
+	await expect(page.locator('.xf-card', { hasText: 'Jag är' })).toContainText('Företag');
+	await expect(page.locator('.xf-card', { hasText: 'Vad behöver ni hjälp med?' }).locator('tr.xf-muted')).toContainText('Ej besvarat');
 	await expect(page.locator('.xf-heat tbody tr')).toHaveCount(7);
 	await expect(page.locator('.xf-heat tbody td')).toHaveCount(7 * 24);
 });
