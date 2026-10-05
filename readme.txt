@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.8.0
+Stable tag: 1.8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,12 @@ Utan samtyckesverktyg skrivs kampanjkakan inte längre. Se CHANGELOG för hur
 det gamla beteendet behålls.
 
 == Changelog ==
+
+= 1.8.1 =
+Formulärets <form>-element får id (relativt-formular-<post-ID>) och name
+(formulärets titel), så att GA4 kan skilja formulär åt via form_id och
+form_name. Förekommer samma formulär flera gånger på en sida får id:t en
+löpnummer-ändelse.
 
 = 1.8.0 =
 Inskicken ingår i WordPress verktyg för export och radering av

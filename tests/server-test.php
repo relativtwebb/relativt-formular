@@ -360,6 +360,13 @@ $html = $render->invoke( $engine, 12, [ 'jagar' => 'kandidat' ], '' );
 
 check( 'shortcode-attributet förväljer rätt radio', str_contains( $html, 'value="kandidat" checked="checked"' ) );
 
+// GA4:s förbättrade mätning läser id och name på <form> som form_id/form_name.
+check( '<form> får stabilt id baserat på post-ID', str_contains( $html, '<form class="xf-form" id="relativt-formular-12" name="Kontaktformulär"' ) );
+$html_again = $render->invoke( $engine, 12, [], '' );
+check( 'samma formulär en gång till på sidan får unikt id', str_contains( $html_again, 'id="relativt-formular-12-2"' ) && ! str_contains( $html_again, 'id="relativt-formular-12"' ) );
+$html_third = $render->invoke( $engine, 12, [], '' );
+check( 'tredje förekomsten får löpnummer 3', str_contains( $html_third, 'id="relativt-formular-12-3"' ) );
+
 /*
  * Regression 2026-08-12. Villkorsfälten renderades ALLTID dolda och gjordes
  * synliga först av JS. Laddades inte JS syntes de aldrig – och kunden såg ett

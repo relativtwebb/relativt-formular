@@ -31,6 +31,9 @@ if ( ! class_exists( 'Relativt_Form', false ) ) :
 final class Relativt_Form {
 
 	public const CPT_FORM     = 'relativt_form';
+
+	/** Antal renderingar per formulär under den här sidladdningen (för unika id på <form>). */
+	private static array $render_count = [];
 	public const CPT_ENTRY    = 'relativt_entry';
 	public const REST_NS      = 'relativt-form/v1';
 	public const CRON_HOOK    = 'relativt_form_cleanup';
@@ -1167,6 +1170,16 @@ final class Relativt_Form {
 		$uid    = 'xf-' . $form_id . '-' . wp_rand( 1000, 9999 );
 
 		/*
+		 * id och name på <form> läses av GA4:s förbättrade mätning som
+		 * form_id och form_name. id:t bygger på post-ID (stabilt när titeln
+		 * ändras); förekommer samma formulär igen på sidan (t.ex. i en modal)
+		 * får det en löpnummer-ändelse så att id:t förblir unikt.
+		 */
+		self::$render_count[ $form_id ] = ( self::$render_count[ $form_id ] ?? 0 ) + 1;
+		$dom_id    = 'relativt-formular-' . $form_id . ( self::$render_count[ $form_id ] > 1 ? '-' . self::$render_count[ $form_id ] : '' );
+		$dom_name  = html_entity_decode( wp_strip_all_tags( (string) get_the_title( $form_id ) ), ENT_QUOTES, 'UTF-8' );
+
+		/*
 		 * Villkoren utvärderas redan här på servern, utifrån förval och
 		 * standardvärden. Rätt fält är alltså synligt direkt vid första
 		 * målningen – ingen blink, och formuläret fungerar även om JS inte
@@ -1194,7 +1207,7 @@ final class Relativt_Form {
 			data-xf-form="<?php echo esc_attr( (string) $form_id ); ?>"
 			data-xf-rest="<?php echo esc_url( rest_url( self::REST_NS . '/' ) ); ?>">
 
-			<form class="xf-form" novalidate autocomplete="on">
+			<form class="xf-form" id="<?php echo esc_attr( $dom_id ); ?>" name="<?php echo esc_attr( $dom_name ); ?>" novalidate autocomplete="on">
 				<div class="xf-grid">
 					<?php foreach ( $fields as $field ) : ?>
 						<?php echo $this->render_field( $field, $uid, $presets, $resolved ); // phpcs:ignore ?>

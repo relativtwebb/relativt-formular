@@ -3,6 +3,19 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.8.1] – 2026-10-05
+
+### Tillagt
+- **`id` och `name` på `<form>`, så att formulär går att skilja åt i GA4.**
+  GA4:s förbättrade mätning läser attributen som `form_id` och `form_name`
+  i `form_start` och `form_submit`; tidigare saknades båda och `form_id`
+  kom in tomt.
+  - `id` är `relativt-formular-<post-ID>`, t.ex. `relativt-formular-12597`,
+    och ändras inte när titeln ändras.
+  - Visas samma formulär flera gånger på en sida (t.ex. i en modal) får de
+    följande förekomsterna ändelsen `-2`, `-3` osv., så att id:t förblir unikt.
+  - `name` är formulärets titel.
+
 ## [1.8.0] – 2026-10-02
 
 Integritet och tillgänglighet. Formulären fungerar som förut för besökarna,
