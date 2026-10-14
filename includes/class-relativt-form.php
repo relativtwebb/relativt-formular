@@ -149,6 +149,14 @@ final class Relativt_Form {
 		add_action( 'init', [ $this, 'register_post_types' ] );
 		add_action( 'init', [ $this, 'register_shortcode' ] );
 		add_action( 'acf/init', [ $this, 'register_fields' ] );
+
+		/*
+		 * Fältgrupperna hör bara hemma i formulärredigeraren. Sidbyggare som
+		 * listar alla ACF-grupper (t.ex. Oxygens dynamiska data) visar annars
+		 * formulärens inställningar som valbara fält på hela sajten.
+		 * Prioritet 30: ACF lägger till lokalt registrerade grupper på 20.
+		 */
+		add_filter( 'acf/load_field_groups', [ $this, 'scope_field_groups' ], 30 );
 		add_action( 'rest_api_init', [ $this, 'register_routes' ] );
 		add_action( 'wp_enqueue_scripts', [ $this, 'register_assets' ] );
 
@@ -496,6 +504,46 @@ final class Relativt_Form {
 			'hidden'     => 'Dolt fält',
 			'heading'    => 'Rubrik / avdelare',
 		];
+	}
+
+	/** Fältgrupperna som register_fields() lägger till. */
+	public const FIELD_GROUPS = [ 'group_xf_fields', 'group_xf_settings' ];
+
+	/**
+	 * Tar bort formulärets fältgrupper ur acf_get_field_groups() utom där
+	 * ACF behöver dem: på formulärens egna skärmar i wp-admin och i ACF:s
+	 * AJAX-anrop (skärmkontroll, validering, fältsökningar).
+	 *
+	 * Fälten finns kvar. get_field() slår upp dem via fältnyckeln, inte via
+	 * grupplistan, så rendering, inskick, export och import påverkas inte.
+	 *
+	 * @param mixed $groups
+	 * @return mixed
+	 */
+	public function scope_field_groups( $groups ) {
+		if ( ! is_array( $groups ) || $this->needs_field_groups() ) {
+			return $groups;
+		}
+
+		return array_values( array_filter(
+			$groups,
+			static fn( $group ) => ! in_array( is_array( $group ) ? ( $group['key'] ?? '' ) : '', self::FIELD_GROUPS, true )
+		) );
+	}
+
+	private function needs_field_groups(): bool {
+		if ( ! is_admin() ) {
+			return false; // Frontend, sidbyggare, REST, cron.
+		}
+		if ( wp_doing_ajax() ) {
+			$action = $_REQUEST['action'] ?? ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- läses bara, jämförs mot ett prefix.
+			return is_string( $action ) && str_starts_with( $action, 'acf/' );
+		}
+
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+
+		// Före skärmen är satt vet vi inte var vi är, så då lämnas listan orörd.
+		return null === $screen || self::CPT_FORM === ( $screen->post_type ?? '' );
 	}
 
 	public function register_fields(): void {

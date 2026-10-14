@@ -1752,6 +1752,51 @@ check( 'och samtyckesversionen, som heltal', 3 === ( $cfg18['rccConsentVersion']
 $GLOBALS['__rcc_settings'] = [];
 check( 'saknad version räknas som 1, som i cookie-pluginet', 1 === ( xf_read_config()['rccConsentVersion'] ?? null ) );
 
+echo "\nFältgrupperna utanför formulärredigeraren (1.8.2)\n";
+
+$hooked182 = array_values( array_filter(
+	$GLOBALS['__hooks'],
+	static fn( $h ) => 'acf/load_field_groups' === $h['hook'] && is_array( $h['callback'] ) && 'scope_field_groups' === $h['callback'][1]
+) );
+check( 'filtret hängs på acf/load_field_groups efter ACF:s lokala grupper', 1 === count( $hooked182 ) && $hooked182[0]['priority'] > 20 );
+
+$groups182 = [
+	[ 'key' => 'group_sajtens_egna', 'title' => 'Sidinställningar' ],
+	[ 'key' => 'group_xf_fields', 'title' => 'Fält' ],
+	[ 'key' => 'group_xf_settings', 'title' => 'Inställningar' ],
+];
+$keys182 = static fn( $groups ) => array_column( $groups, 'key' );
+$all182  = [ 'group_sajtens_egna', 'group_xf_fields', 'group_xf_settings' ];
+$was_admin182 = $GLOBALS['__is_admin'] ?? null;
+
+$GLOBALS['__is_admin'] = false;
+check( 'frontend och sidbyggare: bara sajtens egna grupper', [ 'group_sajtens_egna' ] === $keys182( $engine->scope_field_groups( $groups182 ) ) );
+
+$GLOBALS['__is_admin'] = true;
+$GLOBALS['__screen']   = (object) [ 'base' => 'post', 'post_type' => 'relativt_form' ];
+check( 'formulärredigeraren: alla grupper', $all182 === $keys182( $engine->scope_field_groups( $groups182 ) ) );
+
+$GLOBALS['__screen'] = (object) [ 'base' => 'post', 'post_type' => 'page' ];
+check( 'andra skärmar i wp-admin: formulärets grupper döljs', [ 'group_sajtens_egna' ] === $keys182( $engine->scope_field_groups( $groups182 ) ) );
+
+unset( $GLOBALS['__screen'] );
+check( 'innan skärmen är satt lämnas listan orörd', $all182 === $keys182( $engine->scope_field_groups( $groups182 ) ) );
+
+$GLOBALS['__doing_ajax'] = true;
+$_REQUEST['action']      = 'acf/validate_save_post';
+check( 'ACF:s egna AJAX-anrop: alla grupper', $all182 === $keys182( $engine->scope_field_groups( $groups182 ) ) );
+$_REQUEST['action'] = 'ct_get_dynamic_data';
+check( 'andra AJAX-anrop: formulärets grupper döljs', [ 'group_sajtens_egna' ] === $keys182( $engine->scope_field_groups( $groups182 ) ) );
+unset( $_REQUEST['action'], $GLOBALS['__doing_ajax'] );
+
+$GLOBALS['__is_admin'] = false;
+check( 'annat än en lista släpps igenom', null === $engine->scope_field_groups( null ) );
+if ( null === $was_admin182 ) {
+	unset( $GLOBALS['__is_admin'] );
+} else {
+	$GLOBALS['__is_admin'] = $was_admin182;
+}
+
 echo "\n" . str_repeat( '─', 50 ) . "\n";
 printf( "%d godkända, %d underkända\n\n", $passed, $failed );
 exit( $failed > 0 ? 1 : 0 );

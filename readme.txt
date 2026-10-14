@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.8.1
+Stable tag: 1.8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,11 @@ Utan samtyckesverktyg skrivs kampanjkakan inte längre. Se CHANGELOG för hur
 det gamla beteendet behålls.
 
 == Changelog ==
+
+= 1.8.2 =
+Formulärets ACF-fält (Mottagare, Ämnesrad, Tack-text m.fl.) syns inte
+längre som valbara fält i sidbyggare som listar alla ACF-grupper, t.ex.
+Oxygens dynamiska data. De visas bara i formulärredigeraren.
 
 = 1.8.1 =
 Formulärets <form>-element får id (relativt-formular-<post-ID>) och name

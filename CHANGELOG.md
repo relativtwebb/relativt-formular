@@ -3,6 +3,21 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.8.2] – 2026-10-14
+
+### Rättat
+- **Formulärets ACF-fält syns inte längre i sidbyggarnas fältlistor.**
+  Oxygens dynamiska data (och andra verktyg som läser alla ACF-grupper via
+  `acf_get_field_groups()`) listade formulärens inställningar – Mottagare,
+  Ämnesrad, Tack-text, Skydd osv. – som valbara fält på hela sajten.
+  Grupperna `group_xf_fields` och `group_xf_settings` tas nu bort ur
+  listan överallt utom
+  - på formulärens egna skärmar i wp-admin, och
+  - i ACF:s egna AJAX-anrop (skärmkontroll, validering).
+
+  Fälten själva finns kvar och läses som förut via fältnyckeln, så
+  rendering, inskick, statistik, export och import påverkas inte.
+
 ## [1.8.1] – 2026-10-05
 
 ### Tillagt
