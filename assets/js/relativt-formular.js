@@ -850,7 +850,7 @@
 				for (const key of CLICK_KEYS) delete utm[key];
 			}
 
-			return {
+			const payload = {
 				form: this.id,
 				fields,
 				utm,
@@ -863,6 +863,21 @@
 				// Bara när widgeten finns – nyttolasten är oförändrad för alla andra formulär.
 				...(this.turnstileBox ? { turnstile: this.turnstileToken() } : {}),
 			};
+
+			/*
+			 * Krok för tillägg (1.9.0): lyssnare kan lägga data i
+			 * detail.payload.extra, t.ex. en varukorg. Servern skickar `extra`
+			 * vidare till filtren relativt_form_errors och relativt_form_values.
+			 * Utan lyssnare är nyttolasten oförändrad.
+			 */
+			this.root.dispatchEvent(
+				new CustomEvent('relativt-form:payload', {
+					bubbles: true,
+					detail: { formId: this.id, root: this.root, payload },
+				})
+			);
+
+			return payload;
 		}
 
 		/* -- Inskick ------------------------------------------------------ */
@@ -944,8 +959,15 @@
 					// Servern verifierar Turnstile FÖRE valideringen, så token är förbrukad.
 					this.resetTurnstile();
 					for (const [key, message] of Object.entries(data.errors)) {
-						const field = this.wrapper(key) ?? this.root.querySelector('.xf-type-consent');
-						if (field) this.showError(field, message);
+						const field = key === 'xf_consent'
+							? this.root.querySelector('.xf-type-consent')
+							: this.wrapper(key);
+						if (field) {
+							this.showError(field, message);
+						} else if (this.formError) {
+							// Fel som inte hör till ett fält, t.ex. från ett tillägg (1.9.0).
+							this.formError.textContent = message;
+						}
 					}
 					this.root.querySelector('.has-error input, .has-error select, .has-error textarea')?.focus();
 					return;

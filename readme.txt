@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.8.2
+Stable tag: 1.9.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,12 @@ Utan samtyckesverktyg skrivs kampanjkakan inte längre. Se CHANGELOG för hur
 det gamla beteendet behålls.
 
 == Changelog ==
+
+= 1.9.0 =
+Krokar för tillägg som bygger på motorn: filtren relativt_form_errors,
+relativt_form_values och relativt_form_mail_body, åtgärden
+relativt_form_submitted och JS-eventet relativt-form:payload. Utan lyssnare
+fungerar formulären exakt som förut.
 
 = 1.8.2 =
 Formulärets ACF-fält (Mottagare, Ämnesrad, Tack-text m.fl.) syns inte

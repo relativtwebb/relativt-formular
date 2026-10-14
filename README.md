@@ -190,6 +190,40 @@ add_filter( 'relativt_form_submit_icon_class', fn( $c ) => trim( "$c ct-fancy-ic
 | `relativt_form_client_ip` | `REMOTE_ADDR` | Peka ut besökarens riktiga IP bakom proxy/CDN |
 | `relativt_form_stats_channel` | inbyggd klassning | Klassa om ett inskicks kanal på statistiksidan, se [Statistik](#statistik) |
 
+### Krokar för tillägg (1.9.0)
+
+För tillägg som bygger på motorn, t.ex. ett beställningsformulär som skickar med en varukorg. Utan lyssnare ändras ingenting.
+
+| Krok | Typ | Gör |
+|---|---|---|
+| `relativt-form:payload` | JS-event på formulärets rot | Lägg egen data i `e.detail.payload.extra` före inskicket |
+| `relativt_form_errors` | filter (`$errors`, `$form_id`, `$body`) | Egna valideringsfel. En nyckel som inte är ett fält visas under formuläret |
+| `relativt_form_values` | filter (`$values`, `$form_id`, `$body`) | Lägg till rader (`key`, `label`, `type`, `raw`, `value`) som följer med i mail, inskick och export |
+| `relativt_form_mail_body` | filter (`$html`, `$form_id`, `$values`, `$meta`) | Ersätt eller bygg på mailets HTML |
+| `relativt_form_submitted` | åtgärd (`$form_id`, `$values`, `$meta`, `$entry_id`, `$sent`) | Efter ett lyckat inskick |
+
+`extra` kommer från besökarens webbläsare: tvätta och kontrollera allt i den på servern. Motorn själv läser aldrig `extra`.
+
+`e.detail.formId` är en sträng (som i `relativt-form:success`), så jämför med `'42'`, inte `42`. Bygg vidare på `extra` i stället för att ersätta det, så att flera tillägg kan dela formulär.
+
+```js
+document.addEventListener('relativt-form:payload', (e) => {
+  if (e.detail.formId !== '42') return;
+  e.detail.payload.extra = { ...e.detail.payload.extra, varukorg: hamtaVarukorg() };
+});
+```
+
+Rader från `relativt_form_values` ligger i samma lista som formulärets egna fält. `value` och `raw` ska vara strängar. Ge raderna en egen nyckel, t.ex. med tilläggets namn som prefix: en rad som skriver över ett befintligt fält påverkar också mottagarreglerna, `{nyckel}` i ämnesraden, Svara-till (första `email`-raden) och statistiken för följda fält.
+
+```php
+add_filter( 'relativt_form_errors', function ( $errors, $form_id, $body ) {
+	if ( 42 === $form_id && empty( $body['extra']['varukorg'] ) ) {
+		$errors['varukorg'] = 'Varukorgen är tom.';
+	}
+	return $errors;
+}, 10, 3 );
+```
+
 **Om `relativt_form_client_ip`:** bakom Cloudflare eller annan proxy är `REMOTE_ADDR` proxyns adress – då delar alla besökare samma frekvensspärr (fem inskick per tio minuter för hela sajten) och IP-loggen blir meningslös. På en Cloudflare-sajt:
 
 ```php

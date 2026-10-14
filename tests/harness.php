@@ -12,7 +12,7 @@ define( 'HOUR_IN_SECONDS', 3600 );
 define( 'DAY_IN_SECONDS', 86400 );
 
 // --- No-ops -----------------------------------------------------------------
-foreach ( [ 'add_shortcode', 'add_meta_box', 'wp_schedule_event', 'update_post_meta', 'nocache_headers' ] as $fn ) {
+foreach ( [ 'add_shortcode', 'add_meta_box', 'wp_schedule_event', 'nocache_headers' ] as $fn ) {
 	if ( ! function_exists( $fn ) ) {
 		eval( "function {$fn}() { return true; }" );
 	}
@@ -452,6 +452,29 @@ function apply_filters( $hook, $value ) {
 	}
 	return $value;
 }
+/*
+ * Åtgärder körs på riktigt, som filtren ovan. Motorn sänder sedan 1.9.0
+ * relativt_form_submitted för tillägg – en åtgärd som aldrig körs i riggen
+ * ser likadan ut som en som fungerar.
+ */
+function do_action( $hook, ...$args ) {
+	foreach ( $GLOBALS['__hooks'] as $entry ) {
+		if ( $entry['hook'] === $hook && is_callable( $entry['callback'] ) ) {
+			call_user_func_array( $entry['callback'], $args );
+		}
+	}
+}
+
+/*
+ * Det inskicket sparar: $GLOBALS['__saved_meta'][id][nyckel]. Hålls skilt från
+ * $GLOBALS['__postmeta'], som integritetstesterna fyller för hand.
+ */
+$GLOBALS['__saved_meta'] = [];
+function update_post_meta( $id, $key, $value ) {
+	$GLOBALS['__saved_meta'][ (int) $id ][ $key ] = $value;
+	return true;
+}
+
 function remove_all_filters( $hook ) {
 	$GLOBALS['__hooks'] = array_values( array_filter(
 		$GLOBALS['__hooks'],

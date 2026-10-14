@@ -1730,6 +1730,19 @@ final class Relativt_Form {
 		$raw    = is_array( $body['fields'] ?? null ) ? $body['fields'] : [];
 		$result = $this->validate( $form_id, $raw );
 
+		/**
+		 * Egna valideringsfel, för tillägg som bygger på motorn (1.9.0).
+		 *
+		 * Nyckeln är fältets nyckel, eller valfri annan nyckel för ett fel
+		 * som inte hör till ett fält – det visas då under formuläret.
+		 * Utan lyssnare ändras ingenting.
+		 *
+		 * @param array<string,string> $errors  Fel från motorns egen validering.
+		 * @param int                  $form_id Formulärets id.
+		 * @param array                $body    Hela inskicket, inklusive `extra`.
+		 */
+		$result['errors'] = (array) apply_filters( 'relativt_form_errors', $result['errors'], $form_id, $body );
+
 		if ( $result['errors'] ) {
 			return new WP_REST_Response( [ 'ok' => false, 'errors' => $result['errors'] ], 422 );
 		}
@@ -1738,7 +1751,20 @@ final class Relativt_Form {
 			return new WP_REST_Response( [ 'ok' => false, 'errors' => [ 'xf_consent' => $msg['consent'] ] ], 422 );
 		}
 
-		$values = $result['values'];
+		/**
+		 * Lägg till eller ändra värden innan inskicket sparas och mailas (1.9.0).
+		 *
+		 * Ett tillägg kan här lägga till rader som inte är formulärfält, t.ex.
+		 * en varukorg från `extra`. Varje rad har samma form som motorns egna:
+		 * `key`, `label`, `type`, `raw`, `value`. Raderna följer sedan med i
+		 * mailet, i det sparade inskicket, i CSV-exporten och i
+		 * integritetsexporten. Utan lyssnare ändras ingenting.
+		 *
+		 * @param array<int,array<string,mixed>> $values  Validerade värden.
+		 * @param int                            $form_id Formulärets id.
+		 * @param array                          $body    Hela inskicket, inklusive `extra`.
+		 */
+		$values = (array) apply_filters( 'relativt_form_values', $result['values'], $form_id, $body );
 		$meta   = $this->collect_meta( $form_id, $body );
 
 		$entry_id = $this->setting( $form_id, 'xf_store', true )
@@ -1754,6 +1780,17 @@ final class Relativt_Form {
 		if ( ! $sent && ! $entry_id ) {
 			return $this->fail( (string) $this->setting( $form_id, 'xf_error_text', 'Något gick fel.' ), 500, [ 'code' => 'mail' ] );
 		}
+
+		/**
+		 * Efter ett lyckat inskick: sparat, mailat eller båda (1.9.0).
+		 *
+		 * @param int   $form_id  Formulärets id.
+		 * @param array $values   Värdena som sparades och mailades.
+		 * @param array $meta     Metadata (sida, kanal, UTM …).
+		 * @param int   $entry_id Det sparade inskickets id, 0 om lagring är av.
+		 * @param bool  $sent     Om mailet gick iväg.
+		 */
+		do_action( 'relativt_form_submitted', $form_id, $values, $meta, (int) $entry_id, (bool) $sent );
 
 		return new WP_REST_Response( $this->success_payload( $form_id ), 200 );
 	}
@@ -2490,7 +2527,7 @@ final class Relativt_Form {
 			);
 		}
 
-		return sprintf(
+		$html = sprintf(
 			'<!doctype html><html lang="sv"><body style="margin:0;padding:24px;background:#f6f6f6;">'
 			. '<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:0 auto;background:#fff;border-radius:8px;">'
 			. '<tr><td style="padding:28px 28px 8px;">'
@@ -2506,6 +2543,17 @@ final class Relativt_Form {
 			$rows,
 			$metarows
 		);
+
+		/**
+		 * Hela mailets HTML (1.9.0). För tillägg som vill visa sina värden
+		 * som en tabell i stället för en textrad. Utan lyssnare ändras ingenting.
+		 *
+		 * @param string $html    Mailets HTML.
+		 * @param int    $form_id Formulärets id.
+		 * @param array  $values  Värdena i mailet.
+		 * @param array  $meta    Metadata.
+		 */
+		return (string) apply_filters( 'relativt_form_mail_body', $html, $form_id, $values, $meta );
 	}
 
 	/* ---------------------------------------------------------------------

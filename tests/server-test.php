@@ -1797,6 +1797,142 @@ if ( null === $was_admin182 ) {
 	$GLOBALS['__is_admin'] = $was_admin182;
 }
 
+echo "\nKrokar för tillägg (1.9.0)\n";
+
+$hooks190 = [ 'relativt_form_errors', 'relativt_form_values', 'relativt_form_mail_body', 'relativt_form_submitted' ];
+$reset190 = static function () use ( $hooks190 ): void {
+	foreach ( $hooks190 as $h ) {
+		remove_all_filters( $h );
+	}
+	$GLOBALS['__transients'] = [];
+	$GLOBALS['__mail']       = [];
+	$GLOBALS['__posts']      = [];
+	$GLOBALS['__saved_meta'] = [];
+};
+/** Det senast sparade inskicket: [ 'values' => …, 'meta' => … ]. */
+$saved190 = static function (): array {
+	$last = end( $GLOBALS['__saved_meta'] );
+	return [ 'values' => $last['_xf_values'] ?? null, 'meta' => $last['_xf_meta'] ?? null ];
+};
+$cart190 = [ 'varukorg' => [ [ 'sku' => 'A-1', 'antal' => 2 ] ] ];
+
+// Utan lyssnare: `extra` i nyttolasten används aldrig av motorn.
+$reset190();
+$res_plain = $engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+$plain     = $saved190();
+$mail_plain = $GLOBALS['__mail'][0] ?? null;
+
+$reset190();
+$res_extra = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'extra' => $cart190 + [ 'skadlig' => '<script>alert(1)</script>' ] ] ) ) );
+$with      = $saved190();
+$mail_with = $GLOBALS['__mail'][0] ?? null;
+
+check( 'utan lyssnare: inskicket går igenom som förut', 200 === $res_plain->status && 200 === $res_extra->status );
+check( 'utan lyssnare: extra ändrar inte de sparade värdena', null !== $plain['values'] && $plain['values'] === $with['values'] );
+// Klockslaget kan hinna slå om mellan de två inskicken – det jämförs inte.
+$no_clock = static fn( $x ) => is_array( $x ) ? array_diff_key( $x, [ 'date' => 1, 'time' => 1 ] ) : $x;
+$no_time  = static fn( $m ) => is_array( $m ) ? preg_replace( '/\b\d{2}:\d{2}\b|\b\d{4}-\d{2}-\d{2}\b/', '', (string) $m['body'] ) . serialize( [ $m['to'], $m['subject'], $m['headers'] ] ) : null;
+check( 'utan lyssnare: extra ändrar inte metadatan', null !== $plain['meta'] && $no_clock( $plain['meta'] ) === $no_clock( $with['meta'] ) );
+check( 'utan lyssnare: extra ändrar inte mailet', null !== $mail_plain && $no_time( $mail_plain ) === $no_time( $mail_with ) );
+check( 'utan lyssnare: de sparade värdena är exakt valideringens', $plain['values'] === $engine->validate( 12, xf_submit_body()['fields'] )['values'] );
+
+// relativt_form_errors
+$reset190();
+$seen = null;
+add_filter( 'relativt_form_errors', function ( $errors, $form_id, $body ) use ( &$seen ) {
+	$seen = [ $errors, $form_id, $body ];
+	if ( empty( $body['extra']['varukorg'] ) ) {
+		$errors['varukorg'] = 'Varukorgen är tom.';
+	}
+	return $errors;
+}, 10, 3 );
+$fired = false;
+add_action( 'relativt_form_submitted', function () use ( &$fired ) { $fired = true; }, 10, 5 );
+
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+check( 'errors: får motorns fel, formulärets id och hela inskicket', [] === $seen[0] && 12 === $seen[1] && 'anna@exempel.se' === ( $seen[2]['fields']['epost'] ?? '' ) );
+check( 'errors: ett eget fel stoppar inskicket med 422 och egen nyckel', 422 === $res->status && 'Varukorgen är tom.' === ( $res->data['errors']['varukorg'] ?? '' ) );
+check( 'errors: ingenting sparas, inget mail, ingen submitted-åtgärd', [] === $GLOBALS['__posts'] && [] === $GLOBALS['__mail'] && ! $fired );
+
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'fields' => [ 'jagar' => 'foretag' ] ] ) ) );
+check( 'errors: motorns egna fel följer med till filtret', isset( $seen[0]['namn'], $seen[0]['epost'] ) && isset( $res->data['errors']['namn'], $res->data['errors']['varukorg'] ) );
+
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'extra' => $cart190 ] ) ) );
+check( 'errors: extra når filtret och inskicket går igenom', 200 === $res->status && $cart190 === ( $seen[2]['extra'] ?? null ) );
+
+$seen = null;
+$engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'xf_website' => 'spam' ] ) ) );
+check( 'errors: körs aldrig för honungsfällan', null === $seen );
+
+// relativt_form_values
+$reset190();
+$order = [];
+add_filter( 'relativt_form_values', function ( $values, $form_id, $body ) use ( &$order ) {
+	$order[] = 'values';
+	$values[] = [ 'key' => 'tillagg_varukorg', 'label' => 'Varukorg', 'type' => 'textarea', 'raw' => '2 × A-1', 'value' => '2 × A-1' ];
+	return $values;
+}, 10, 3 );
+add_filter( 'relativt_form_mail_body', function ( $html ) use ( &$order ) { $order[] = 'mail'; return $html; }, 10, 4 );
+
+$res  = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'extra' => $cart190 ] ) ) );
+$row  = end( $saved190()['values'] );
+$mail = $GLOBALS['__mail'][0] ?? [ 'body' => '' ];
+check( 'values: körs före både lagring och mail', [ 'values', 'mail' ] === $order && 1 === count( $GLOBALS['__posts'] ) );
+check( 'values: den tillagda raden sparas i inskicket', 'tillagg_varukorg' === ( $row['key'] ?? '' ) );
+check( 'values: och står i mailet', str_contains( $mail['body'], 'Varukorg' ) && str_contains( $mail['body'], '2 × A-1' ) );
+$GLOBALS['__postmeta'][ 1001 ]['_xf_values'] = $saved190()['values'];
+$privacy = call( $engine, 'privacy_data', [ 1001 ] );
+check( 'values: och i integritetsexporten', in_array( [ 'name' => 'Varukorg', 'value' => '2 × A-1' ], $privacy, true ) );
+unset( $GLOBALS['__postmeta'][ 1001 ] );
+
+/*
+ * Tillagda rader ligger i samma lista som formulärets fält, så
+ * mottagarreglerna ser dem. Regler kan bara väljas för byggarens fält, så
+ * det händer bara när ett tillägg skriver över ett befintligt fält.
+ */
+$reset190();
+add_filter( 'relativt_form_values', function ( $values ) {
+	foreach ( $values as &$v ) {
+		if ( 'jagar' === $v['key'] ) {
+			$v['raw']   = 'kandidat';
+			$v['value'] = 'Kandidat';
+		}
+	}
+	return $values;
+} );
+$engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+check( 'values: mottagarreglerna läser de filtrerade värdena', [ 'rekrytering@exempel.se' ] === ( $GLOBALS['__mail'][0]['to'] ?? null ) );
+
+// relativt_form_mail_body
+$reset190();
+$mail_args = null;
+add_filter( 'relativt_form_mail_body', function ( $html, $form_id, $values, $meta ) use ( &$mail_args ) {
+	$mail_args = [ $html, $form_id, $values, $meta ];
+	return str_replace( '</body>', '<p>Tillägg</p></body>', $html );
+}, 10, 4 );
+$engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+check( 'mail_body: får mailets HTML, id, värden och metadata', str_starts_with( (string) $mail_args[0], '<!doctype html>' ) && 12 === $mail_args[1] && is_array( $mail_args[2] ) && 'google' === ( $mail_args[3]['utm']['utm_source'] ?? '' ) );
+check( 'mail_body: det filtrerade mailet är det som skickas', str_contains( $GLOBALS['__mail'][0]['body'] ?? '', '<p>Tillägg</p></body>' ) );
+
+// relativt_form_submitted
+$reset190();
+$args190 = null;
+add_filter( 'relativt_form_values', function ( $values ) {
+	$values[] = [ 'key' => 'tillagg_ordernr', 'label' => 'Ordernummer', 'type' => 'text', 'raw' => 'X-1', 'value' => 'X-1' ];
+	return $values;
+} );
+add_action( 'relativt_form_submitted', function ( ...$args ) use ( &$args190 ) { $args190 = $args; }, 10, 5 );
+$engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+check( 'submitted: id, filtrerade värden, metadata, inskickets id och mailstatus', 12 === $args190[0] && 'tillagg_ordernr' === ( end( $args190[1] )['key'] ?? '' ) && is_array( $args190[2] ) && 1001 === $args190[3] && true === $args190[4] );
+
+$GLOBALS['__form']['xf_store'] = 0;
+$args190 = null;
+$engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+$GLOBALS['__form']['xf_store'] = 1;
+check( 'submitted: inskicks-id 0 när lagring är av', is_array( $args190 ) && 0 === $args190[3] && true === $args190[4] );
+
+$reset190();
+
 echo "\n" . str_repeat( '─', 50 ) . "\n";
 printf( "%d godkända, %d underkända\n\n", $passed, $failed );
 exit( $failed > 0 ? 1 : 0 );

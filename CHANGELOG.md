@@ -3,6 +3,31 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.9.0] – 2026-10-14
+
+Krokar för tillägg som bygger på motorn, t.ex. ett beställningsformulär med
+varukorg. **Utan lyssnare fungerar formulären exakt som förut** – nyttolasten,
+valideringen, mailet och det sparade inskicket är oförändrade.
+
+### Tillagt
+- **JS-eventet `relativt-form:payload`** sänds på formulärets rot (bubblar)
+  precis före inskicket. Lyssnare kan lägga egen data i
+  `e.detail.payload.extra`. Servern skickar `extra` vidare till filtren nedan.
+- **Filtret `relativt_form_errors`** (`$errors`, `$form_id`, `$body`) efter
+  motorns egen validering. Ett tillägg kan stoppa inskicket med egna fel.
+- **Filtret `relativt_form_values`** (`$values`, `$form_id`, `$body`) innan
+  inskicket sparas och mailas. Tillagda rader följer med i mailet, det sparade
+  inskicket, CSV-exporten och integritetsexporten.
+- **Filtret `relativt_form_mail_body`** (`$html`, `$form_id`, `$values`,
+  `$meta`) för hela mailets HTML.
+- **Åtgärden `relativt_form_submitted`** (`$form_id`, `$values`, `$meta`,
+  `$entry_id`, `$sent`) efter ett lyckat inskick.
+
+### Ändrat
+- **Ett 422-fel med en nyckel som inte är ett fält visas under formuläret**
+  (i `.xf-form-error`). Tidigare hamnade det vid samtyckesrutan, eller
+  syntes inte alls när formuläret saknade samtyckesruta.
+
 ## [1.8.2] – 2026-10-14
 
 ### Rättat

@@ -1270,3 +1270,83 @@ test('Turnstile: tyst toofast-omsändning återanvänder token utan att återst�
 	expect(calls).toEqual(['XXXX.DUMMY.TOKEN.XXXX', 'XXXX.DUMMY.TOKEN.XXXX']);
 	await expect(widget(form)).toHaveAttribute('data-resets', '0');
 });
+
+/* -----------------------------------------------------------------------------
+ * Krokar för tillägg (1.9.0)
+ * -------------------------------------------------------------------------- */
+
+test('payload-eventet: en lyssnare kan skicka med extra data', async ({ page }) => {
+	await page.goto(DEMO);
+	await page.evaluate(() => {
+		window.__payloadEvents = [];
+		document.addEventListener('relativt-form:payload', (e) => {
+			window.__payloadEvents.push({
+				formId: e.detail.formId,
+				type: typeof e.detail.formId,
+				fromForm: e.target === e.detail.root && e.detail.root.matches('.relativt-form'),
+			});
+			e.detail.payload.extra = { ...e.detail.payload.extra, varukorg: [{ sku: 'A-1', antal: 2 }] };
+		});
+	});
+
+	const form = page_form(page);
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+	await expect(form).toHaveClass(/is-submitted/);
+
+	// formId är en sträng, precis som i relativt-form:success.
+	expect(await page.evaluate(() => window.__payloadEvents)).toEqual([{ formId: '12', type: 'string', fromForm: true }]);
+	const body = await page.evaluate(() => window.__mockCalls[0]);
+	expect(body.extra).toEqual({ varukorg: [{ sku: 'A-1', antal: 2 }] });
+	expect(body.fields.namn).toBe('Anna Andersson');
+});
+
+test('payload-eventet: utan lyssnare saknar inskicket extra', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = page_form(page);
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+	await expect(form).toHaveClass(/is-submitted/);
+
+	const body = await page.evaluate(() => window.__mockCalls[0]);
+	expect(Object.keys(body)).not.toContain('extra');
+});
+
+test('ett serverfel som inte hör till ett fält visas under formuläret', async ({ page }) => {
+	await page.goto(DEMO);
+	await page.evaluate(() => {
+		window.__mockFail = { status: 422, payload: { ok: false, errors: { varukorg: 'Varukorgen är tom.' } } };
+	});
+
+	const form = page_form(page);
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+
+	await expect(form.locator('.xf-form-error')).toHaveText('Varukorgen är tom.');
+	await expect(form.locator('.has-error')).toHaveCount(0);
+	await expect(form).not.toHaveClass(/is-submitted/);
+});
+
+test('samtyckesfelet hamnar fortfarande vid samtyckesrutan', async ({ page }) => {
+	await page.goto(DEMO);
+	const form = page_form(page);
+
+	// Samma markup som renderaren ger ett formulär med samtyckesruta.
+	await form.evaluate((root) => {
+		root.querySelector('.xf-form-error').insertAdjacentHTML('beforebegin',
+			'<div class="xf-field xf-field--full xf-type-consent"><label class="xf-check">'
+			+ '<input type="checkbox" name="xf_consent" value="1" class="xf-check-input" checked>'
+			+ '<span class="xf-check-text">Jag godkänner.</span></label>'
+			+ '<p class="xf-error" data-xf-error="xf_consent" role="alert"></p></div>');
+	});
+	await page.evaluate(() => {
+		window.__mockFail = { status: 422, payload: { ok: false, errors: { xf_consent: 'Du behöver godkänna villkoren.' } } };
+	});
+
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+
+	await expect(form.locator('.xf-type-consent .xf-error')).toHaveText('Du behöver godkänna villkoren.');
+	await expect(form.locator('.xf-type-consent')).toHaveClass(/has-error/);
+	await expect(form.locator('.xf-form-error')).toHaveText('');
+});
