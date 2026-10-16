@@ -933,6 +933,8 @@ $clean->setAccessible( true );
 check( 'okänd fälttyp faller tillbaka på text', $clean->invoke( $port, 'javascript', 'type' ) === 'text' );
 check( 'känd fälttyp släpps igenom', $clean->invoke( $port, 'textarea', 'type' ) === 'textarea' );
 check( 'okänd bredd faller tillbaka på full', $clean->invoke( $port, '"><script>', 'width' ) === 'full' );
+check( 'tredjedelsbredd släpps igenom vid import', $clean->invoke( $port, 'third', 'width' ) === 'third' );
+check( 'halv bredd släpps fortfarande igenom', $clean->invoke( $port, 'half', 'width' ) === 'half' );
 check( 'nycklar saneras', $clean->invoke( $port, 'Jag Är!', 'key' ) === 'jagr' );
 check( 'kvarhållning kan inte bli negativ', $clean->invoke( $port, -50, 'int' ) === 0 );
 check( 'skript stryps ur samtyckestexten', ! str_contains( (string) $clean->invoke( $port, '<p>Hej</p><script>fetch(1)</script>', 'html' ), '<script' ) );

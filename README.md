@@ -166,7 +166,7 @@ På en sidbyggarsajt vill man ofta att skicka-knappen ska se ut och animeras exa
 add_filter( 'relativt_form_enqueue_css', '__return_false' );
 ```
 
-Då levererar pluginet bara markup, och sajten stylar mot klasserna: `.xf-grid`, `.xf-field` (`--full`/`--half`), `.xf-label`, `.xf-input`, `.xf-textarea`, `.xf-select`, `.xf-buttons` med `.xf-choice-label`, `.xf-radios`, `.xf-checks`/`.xf-check`, `.xf-help`, `.xf-error`, `.xf-form-error`, `.xf-actions`/`.xf-submit`, `.xf-consent`, `.xf-thanks`.
+Då levererar pluginet bara markup, och sajten stylar mot klasserna: `.xf-grid`, `.xf-field` (`--full`/`--half`/`--third`), `.xf-label`, `.xf-input`, `.xf-textarea`, `.xf-select`, `.xf-buttons` med `.xf-choice-label`, `.xf-radios`, `.xf-checks`/`.xf-check`, `.xf-help`, `.xf-error`, `.xf-form-error`, `.xf-actions`/`.xf-submit`, `.xf-consent`, `.xf-thanks`.
 
 **Tre saker MÅSTE sajtens CSS då ta ansvar för**, eftersom de annars låg i stilmallen som stängdes av:
 

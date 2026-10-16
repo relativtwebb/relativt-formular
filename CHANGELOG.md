@@ -3,6 +3,24 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.11.0] – 2026-10-16
+
+Fält kan nu få **tredjedels bredd** – tre fält på samma rad.
+
+### Tillagt
+- **Bredd → Tredjedels bredd (1/3)** på varje fält i byggaren. Klassen
+  `.xf-field--third` följer med i markupen, och `third` följer med i
+  JSON-exporten och godkänns vid import.
+
+### Ändrat
+- Rutnätet `.xf-grid` har nu sex kolumner i stället för två: hel bredd spänner
+  över sex, halv över tre, tredjedel över två. **Utseendet för befintliga
+  formulär är oförändrat**, men en sajt som själv skrivit över
+  `grid-template-columns` på `.xf-grid` eller `grid-column` på
+  `.xf-field--half` behöver justeras mot de nya talen.
+- På smala skärmar (under 768 px) är tredjedelsfält, precis som halva fält,
+  fortfarande hela bredden.
+
 ## [1.10.0] – 2026-10-16
 
 Ikonväljare för skicka-knappen. **Formulär som inte rörs ser exakt likadana ut

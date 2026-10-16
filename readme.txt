@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.10.0
+Stable tag: 1.11.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,11 @@ Utan samtyckesverktyg skrivs kampanjkakan inte längre. Se CHANGELOG för hur
 det gamla beteendet behålls.
 
 == Changelog ==
+
+= 1.11.0 =
+Fält kan få tredjedels bredd (tre per rad). Rutnätet har nu sex kolumner;
+befintliga formulär ser likadana ut, men sajter som skrivit över
+.xf-grid eller .xf-field--half i egen CSS behöver justeras. Se CHANGELOG.
 
 = 1.10.0 =
 Ikonväljare för skicka-knappen: 35 vanliga ikoner ur Lucide, standardpilen

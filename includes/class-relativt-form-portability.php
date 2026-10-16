@@ -334,7 +334,7 @@ final class Relativt_Form_Portability {
 				return sanitize_key( (string) $value );
 
 			case 'width':
-				return in_array( $value, [ 'full', 'half' ], true ) ? $value : 'full';
+				return in_array( $value, [ 'full', 'half', 'third' ], true ) ? $value : 'full';
 
 			case 'type':
 				$types = array_keys( Relativt_Form::field_type_labels() );

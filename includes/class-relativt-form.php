@@ -691,7 +691,7 @@ final class Relativt_Form {
 							'type'    => 'select',
 							'default_value' => 'full',
 							'wrapper' => [ 'width' => '33' ],
-							'choices' => [ 'full' => 'Hel bredd', 'half' => 'Halv bredd' ],
+							'choices' => [ 'full' => 'Hel bredd', 'half' => 'Halv bredd (1/2)', 'third' => 'Tredjedels bredd (1/3)' ],
 						],
 						/*
 						 * 1.8.0. Webbläsarens ifyllnadshjälp – och WCAG 1.3.5,
@@ -1081,7 +1081,7 @@ final class Relativt_Form {
 				'choices'     => $this->parse_choices( (string) ( $row['choices'] ?? '' ) ),
 				'default'     => (string) ( $row['default'] ?? '' ),
 				'required'    => ! empty( $row['required'] ),
-				'width'       => ( $row['width'] ?? 'full' ) === 'half' ? 'half' : 'full',
+				'width'       => in_array( $row['width'] ?? 'full', [ 'half', 'third' ], true ) ? $row['width'] : 'full',
 				'cond_field'  => sanitize_key( (string) ( $row['cond_field'] ?? '' ) ),
 				'cond_value'  => (string) ( $row['cond_value'] ?? '' ),
 				'stats'       => ! empty( $row['stats'] ) && in_array( $type, self::STATS_TYPES, true ),

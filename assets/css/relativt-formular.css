@@ -81,7 +81,8 @@
 
 .relativt-form .xf-grid {
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	/* Sex kolumner: hel = 6, halv = 3, tredjedel = 2. */
+	grid-template-columns: repeat(6, minmax(0, 1fr));
 	column-gap: var(--xf-gap);
 	row-gap: var(--xf-gap-row);
 	width: 100%;
@@ -96,7 +97,11 @@
 }
 
 .relativt-form .xf-field--half {
-	grid-column: span 1;
+	grid-column: span 3;
+}
+
+.relativt-form .xf-field--third {
+	grid-column: span 2;
 }
 
 /* FUNKTION, inte utseende: fält som döljs av sina villkor får aldrig synas,
@@ -109,7 +114,8 @@
 	.relativt-form .xf-grid {
 		grid-template-columns: minmax(0, 1fr);
 	}
-	.relativt-form .xf-field--half {
+	.relativt-form .xf-field--half,
+	.relativt-form .xf-field--third {
 		grid-column: 1 / -1;
 	}
 }
