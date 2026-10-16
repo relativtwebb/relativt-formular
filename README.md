@@ -62,6 +62,16 @@ Fält för besökarens egna uppgifter får ett `autocomplete`-attribut, så att 
 - **Ett uttryckligt värde** (Namn, Förnamn, Företag/organisation …) när fältet heter något annat.
 - **Inget** för fält som inte är en uppgift om besökaren, t.ex. *Namn på er kontaktperson hos oss*.
 
+### Ikon i knappen
+
+Under formulärets flik **Texter** väljer du **Ikon i knappen** i ett rutnät med ikoner. **Ingen ikon** ger en knapp med bara text. Urvalet är 35 vanliga ikoner ur [Lucide](https://lucide.dev) – pilar, skicka, brev, bock, telefon, kalender, ladda ner, varukorg m.fl. – inbyggda i pluginet, så sidan hämtar inget från tredje part.
+
+- **Standard (pil)** är förvalet och är exakt den pil knappen alltid haft. Formulär som aldrig fått ett val ser alltså likadana ut efter uppdateringen.
+- Valet sparas som en nyckel (t.ex. `send`), aldrig som SVG-kod. Det följer med i JSON-exporten och en importfil kan inte smuggla in markup. En nyckel som inte finns längre (gammal export) ger standardpilen.
+- Ikonerna är linjer i knappens textfärg. Storleken styrs av `--xf-icon-size` och linjetjockleken av `--xf-icon-stroke` (standard `2`, Lucides eget). Standardpilen är en fylld form och påverkas inte av tjockleken.
+- Behövs en ikon som inte finns i urvalet: filtret `relativt_form_submit_icon` byter ut SVG:t i kod, se [Filter](#filter). Filtret får det valda SVG:t som utgångsvärde och ikonens nyckel som tredje argument.
+- Lägga till en ikon i urvalet: kopiera elementen ur SVG-filen på lucide.dev och lägg en rad i `ICONS` i `includes/class-relativt-form-icons.php`. Väljaren, renderingen och testerna läser alla därifrån. Lucides licens (ISC, och MIT för de ikoner som kommer från Feather) ligger i `includes/LUCIDE-LICENSE.txt` och följer med i zip-filen.
+
 ### Tack-sida i stället för tack-rutan
 
 Fyll i **Tack-sida (URL)** under formulärets flik Texter – t.ex. `/tack/` – så skickas besökaren dit efter lyckat inskick, i stället för att tack-rutan visas. Under **Formulär → Standardvärden** kan en gemensam tack-sida sättas för hela sajten; formulärets eget värde vinner alltid.
@@ -104,7 +114,8 @@ Typsnittet behöver aldrig sättas – formuläret ärver alltid sajtens (`font-
 | `--xf-input-size` | `16px` | textstorlek i fälten och på knappen |
 | `--xf-active-bg` / `--xf-active-text` | `#2b2a28` / `#fff` | vald val-knapp |
 | `--xf-accent` / `--xf-accent-text` | `#2b2a28` / `#fff` | skicka-knappen |
-| `--xf-icon-size` | `22px` | pilikonen i knappen |
+| `--xf-icon-size` | `22px` | ikonen i knappen |
+| `--xf-icon-stroke` | `2` | linjetjocklek för ikoner ur Lucide (standardpilen är fylld och påverkas inte) |
 | `--xf-error` | `#b32d2e` | felmeddelanden |
 | `--xf-focus-ring` | `#2b2a28` | fokusram |
 
@@ -181,7 +192,7 @@ add_filter( 'relativt_form_submit_icon_class', fn( $c ) => trim( "$c ct-fancy-ic
 | `relativt_form_submit_class` | `''` | Extra klasser på knappen |
 | `relativt_form_submit_text_class` | `''` | Extra klasser på knapptexten |
 | `relativt_form_submit_icon_class` | `''` | Extra klasser på ikonen |
-| `relativt_form_submit_icon` | pil höger | Byt ikonens SVG, eller returnera `''` för ingen ikon |
+| `relativt_form_submit_icon` | ikonen som valts i formuläret | Byt ikonens SVG, eller returnera `''` för ingen ikon. Får `$svg`, `$form_id` och `$icon_key`. Vinner över valet i byggaren |
 | `relativt_form_messages` | svenska texter | Byt besökartexterna (felmeddelanden m.m.). Samma lista driver PHP och JS |
 | `relativt_form_max_links` | `3` | Max antal länkar i en textruta innan inskicket avvisas. `0` stänger av |
 | `relativt_form_utm_cookie` | `'auto'` | Kampanjkakans samtyckesläge: `auto`, `always` eller `never` |
@@ -601,15 +612,15 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 543 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
-npx playwright test         # 160 tester i riktig webbläsare, desktop och mobil
+php tests/server-test.php   # 601 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
+npx playwright test         # 194 tester i riktig webbläsare, desktop och mobil
 ```
 
 Har du redan en Chromium på maskinen som Playwright inte installerat själv, peka ut den med `CHROMIUM_PATH=/sökväg/till/chrome npx playwright test`. Utan variabeln används Playwrights egen.
 
 IDN-testet (`kontakt@räksmörgås.se`) hoppas över om PHP-tillägget `intl` saknas, eftersom motorn hoppar över punycode-översättningen i samma läge. CI installerar `intl`, så den vägen testas där.
 
-Demon som webbläsartesterna körs mot genereras av den riktiga renderaren via reflektion (`php tests/build-demo.php`). Den kan alltså inte glida ifrån koden. Cloudflares Turnstile-skript ersätts där av en stub med samma yta, så testerna inte beror på nätverket. Statistiksidan får en egen demo med påhittade inskick på samma sätt (`php tests/build-stats-demo.php` → `demo-stats.html`).
+Demon som webbläsartesterna körs mot genereras av den riktiga renderaren via reflektion (`php tests/build-demo.php`). Den kan alltså inte glida ifrån koden. Cloudflares Turnstile-skript ersätts där av en stub med samma yta, så testerna inte beror på nätverket. Statistiksidan får en egen demo med påhittade inskick på samma sätt (`php tests/build-stats-demo.php` → `demo-stats.html`). Ikonerna på knappen och ikonväljaren har en egen (`php tests/build-icon-demo.php` → `demo-icons.html`); väljaren där är en modell av ACF:s markup, eftersom ACF Pro inte finns i CI.
 
 Båda sviterna kör automatiskt vid varje push. Servertesterna körs mot PHP 8.0, 8.2 och 8.4 — det är den matrisen som bevisar `Requires PHP: 8.0`, inte headern i sig.
 

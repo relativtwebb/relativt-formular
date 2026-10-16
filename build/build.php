@@ -23,6 +23,8 @@ const SHIP = [
 	'README.md',
 	'CHANGELOG.md',
 	'includes/class-relativt-form.php',
+	'includes/class-relativt-form-icons.php',
+	'includes/LUCIDE-LICENSE.txt',
 	'includes/class-relativt-form-portability.php',
 	'includes/class-relativt-form-settings.php',
 	'includes/class-relativt-form-updater.php',

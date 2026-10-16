@@ -41,7 +41,8 @@
 	--xf-active-text: #ffffff;
 	--xf-accent: #2b2a28;        /* knappens bakgrund */
 	--xf-accent-text: #ffffff;   /* knappens text och ikon */
-	--xf-icon-size: 22px;        /* pilen i knappen */
+	--xf-icon-size: 22px;        /* ikonen i knappen */
+	--xf-icon-stroke: 2;         /* linjetjocklek för ikoner ur Lucide */
 	--xf-error: #b32d2e;
 	--xf-focus-ring: #2b2a28;
 	/* Brytpunkten (768px) ligger hårdkodad i media-frågorna längre ned –
@@ -452,6 +453,16 @@
 	height: var(--xf-icon-size);
 	display: block;
 	fill: currentColor;
+}
+
+/* Ikonerna ur Lucide är linjer, inte fyllda former (standardpilen är fylld).
+   Attributväljaren vinner över regeln ovan och rör bara SVG:er som själva
+   säger fill="none" – en egen ikon via filtret relativt_form_submit_icon
+   påverkas inte. */
+.relativt-form .xf-submit-icon svg[fill="none"] {
+	fill: none;
+	stroke: currentColor;
+	stroke-width: var(--xf-icon-stroke);
 }
 
 .relativt-form.is-sending .xf-submit {

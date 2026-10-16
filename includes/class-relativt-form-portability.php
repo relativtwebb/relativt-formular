@@ -52,6 +52,8 @@ final class Relativt_Form_Portability {
 		'xf_from_email'   => 'text',
 		'xf_submit_text'  => 'text',
 		'xf_sending_text' => 'text',
+		// Nyckel ur Relativt_Form_Icons, aldrig SVG. Okänd nyckel ger standardpilen vid rendering.
+		'xf_submit_icon'  => 'key',
 		'xf_consent'      => 'html',
 		'xf_consent_box'  => 'bool',
 		'xf_thanks_title' => 'text',

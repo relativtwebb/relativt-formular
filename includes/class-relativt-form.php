@@ -32,6 +32,9 @@ final class Relativt_Form {
 
 	public const CPT_FORM     = 'relativt_form';
 
+	/** ACF-nyckeln för ikonväljaren. Väljarens CSS riktas mot den. */
+	public const ICON_FIELD_KEY = 'field_xf_submit_icon';
+
 	/** Antal renderingar per formulär under den här sidladdningen (för unika id på <form>). */
 	private static array $render_count = [];
 	public const CPT_ENTRY    = 'relativt_entry';
@@ -842,6 +845,19 @@ final class Relativt_Form {
 					'wrapper'      => [ 'width' => '50' ],
 				],
 				[
+					'key'           => self::ICON_FIELD_KEY,
+					'label'         => 'Ikon i knappen',
+					'name'          => 'xf_submit_icon',
+					'type'          => 'radio',
+					'layout'        => 'horizontal',
+					'allow_null'    => 0,
+					'other_choice'  => 0,
+					'return_format' => 'value',
+					'choices'       => Relativt_Form_Icons::choices(),
+					'default_value' => Relativt_Form_Icons::STANDARD,
+					'instructions'  => 'Visas efter knapptexten. Välj "Ingen ikon" för en knapp med bara text. Färg och storlek styrs av sajtens CSS (--xf-icon-size).',
+				],
+				[
 					'key'   => 'field_xf_consent',
 					'label' => 'Samtyckestext',
 					'name'  => 'xf_consent',
@@ -1304,18 +1320,27 @@ final class Relativt_Form {
 					 * 'ct-fancy-icon' på ikonen, eftersom temats
 					 * knappanimation letar efter just dem.
 					 *
-					 * Ikonen är icon-right ur Material Symbols. fill är
-					 * currentColor så den ärver knappens textfärg – med en
-					 * hårdkodad färg blir den fel så fort knappen byter kulör.
+					 * Ikonen väljs per formulär i byggaren (xf_submit_icon) ur
+					 * Relativt_Form_Icons. Förvalet är pilen knappen alltid haft
+					 * (icon-right ur Material Symbols), så formulär som aldrig
+					 * valt något ser likadana ut. Alla ikoner använder
+					 * currentColor så de ärver knappens textfärg – med en
+					 * hårdkodad färg blir de fel så fort knappen byter kulör.
 					 * Storleken styrs av --xf-icon-size i CSS:en.
+					 *
+					 * Filtret får det valda SVG:t som utgångsvärde och nyckeln
+					 * som tredje argument, så en sajt kan fortfarande byta ut
+					 * eller ta bort ikonen i kod.
 					 */
 					$submit_classes = trim( 'xf-submit ' . (string) apply_filters( 'relativt_form_submit_class', '', $form_id ) );
 					$text_classes   = trim( 'xf-submit-text ' . (string) apply_filters( 'relativt_form_submit_text_class', '', $form_id ) );
 					$icon_classes   = trim( 'xf-submit-icon ' . (string) apply_filters( 'relativt_form_submit_icon_class', '', $form_id ) );
+					$icon_key       = Relativt_Form_Icons::normalize( $this->setting( $form_id, 'xf_submit_icon', Relativt_Form_Icons::STANDARD ) );
 					$icon           = (string) apply_filters(
 						'relativt_form_submit_icon',
-						'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="m531.69-480-184-184L376-692.31 588.31-480 376-267.69 347.69-296l184-184Z"/></svg>',
-						$form_id
+						Relativt_Form_Icons::svg( $icon_key ),
+						$form_id,
+						$icon_key
 					);
 					?>
 					<button type="submit" class="<?php echo esc_attr( $submit_classes ); ?>"
@@ -2660,6 +2685,9 @@ final class Relativt_Form {
 		.xf-map .xf-map-cond { color: #8a8880; }
 		.xf-copy { width: 100%; font-family: monospace; padding: 6px; }
 		</style>
+		<style id="relativt-form-icon-picker">
+		<?php echo Relativt_Form_Icons::picker_css( self::ICON_FIELD_KEY ); // phpcs:ignore WordPress.Security.EscapeOutput -- byggs av konstanter i Relativt_Form_Icons, ingen indata. ?>
+		</style>
 		<script>
 		// Ger repeatern ett id som CSS-variablerna ovan kan hänga på.
 		document.addEventListener('DOMContentLoaded', () => {
@@ -3325,11 +3353,11 @@ final class Relativt_Form {
 	 */
 	private static function svg_kses(): array {
 		return [
-			'svg'  => [ 'xmlns' => true, 'viewbox' => true, 'width' => true, 'height' => true, 'fill' => true, 'stroke' => true, 'stroke-width' => true, 'aria-hidden' => true, 'focusable' => true, 'class' => true ],
+			'svg'  => [ 'xmlns' => true, 'viewbox' => true, 'width' => true, 'height' => true, 'fill' => true, 'stroke' => true, 'stroke-width' => true, 'stroke-linecap' => true, 'stroke-linejoin' => true, 'aria-hidden' => true, 'focusable' => true, 'class' => true ],
 			'path' => [ 'd' => true, 'fill' => true, 'stroke' => true, 'stroke-width' => true, 'stroke-linecap' => true, 'stroke-linejoin' => true ],
 			'g'    => [ 'fill' => true, 'stroke' => true, 'transform' => true ],
 			'circle' => [ 'cx' => true, 'cy' => true, 'r' => true, 'fill' => true, 'stroke' => true, 'stroke-width' => true ],
-			'rect' => [ 'x' => true, 'y' => true, 'width' => true, 'height' => true, 'rx' => true, 'fill' => true, 'stroke' => true ],
+			'rect' => [ 'x' => true, 'y' => true, 'width' => true, 'height' => true, 'rx' => true, 'ry' => true, 'fill' => true, 'stroke' => true ],
 			'line' => [ 'x1' => true, 'y1' => true, 'x2' => true, 'y2' => true, 'stroke' => true, 'stroke-width' => true, 'stroke-linecap' => true ],
 			'polyline' => [ 'points' => true, 'fill' => true, 'stroke' => true, 'stroke-width' => true, 'stroke-linecap' => true, 'stroke-linejoin' => true ],
 			'polygon'  => [ 'points' => true, 'fill' => true, 'stroke' => true ],

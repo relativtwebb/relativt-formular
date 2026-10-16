@@ -521,6 +521,119 @@ add_filter( 'relativt_form_submit_icon', static fn() => '' );
 check( 'ikonen kan tas bort helt', ! str_contains( $render->invoke( $engine, 12, [], '' ), 'xf-submit-icon' ) );
 remove_all_filters( 'relativt_form_submit_icon' );
 
+/*
+ * Ikonväljaren (1.10.0). Förvalet måste vara exakt den pil knappen alltid haft
+ * – annars ändras utseendet på alla befintliga formulär vid uppdateringen.
+ */
+echo "\nIkonväljaren\n";
+
+$old_arrow = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="m531.69-480-184-184L376-692.31 588.31-480 376-267.69 347.69-296l184-184Z"/></svg>';
+check( 'formulär utan val får samma pil som förut, byte för byte', str_contains( $render->invoke( $engine, 12, [], '' ), '<span class="xf-submit-icon" aria-hidden="true">' . $old_arrow . '</span>' ) );
+
+$GLOBALS['__form']['xf_submit_icon'] = 'send';
+$html_send = $render->invoke( $engine, 12, [], '' );
+check( 'vald Lucide-ikon ritas ut', str_contains( $html_send, 'xf-submit-icon' ) && str_contains( $html_send, 'viewBox="0 0 24 24"' ) );
+check( 'och ersätter pilen', ! str_contains( $html_send, 'viewBox="0 -960 960 960"' ) );
+check( 'Lucide-ikonen är linjer som ärver knappens färg', str_contains( $html_send, 'fill="none" stroke="currentColor"' ) );
+
+$GLOBALS['__form']['xf_submit_icon'] = 'none';
+check( 'Ingen ikon ritar ingen ikon alls', ! str_contains( $render->invoke( $engine, 12, [], '' ), 'xf-submit-icon' ) );
+check( 'men knappen och dess text finns kvar', str_contains( $render->invoke( $engine, 12, [], '' ), 'class="xf-submit-text"' ) );
+
+$GLOBALS['__form']['xf_submit_icon'] = '"><script>alert(1)</script>';
+$html_bad = $render->invoke( $engine, 12, [], '' );
+check( 'okänt värde faller tillbaka på standardpilen', str_contains( $html_bad, $old_arrow ) );
+check( 'och släpper aldrig in värdet i HTML:en', ! str_contains( $html_bad, 'alert(1)' ) );
+
+$GLOBALS['__form']['xf_submit_icon'] = [ 'send' ];
+check( 'ett icke-strängvärde (array) faller tillbaka på standardpilen', str_contains( $render->invoke( $engine, 12, [], '' ), $old_arrow ) );
+
+// Filtret är kvar: det får valet som utgångsvärde, nyckeln som tredje argument, och vinner.
+$GLOBALS['__form']['xf_submit_icon'] = 'mail';
+$seen = [];
+add_filter(
+	'relativt_form_submit_icon',
+	static function ( $svg, $form_id, $key = '' ) use ( &$seen ) {
+		$seen = [ 'svg' => $svg, 'form' => $form_id, 'key' => $key ];
+		return $svg;
+	},
+	10,
+	3
+);
+$render->invoke( $engine, 12, [], '' );
+check( 'filtret får det valda SVG:t', str_contains( (string) ( $seen['svg'] ?? '' ), 'viewBox="0 0 24 24"' ) );
+check( 'och formulärets id och ikonens nyckel', 12 === ( $seen['form'] ?? 0 ) && 'mail' === ( $seen['key'] ?? '' ) );
+remove_all_filters( 'relativt_form_submit_icon' );
+
+add_filter( 'relativt_form_submit_icon', static fn() => '<svg viewBox="0 0 1 1"><path d="M0 0"/></svg>' );
+check( 'en sajts eget filter vinner fortfarande över valet', str_contains( $render->invoke( $engine, 12, [], '' ), 'M0 0' ) );
+remove_all_filters( 'relativt_form_submit_icon' );
+
+$GLOBALS['__form'] = xf_test_form();
+
+// Biblioteket i sig.
+$keys = Relativt_Form_Icons::keys();
+check( 'standard och ingen ikon kommer först i väljaren', array_slice( array_keys( Relativt_Form_Icons::choices() ), 0, 2 ) === [ 'standard', 'none' ] );
+check( 'väljaren och biblioteket har samma nycklar', array_keys( Relativt_Form_Icons::choices() ) === $keys );
+check( 'biblioteket har ett rimligt urval', count( $keys ) >= 30 );
+check( 'nycklarna är bara gemener, siffror och bindestreck', 0 === count( array_filter( $keys, static fn( $k ) => ! preg_match( '/^[a-z0-9-]+$/', $k ) ) ) );
+check( 'varje ikon har en etikett', 0 === count( array_filter( Relativt_Form_Icons::choices(), static fn( $l ) => '' === trim( $l ) ) ) );
+
+/*
+ * wp_kses är en stubb i testriggen och släpper allt, så vitlistan prövas här
+ * på riktigt: varje tagg och attribut i varje ikon måste finnas i
+ * svg_kses(), annars ritar WordPress en trasig ikon på en riktig sajt utan
+ * att något test märker det.
+ */
+$kses = new ReflectionMethod( Relativt_Form::class, 'svg_kses' );
+$kses->setAccessible( true );
+$allowed = $kses->invoke( null );
+
+$bad = [];
+foreach ( $keys as $key ) {
+	$svg = Relativt_Form_Icons::svg( $key );
+	if ( '' === $svg ) {
+		continue;
+	}
+	$dom = new DOMDocument();
+	if ( ! @$dom->loadXML( $svg ) ) {
+		$bad[] = "{$key}: ogiltig XML";
+		continue;
+	}
+	foreach ( $dom->getElementsByTagName( '*' ) as $el ) {
+		$tag = strtolower( $el->tagName );
+		if ( ! isset( $allowed[ $tag ] ) ) {
+			$bad[] = "{$key}: <{$tag}> saknas i svg_kses";
+			continue;
+		}
+		foreach ( $el->attributes as $attr ) {
+			$name = strtolower( $attr->name );
+			// xmlns och viewBox är de enda som skiftar skiftläge/namnrymd i DOM.
+			if ( empty( $allowed[ $tag ][ $name ] ) ) {
+				$bad[] = "{$key}: {$tag}[{$name}] saknas i svg_kses";
+			}
+		}
+	}
+}
+check( 'varje ikon klarar svg_kses (inga strippade taggar eller attribut)', [] === $bad, implode( '; ', $bad ) );
+check( 'inga ikoner innehåller script eller händelser', 0 === count( array_filter( $keys, static fn( $k ) => (bool) preg_match( '/<script|\son[a-z]+=/i', Relativt_Form_Icons::svg( $k ) ) ) ) );
+check( 'inga ikoner hårdkodar en färg', 0 === count( array_filter( $keys, static fn( $k ) => (bool) preg_match( '/(fill|stroke)="(?!none|currentColor)/', Relativt_Form_Icons::svg( $k ) ) ) ) );
+
+$picker = Relativt_Form_Icons::picker_css( Relativt_Form::ICON_FIELD_KEY );
+check( 'väljarens CSS riktas mot ikonfältet', str_contains( $picker, '[data-key="field_xf_submit_icon"]' ) );
+check( 'och har en mask för varje ikon', count( $keys ) === substr_count( $picker, 'input[value="' ) );
+check( 'väljaren kräver inget JavaScript', ! str_contains( $picker, '<script' ) );
+
+// Export/import: nyckeln följer med, SVG-kod gör det aldrig.
+$GLOBALS['__form']['xf_submit_icon'] = 'rocket';
+check( 'ikonvalet följer med i exporten', 'rocket' === ( Relativt_Form_Portability::instance()->build_payload( 12 )['settings']['xf_submit_icon'] ?? '' ) );
+$GLOBALS['__form'] = xf_test_form();
+$clean_icon = new ReflectionMethod( Relativt_Form_Portability::class, 'clean' );
+$clean_icon->setAccessible( true );
+check( 'och en riggad importfil kan inte smuggla in markup', ! str_contains( (string) $clean_icon->invoke( Relativt_Form_Portability::instance(), '<svg onload=alert(1)>', 'key' ), '<' ) );
+check( 'ikonfilen och licensen följer med i zip-filen', str_contains( (string) file_get_contents( __DIR__ . '/../build/build.php' ), "'includes/class-relativt-form-icons.php'" ) && str_contains( (string) file_get_contents( __DIR__ . '/../build/build.php' ), "'includes/LUCIDE-LICENSE.txt'" ) );
+check( 'Lucides licens finns i repot', str_contains( (string) file_get_contents( __DIR__ . '/../includes/LUCIDE-LICENSE.txt' ), 'ISC License' ) );
+
 echo "\nLänkspärr\n";
 
 /*

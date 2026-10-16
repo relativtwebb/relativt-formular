@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.9.0
+Stable tag: 1.10.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,10 @@ Utan samtyckesverktyg skrivs kampanjkakan inte längre. Se CHANGELOG för hur
 det gamla beteendet behålls.
 
 == Changelog ==
+
+= 1.10.0 =
+Ikonväljare för skicka-knappen: 35 vanliga ikoner ur Lucide, standardpilen
+eller ingen ikon. Formulär som inte rörs ser exakt likadana ut som förut.
 
 = 1.9.0 =
 Krokar för tillägg som bygger på motorn: filtren relativt_form_errors,

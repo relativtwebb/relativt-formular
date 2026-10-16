@@ -3,6 +3,31 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.10.0] – 2026-10-16
+
+Ikonväljare för skicka-knappen. **Formulär som inte rörs ser exakt likadana ut
+som förut** – förvalet är samma pil som alltid.
+
+### Tillagt
+- **Ikonväljare under Texter → Ikon i knappen.** Ett rutnät med 35 vanliga
+  ikoner ur [Lucide](https://lucide.dev) (pilar, skicka, brev, bock, telefon,
+  kalender, ladda ner, varukorg m.fl.), standardpilen och **Ingen ikon** för en
+  knapp med bara text. Ikonerna är inbyggda som SVG – ingen begäran till tredje
+  part vid sidvisning.
+- **`--xf-icon-stroke`** (standard `2`) för linjetjockleken på ikonerna ur
+  Lucide.
+- **Tredje argumentet till filtret `relativt_form_submit_icon`:** ikonens
+  nyckel (`$icon_key`). Filtret får nu det valda SVG:t som utgångsvärde och
+  vinner fortfarande över valet i byggaren.
+- Valet följer med i JSON-exporten som `xf_submit_icon` – en nyckel, aldrig
+  SVG-kod. En okänd nyckel ger standardpilen.
+- `includes/LUCIDE-LICENSE.txt` (ISC, och MIT för Feather-ikonerna) följer med
+  i zip-filen.
+
+### Ändrat
+- SVG-vitlistan för knappikonen släpper nu igenom `stroke-linecap`,
+  `stroke-linejoin` och `ry`, som linjeikonerna behöver.
+
 ## [1.9.0] – 2026-10-14
 
 Krokar för tillägg som bygger på motorn, t.ex. ett beställningsformulär med
