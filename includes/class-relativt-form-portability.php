@@ -82,6 +82,8 @@ final class Relativt_Form_Portability {
 		'cond_value'  => 'text',
 		'stats'       => 'bool',
 		'autocomplete' => 'text',
+		'phone_country' => 'bool',
+		'phone_default' => 'country',
 	];
 
 	private const RULE_ROW = [
@@ -335,6 +337,10 @@ final class Relativt_Form_Portability {
 
 			case 'width':
 				return in_array( $value, [ 'full', 'half', 'third' ], true ) ? $value : 'full';
+
+			// ISO-kod ur landslistan, annars '' (= sajtens standardland).
+			case 'country':
+				return Relativt_Form::clean_country( $value );
 
 			case 'type':
 				$types = array_keys( Relativt_Form::field_type_labels() );

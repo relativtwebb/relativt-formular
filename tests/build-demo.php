@@ -22,6 +22,17 @@ $GLOBALS['__form']['xf_fields'][] = [
 $GLOBALS['__form']['xf_fields'][] = [
 	'type' => 'radio', 'key' => 'sprak', 'label' => 'Språk', 'choices' => "sv : Svenska\nen : Engelska", 'show_label' => 0,
 ];
+/*
+ * Telefonfält med landsväljare (1.12.0): ett med Sverige som förval, ett med
+ * Norge. Det vanliga 'telefon'-fältet i harness.php är kvar som det var och
+ * bevisar att varianten är ett val, inte en ändring.
+ */
+$GLOBALS['__form']['xf_fields'][] = [
+	'type' => 'tel', 'key' => 'mobil', 'label' => 'Mobil', 'phone_country' => 1, 'width' => 'half',
+];
+$GLOBALS['__form']['xf_fields'][] = [
+	'type' => 'tel', 'key' => 'mobil_no', 'label' => 'Mobil (Norge)', 'phone_country' => 1, 'phone_default' => 'NO', 'width' => 'half',
+];
 Relativt_Form::flush_fields_cache();
 
 $engine = Relativt_Form::instance();

@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.11.0
+Stable tag: 1.12.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,10 @@ Utan samtyckesverktyg skrivs kampanjkakan inte längre. Se CHANGELOG för hur
 det gamla beteendet behålls.
 
 == Changelog ==
+
+= 1.12.0 =
+Telefonfält kan få landsväljare: en rullista med flagga och landsnummer
+framför numret. Av som standard, så befintliga formulär är oförändrade.
 
 = 1.11.0 =
 Fält kan få tredjedels bredd (tre per rad). Rutnätet har nu sex kolumner;

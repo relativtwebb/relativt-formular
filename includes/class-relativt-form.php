@@ -121,6 +121,71 @@ final class Relativt_Form {
 		'country-name'       => [ 'land', 'country' ],
 	];
 
+	/**
+	 * Länderna i landsväljaren för telefonfält (1.12.0): ISO 3166-1-kod =>
+	 * svenskt namn och landsnummer utan plus. Norden först, sedan resten i
+	 * svensk alfabetsordning. Delas av byggaren, renderaren och exporten.
+	 * Filtret relativt_form_phone_countries lägger till, tar bort eller
+	 * sorterar om – samma form som nedan. Flaggan räknas ut ur koden.
+	 */
+	private const PHONE_COUNTRIES = [
+		'SE' => [ 'Sverige', '46' ],
+		'NO' => [ 'Norge', '47' ],
+		'DK' => [ 'Danmark', '45' ],
+		'FI' => [ 'Finland', '358' ],
+		'IS' => [ 'Island', '354' ],
+		'AL' => [ 'Albanien', '355' ],
+		'AD' => [ 'Andorra', '376' ],
+		'AU' => [ 'Australien', '61' ],
+		'BE' => [ 'Belgien', '32' ],
+		'BA' => [ 'Bosnien och Hercegovina', '387' ],
+		'BR' => [ 'Brasilien', '55' ],
+		'BG' => [ 'Bulgarien', '359' ],
+		'CY' => [ 'Cypern', '357' ],
+		'EE' => [ 'Estland', '372' ],
+		'FR' => [ 'Frankrike', '33' ],
+		'AE' => [ 'Förenade Arabemiraten', '971' ],
+		'GR' => [ 'Grekland', '30' ],
+		'HK' => [ 'Hongkong', '852' ],
+		'IN' => [ 'Indien', '91' ],
+		'IE' => [ 'Irland', '353' ],
+		'IL' => [ 'Israel', '972' ],
+		'IT' => [ 'Italien', '39' ],
+		'JP' => [ 'Japan', '81' ],
+		'CA' => [ 'Kanada', '1' ],
+		'CN' => [ 'Kina', '86' ],
+		'HR' => [ 'Kroatien', '385' ],
+		'LV' => [ 'Lettland', '371' ],
+		'LI' => [ 'Liechtenstein', '423' ],
+		'LT' => [ 'Litauen', '370' ],
+		'LU' => [ 'Luxemburg', '352' ],
+		'MT' => [ 'Malta', '356' ],
+		'MX' => [ 'Mexiko', '52' ],
+		'ME' => [ 'Montenegro', '382' ],
+		'NL' => [ 'Nederländerna', '31' ],
+		'MK' => [ 'Nordmakedonien', '389' ],
+		'NZ' => [ 'Nya Zeeland', '64' ],
+		'PL' => [ 'Polen', '48' ],
+		'PT' => [ 'Portugal', '351' ],
+		'RO' => [ 'Rumänien', '40' ],
+		'CH' => [ 'Schweiz', '41' ],
+		'RS' => [ 'Serbien', '381' ],
+		'SG' => [ 'Singapore', '65' ],
+		'SK' => [ 'Slovakien', '421' ],
+		'SI' => [ 'Slovenien', '386' ],
+		'ES' => [ 'Spanien', '34' ],
+		'GB' => [ 'Storbritannien', '44' ],
+		'ZA' => [ 'Sydafrika', '27' ],
+		'KR' => [ 'Sydkorea', '82' ],
+		'CZ' => [ 'Tjeckien', '420' ],
+		'TR' => [ 'Turkiet', '90' ],
+		'DE' => [ 'Tyskland', '49' ],
+		'UA' => [ 'Ukraina', '380' ],
+		'HU' => [ 'Ungern', '36' ],
+		'US' => [ 'USA', '1' ],
+		'AT' => [ 'Österrike', '43' ],
+	];
+
 	/** Kampanjkakan. Namnet speglas i JS (COOKIE) och i cookie-deklarationen. */
 	public const SOURCE_COOKIE = 'xf_src';
 
@@ -407,6 +472,7 @@ final class Relativt_Form {
 			'required' => 'Fyll i detta fält.',
 			'email'    => 'Kontrollera e-postadressen.',
 			'tel'      => 'Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.',
+			'phone_country' => 'Land och landsnummer',
 			'number'   => 'Ange ett nummer.',
 			'date'     => 'Kontrollera datumet.',
 			'url'      => 'Ange en giltig webbadress, t.ex. https://exempel.se.',
@@ -692,6 +758,37 @@ final class Relativt_Form {
 							'default_value' => 'full',
 							'wrapper' => [ 'width' => '33' ],
 							'choices' => [ 'full' => 'Hel bredd', 'half' => 'Halv bredd (1/2)', 'third' => 'Tredjedels bredd (1/3)' ],
+						],
+						/*
+						 * 1.12.0. Telefonfält med landsväljare: rullista med flagga
+						 * och landsnummer framför numret. Av som standard – då är
+						 * fältet ett vanligt telefonfält, precis som förut.
+						 */
+						[
+							'key'               => 'field_xf_f_phone_country',
+							'label'             => 'Landsväljare',
+							'name'              => 'phone_country',
+							'type'              => 'true_false',
+							'ui'                => 1,
+							'default_value'     => 0,
+							'wrapper'           => [ 'width' => '50' ],
+							'instructions'      => 'Visar en rullista med flagga och landsnummer framför numret. Av = ett vanligt telefonfält.',
+							'conditional_logic' => [ [
+								[ 'field' => 'field_xf_f_type', 'operator' => '==', 'value' => 'tel' ],
+							] ],
+						],
+						[
+							'key'               => 'field_xf_f_phone_default',
+							'label'             => 'Förvalt land',
+							'name'              => 'phone_default',
+							'type'              => 'select',
+							'default_value'     => 'SE',
+							'wrapper'           => [ 'width' => '50' ],
+							'choices'           => self::phone_country_choices(),
+							'conditional_logic' => [ [
+								[ 'field' => 'field_xf_f_type', 'operator' => '==', 'value' => 'tel' ],
+								[ 'field' => 'field_xf_f_phone_country', 'operator' => '==', 'value' => '1' ],
+							] ],
 						],
 						/*
 						 * 1.8.0. Webbläsarens ifyllnadshjälp – och WCAG 1.3.5,
@@ -1087,6 +1184,9 @@ final class Relativt_Form {
 				'stats'       => ! empty( $row['stats'] ) && in_array( $type, self::STATS_TYPES, true ),
 				// '' = automatiskt, 'off' = inget, annars en token ur AUTOCOMPLETE.
 				'autocomplete' => self::clean_autocomplete( $row['autocomplete'] ?? '' ),
+				// Landsväljare (1.12.0). Bara telefonfält kan ha en; '' i förvalet = sajtens standard.
+				'phone_country' => ! empty( $row['phone_country'] ) && 'tel' === $type,
+				'phone_default' => self::clean_country( $row['phone_default'] ?? '' ),
 			];
 		}
 
@@ -1096,6 +1196,149 @@ final class Relativt_Form {
 	private static function clean_autocomplete( $value ): string {
 		$value = is_string( $value ) ? trim( $value ) : '';
 		return 'off' === $value || isset( self::AUTOCOMPLETE[ $value ] ) ? $value : '';
+	}
+
+	/* ---------------------------------------------------------------------
+	 * Landsväljare för telefonfält (1.12.0)
+	 * ------------------------------------------------------------------ */
+
+	/**
+	 * Länderna efter filtret relativt_form_phone_countries, rensade så att en
+	 * trasig post från en sajt inte kan ge trasig markup.
+	 *
+	 * @return array<string,array{name:string,dial:string}> ISO-kod => namn och landsnummer
+	 */
+	public static function phone_countries(): array {
+		$list = [];
+		foreach ( self::PHONE_COUNTRIES as $iso => [ $name, $dial ] ) {
+			$list[ $iso ] = [ 'name' => $name, 'dial' => $dial ];
+		}
+
+		$filtered = apply_filters( 'relativt_form_phone_countries', $list );
+		$out      = [];
+		foreach ( is_array( $filtered ) ? $filtered : [] as $iso => $country ) {
+			$iso  = strtoupper( (string) $iso );
+			$name = is_array( $country ) ? trim( (string) ( $country['name'] ?? '' ) ) : '';
+			$dial = is_array( $country ) ? preg_replace( '/\D+/', '', (string) ( $country['dial'] ?? '' ) ) : '';
+			if ( preg_match( '/^[A-Z]{2}$/', $iso ) && '' !== $name && '' !== $dial && '0' !== $dial[0] ) {
+				$out[ $iso ] = [ 'name' => $name, 'dial' => $dial ];
+			}
+		}
+
+		return $out;
+	}
+
+	/** Valen i byggarens "Förvalt land": ISO-kod => "Sverige (+46)". */
+	public static function phone_country_choices(): array {
+		$choices = [];
+		foreach ( self::phone_countries() as $iso => $c ) {
+			$choices[ $iso ] = $c['name'] . ' (+' . $c['dial'] . ')';
+		}
+		return $choices;
+	}
+
+	/** En giltig ISO-kod ur listan, annars '' (= sajtens standard). Även importens enda väg in. */
+	public static function clean_country( $value ): string {
+		$value = is_string( $value ) ? strtoupper( trim( $value ) ) : '';
+		return isset( self::phone_countries()[ $value ] ) ? $value : '';
+	}
+
+	/**
+	 * Flaggan som emoji, räknad ur landskoden (två regionala indikatorer).
+	 * Windows ritar dem som två bokstäver i stället för en flagga – det läses
+	 * fortfarande som landskoden, så väljaren går att använda.
+	 */
+	private static function flag_emoji( string $iso ): string {
+		$iso = strtoupper( $iso );
+		if ( ! preg_match( '/^[A-Z]{2}$/', $iso ) || ! function_exists( 'mb_chr' ) ) {
+			return '';
+		}
+		return mb_chr( 0x1F1E6 + ord( $iso[0] ) - 65, 'UTF-8' ) . mb_chr( 0x1F1E6 + ord( $iso[1] ) - 65, 'UTF-8' );
+	}
+
+	/**
+	 * Landet ett inskrivet nummer i internationell form hör till (+47 … eller
+	 * 0047 …), eller '' om numret inte börjar med ett känt landsnummer. Längsta
+	 * landsnumret vinner; vid lika vinner det som står först i listan, så +1
+	 * blir USA. Speglas av matchDial() i relativt-formular.js.
+	 */
+	private static function phone_country_of( string $value, array $countries ): string {
+		$value  = trim( $value );
+		$digits = preg_replace( '/\D+/', '', $value ) ?? '';
+		if ( str_starts_with( $value, '00' ) ) {
+			$digits = substr( $digits, 2 );
+		} elseif ( ! str_starts_with( $value, '+' ) ) {
+			return '';
+		}
+
+		$best = '';
+		$len  = 0;
+		foreach ( $countries as $iso => $c ) {
+			if ( strlen( $c['dial'] ) > $len && str_starts_with( $digits, $c['dial'] ) ) {
+				$best = (string) $iso;
+				$len  = strlen( $c['dial'] );
+			}
+		}
+		return $best;
+	}
+
+	/** Landet fältet börjar med: byggarens val, annars filtret, annars Sverige, annars första landet. */
+	private function phone_default_for( array $f, array $countries ): string {
+		$iso = (string) ( $f['phone_default'] ?? '' );
+		if ( ! isset( $countries[ $iso ] ) ) {
+			$iso = strtoupper( (string) apply_filters( 'relativt_form_phone_default_country', 'SE', $f ) );
+		}
+		if ( ! isset( $countries[ $iso ] ) ) {
+			$iso = (string) array_key_first( $countries );
+		}
+		return $iso;
+	}
+
+	/**
+	 * Telefonfältet med landsväljare. Själva numret är ett vanligt tel-fält med
+	 * fältets id och namn, förifyllt med landsnumret (+46 ), så allt som läser
+	 * fältet – validering, villkor, inskick – ser precis det som förut. Rullistan
+	 * är bara ett hjälpmedel: den saknar namn, bär data-xf-aux och skickas aldrig
+	 * med. Den syns som flagga + pil; själva <select>:en ligger osynlig ovanpå, så
+	 * tangentbord, skärmläsare och mobilens egen väljare fungerar som vanligt.
+	 */
+	private function render_phone_country( array $f, string $id, string $name, string $value, string $ph, string $hints, string $required ): void {
+		$countries = self::phone_countries();
+		if ( ! $countries ) {
+			return;
+		}
+
+		$selected = '' !== trim( $value ) ? self::phone_country_of( $value, $countries ) : '';
+		if ( '' === $selected ) {
+			$selected = $this->phone_default_for( $f, $countries );
+		}
+		if ( '' === trim( $value ) ) {
+			$value = '+' . $countries[ $selected ]['dial'] . ' ';
+		}
+
+		$msg = $this->messages();
+
+		echo '<div class="xf-phone"><span class="xf-phone-cc">'; // phpcs:ignore
+		echo '<span class="xf-phone-flag" aria-hidden="true">' . esc_html( self::flag_emoji( $selected ) ) . '</span>';
+		echo '<span class="xf-phone-arrow" aria-hidden="true"></span>';
+		echo '<select class="xf-phone-select" id="' . esc_attr( $id . '-cc' ) . '" aria-label="' . esc_attr( $msg['phone_country'] ?? 'Land och landsnummer' ) . '" data-xf-aux>'; // phpcs:ignore
+		foreach ( $countries as $iso => $c ) {
+			$flag = self::flag_emoji( (string) $iso );
+			printf(
+				'<option value="%s" data-dial="%s" data-flag="%s"%s>%s</option>',
+				esc_attr( (string) $iso ), esc_attr( $c['dial'] ), esc_attr( $flag ),
+				selected( (string) $iso, $selected, false ), // phpcs:ignore
+				// Inget flaggtecken först i texten: webbläsarens skriv-för-att-välja matchar
+				// början av texten, så "Dan" skulle annars aldrig hitta Danmark.
+				esc_html( $c['name'] . ' (+' . $c['dial'] . ')' )
+			);
+		}
+		echo '</select></span>';
+		printf(
+			'<input class="xf-input xf-phone-input" type="tel" id="%s" name="%s" value="%s"%s%s%s>',
+			esc_attr( $id ), esc_attr( $name ), esc_attr( $value ), $ph, $hints, $required // phpcs:ignore
+		);
+		echo '</div>';
 	}
 
 	/**
@@ -1539,6 +1782,12 @@ final class Relativt_Form {
 				$autocomplete = $this->autocomplete_for( $f );
 				if ( '' !== $autocomplete ) {
 					$hints .= ' autocomplete="' . esc_attr( $autocomplete ) . '"';
+				}
+
+				// 1.12.0: telefonfält med landsväljare. Utan valet är markupen oförändrad.
+				if ( 'tel' === $type && ! empty( $f['phone_country'] ) ) {
+					$this->render_phone_country( $f, $id, $name, $value, $ph, $hints, $required );
+					break;
 				}
 
 				printf(

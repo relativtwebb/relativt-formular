@@ -43,6 +43,7 @@
 	--xf-accent-text: #ffffff;   /* knappens text och ikon */
 	--xf-icon-size: 22px;        /* ikonen i knappen */
 	--xf-icon-stroke: 2;         /* linjetjocklek för ikoner ur Lucide */
+	--xf-phone-divider: #d8d6d2; /* linjen mellan landsväljaren och numret */
 	--xf-error: #b32d2e;
 	--xf-focus-ring: #2b2a28;
 	/* Brytpunkten (768px) ligger hårdkodad i media-frågorna längre ned –
@@ -237,6 +238,83 @@
 .relativt-form .xf-textarea {
 	min-height: 210px;
 	resize: vertical;
+}
+
+/* Telefonfält med landsväljare (1.12.0). Flaggan och pilen är bara utseende;
+   den riktiga <select>:en ligger osynlig ovanpå och tar emot klick, tangentbord
+   och mobilens egen väljare. */
+.relativt-form .xf-phone {
+	display: flex;
+	align-items: stretch;
+	width: 100%;
+}
+
+.relativt-form .xf-phone-cc {
+	position: relative;
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	min-width: 84px;
+	padding: 0 var(--xf-field-pad-x);
+	border: 1px solid transparent;
+	border-right: 1px solid var(--xf-phone-divider);
+	border-radius: var(--xf-radius) 0 0 var(--xf-radius);
+	background: var(--xf-field-bg);
+	color: var(--xf-text);
+	transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+
+.relativt-form .xf-phone-cc:hover,
+.relativt-form .xf-phone-cc:focus-within {
+	background: var(--xf-field-bg-focus);
+}
+
+.relativt-form .xf-phone-cc:focus-within {
+	border-color: var(--xf-focus-ring);
+}
+
+.relativt-form .has-error .xf-phone-cc {
+	border-color: var(--xf-error);
+}
+
+.relativt-form .xf-phone-flag {
+	font-size: 1.3em;
+	line-height: 1;
+}
+
+.relativt-form .xf-phone-arrow {
+	width: 0;
+	height: 0;
+	border-top: 6px solid currentColor;
+	border-right: 5px solid transparent;
+	border-left: 5px solid transparent;
+}
+
+.relativt-form .xf-phone-select {
+	position: absolute;
+	/* Täcker också kantlinjen, så att hela rutan går att klicka på. */
+	top: -1px;
+	left: -1px;
+	width: calc(100% + 2px);
+	height: calc(100% + 2px);
+	margin: 0;
+	padding: 0;
+	border: 0;
+	opacity: 0;
+	cursor: pointer;
+	font-family: inherit;
+	font-size: var(--xf-input-size);
+	appearance: none;
+	-webkit-appearance: none;
+}
+
+.relativt-form .xf-phone-input {
+	flex: 1 1 auto;
+	width: auto;
+	min-width: 0;
+	border-radius: 0 var(--xf-radius) var(--xf-radius) 0;
 }
 
 /* Rullista med egen pil */

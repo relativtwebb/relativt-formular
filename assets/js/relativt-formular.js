@@ -430,6 +430,66 @@
 		return null;
 	};
 
+	/* -------------------------------------------------------------------------
+	 * Landsväljare för telefonfält (1.12.0)
+	 *
+	 * Fältet är ett vanligt tel-fält, förifyllt med landsnumret, plus en
+	 * rullista som bara hjälper till att byta prefixet. Allt nedan lever i
+	 * webbläsaren: servern får numret som en vanlig sträng och validerar det med
+	 * normalize_phone() precis som förut. Ändras något här som gör att ett
+	 * nummer räknas som giltigt eller ogiltigt, ändra det i PHP också.
+	 * ---------------------------------------------------------------------- */
+
+	/** Landsnumret (utan plus) för det valda landet i rullistan. */
+	const dialOf = (select) => select?.selectedOptions?.[0]?.dataset?.dial ?? '';
+
+	/**
+	 * Landet ett nummer i internationell form (+47 … / 0047 …) hör till, eller
+	 * null. Längsta landsnumret vinner; vid lika vinner det som står först, så
+	 * +1 blir USA. Speglar phone_country_of() i class-relativt-form.php.
+	 */
+	const matchDial = (select, value) => {
+		const input = value.trim();
+		let digits = input.replace(/\D+/g, '');
+		if (input.startsWith('00')) digits = digits.slice(2);
+		else if (!input.startsWith('+')) return null;
+
+		let best = null;
+		for (const option of select.options) {
+			const dial = option.dataset.dial ?? '';
+			if (dial && digits.startsWith(dial) && (best === null || dial.length > best.dataset.dial.length)) best = option;
+		}
+		return best;
+	};
+
+	/**
+	 * Det fältet skickar och valideras som. Tomt om bara landsnumret står kvar.
+	 * Ett nummer utan landsnummer får det valda landets. Nollan före
+	 * abonnentnumret (070…, 07946…) tas bort – annars blir +44 07946 …
+	 * ett nummer som inte går att ringa. Italien är undantaget: där ingår nollan.
+	 * Text som inte går att tolka lämnas orörd, så att den vanliga valideringen
+	 * avvisar den med samma meddelande som förut.
+	 */
+	const composePhone = (raw, dial) => {
+		const value = raw.trim();
+		if (value === '' || dial === '') return value;
+
+		const international = value.startsWith('+') || value.startsWith('00');
+		let digits = value.replace(/\D+/g, '');
+		if (value.startsWith('00')) digits = digits.slice(2);
+
+		if (international) {
+			if (!digits.startsWith(dial)) return value;
+			digits = digits.slice(dial.length);
+			if (digits === '') return /[^\d\s+()-]/.test(value) ? value : '';
+		} else if (digits === '') {
+			return value;
+		}
+
+		const national = dial === '39' ? digits : digits.replace(/^0+/, '');
+		return national === '' ? value : `+${dial}${national}`;
+	};
+
 	/**
 	 * Speglar datumkontrollen i validate(): formatet räcker inte, 2026-13-45
 	 * matchar mönstret. Date-objektet rullar över ogiltiga datum (13:e månaden
@@ -487,12 +547,68 @@
 			this.fields = [...root.querySelectorAll('[data-xf-key]')].filter((el) => el.dataset.xfKey !== '');
 
 			this.applyUrlPresets();
+			// Efter förvalen: ett förifyllt nummer kan tillhöra ett annat land än förvalda.
+			this.wirePhoneFields();
 			this.mountTurnstile();
 			this.wireA11y();
 			this.bind();
 			this.evaluateConditions();
 
 			root.classList.add('is-ready');
+		}
+
+		/**
+		 * Landsväljaren (1.12.0). Rullistan byter landsnumret först i fältet; skriver
+		 * besökaren själv ett annat landsnummer (eller webbläsaren autofyller ett helt
+		 * nummer) följer rullistan och flaggan med, så att de aldrig pekar åt olika håll.
+		 */
+		wirePhoneFields() {
+			for (const wrap of this.root.querySelectorAll('.xf-phone')) {
+				const select = wrap.querySelector('.xf-phone-select');
+				const input = wrap.querySelector('.xf-phone-input');
+				const flag = wrap.querySelector('.xf-phone-flag');
+				if (!select || !input) continue;
+
+				let previous = dialOf(select);
+				const showFlag = () => {
+					if (flag) flag.textContent = select.selectedOptions[0]?.dataset.flag ?? '';
+				};
+
+				// Ett förifyllt nummer (shortcode-attribut, sparat värde) kan tillhöra ett annat land.
+				const sync = () => {
+					const match = matchDial(select, input.value);
+					if (match && match.dataset.dial !== dialOf(select)) {
+						select.value = match.value;
+						previous = match.dataset.dial;
+					}
+					showFlag();
+				};
+
+				select.addEventListener('change', () => {
+					const dial = dialOf(select);
+					const typed = input.value.trim();
+					const old = matchDial(select, typed);
+					const oldDial = old ? old.dataset.dial : previous;
+
+					if (typed === '' || composePhone(typed, previous) === '') {
+						input.value = `+${dial} `;
+					} else if (typed.startsWith('+') || typed.startsWith('00')) {
+						// Ett nummer med landsnummer: byt bara landsnumret, behåll resten.
+						const rest = typed.replace(/^(\+|00)\s*/, '').slice(oldDial.length);
+						input.value = `+${dial}${rest.startsWith(' ') ? '' : ' '}${rest}`;
+					} else {
+						input.value = `+${dial} ${typed}`;
+					}
+
+					previous = dial;
+					showFlag();
+					// Samma väg som när besökaren skriver: rensar ett visat fel m.m.
+					input.dispatchEvent(new Event('input', { bubbles: true }));
+				});
+
+				input.addEventListener('input', sync);
+				sync();
+			}
 		}
 
 		/**
@@ -519,7 +635,8 @@
 		}
 
 		inputs(wrapper) {
-			return [...wrapper.querySelectorAll('input, select, textarea')].filter((el) => el.name !== 'xf_website');
+			// data-xf-aux = hjälpkontroll som aldrig är en del av värdet (landsväljaren).
+			return [...wrapper.querySelectorAll('input, select, textarea')].filter((el) => el.name !== 'xf_website' && !el.hasAttribute('data-xf-aux'));
 		}
 
 		valueOf(key) {
@@ -538,6 +655,9 @@
 				const checked = inputs.filter((el) => el.checked);
 				if (inputs.length === 1) return checked.length ? '1' : '';
 				return checked.map((el) => el.value).join(', ');
+			}
+			if (first.classList.contains('xf-phone-input')) {
+				return composePhone(first.value ?? '', dialOf(wrapper.querySelector('.xf-phone-select')));
 			}
 			return first.value ?? '';
 		}

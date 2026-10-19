@@ -2048,6 +2048,103 @@ check( 'submitted: inskicks-id 0 när lagring är av', is_array( $args190 ) && 0
 
 $reset190();
 
+echo "\nTelefonfält med landsväljare (1.12.0)\n";
+
+$render_form_method = new ReflectionMethod( $engine, 'render_form' );
+$render_form_method->setAccessible( true );
+$render_phone = static function ( array $field, array $presets = [] ) use ( $engine, $render_form_method ): string {
+	$GLOBALS['__form']['xf_fields'] = [ array_merge( [ 'type' => 'tel', 'key' => 'mobil', 'label' => 'Mobil' ], $field ) ];
+	Relativt_Form::flush_fields_cache();
+	return (string) $render_form_method->invoke( $engine, 12, $presets, '' );
+};
+
+// Av som standard: ett vanligt telefonfält ger exakt samma markup som före 1.12.0.
+$plain_tel = $render_phone( [] );
+check( 'utan valet är telefonfältet ett vanligt fält', ! str_contains( $plain_tel, 'xf-phone' ) && str_contains( $plain_tel, 'type="tel"' ) );
+check( 'valet går inte att slå på för andra typer', ! str_contains( $render_phone( [ 'type' => 'text', 'phone_country' => 1 ] ), 'xf-phone' ) );
+
+$cc = $render_phone( [ 'phone_country' => 1 ] );
+check( 'landsväljaren renderar rullista och nummerfält', str_contains( $cc, 'class="xf-phone"' ) && str_contains( $cc, 'class="xf-phone-select"' ) && str_contains( $cc, 'xf-phone-input' ) );
+check( 'numret behåller fältets id och namn, rullistan saknar namn', 1 === preg_match( '/<input class="xf-input xf-phone-input" type="tel" id="([^"]+)" name="fields\[mobil\]"/', $cc, $m_cc ) && ! preg_match( '/<select[^>]*\sname=/', $cc ) );
+check( 'rullistan är en hjälpkontroll som aldrig skickas med', str_contains( $cc, 'data-xf-aux' ) );
+check( 'etiketten pekar på numret, inte på rullistan', str_contains( $cc, 'for="' . $m_cc[1] . '"' ) );
+check( 'rullistan har ett tillgängligt namn', str_contains( $cc, 'aria-label="Land och landsnummer"' ) );
+check( 'numret är förifyllt med Sverige som standard', str_contains( $cc, 'value="+46 "' ) && str_contains( $cc, '<option value="SE" data-dial="46" data-flag="🇸🇪" selected="selected">Sverige (+46)</option>' ) );
+check( 'rullistans texter börjar med landsnamnet, så att skriv-för-att-välja fungerar', ! preg_match( '/<option[^>]*>[^A-Za-zÅÄÖåäö]/u', $cc ) );
+check( 'flaggan visas från start', str_contains( $cc, '<span class="xf-phone-flag" aria-hidden="true">🇸🇪</span>' ) );
+check( 'tangentbord och autofyll är de samma som i ett vanligt telefonfält', str_contains( $cc, 'inputmode="tel"' ) && str_contains( $cc, 'autocomplete="tel"' ) );
+
+$no = $render_phone( [ 'phone_country' => 1, 'phone_default' => 'NO' ] );
+check( 'förvalt land styr förifyllnaden och valet', str_contains( $no, 'value="+47 "' ) && str_contains( $no, 'value="NO" data-dial="47" data-flag="🇳🇴" selected="selected"' ) );
+check( 'okänt förvalt land faller tillbaka på Sverige', str_contains( $render_phone( [ 'phone_country' => 1, 'phone_default' => 'ZZ' ] ), 'value="+46 "' ) );
+
+$preset = $render_phone( [ 'phone_country' => 1 ], [ 'mobil' => '+45 12 34 56 78' ] );
+check( 'ett förvalt nummer från ett annat land väljer det landet', str_contains( $preset, 'value="+45 12 34 56 78"' ) && str_contains( $preset, 'value="DK" data-dial="45" data-flag="🇩🇰" selected="selected"' ) );
+$preset_national = $render_phone( [ 'phone_country' => 1 ], [ 'mobil' => '070-123 45 67' ] );
+check( 'ett förvalt nummer utan landsnummer lämnas orört', str_contains( $preset_national, 'value="070-123 45 67"' ) && str_contains( $preset_national, 'value="SE" data-dial="46" data-flag="🇸🇪" selected="selected"' ) );
+
+$required = $render_phone( [ 'phone_country' => 1, 'required' => 1 ] );
+check( 'obligatoriskt följer med på numret och inte på rullistan', 1 === preg_match( '/xf-phone-input"[^>]*\srequired>/', $required ) && ! preg_match( '/<select[^>]*required/', $required ) );
+
+// Flaggan och landsnumret för några länder, så att listan inte glider isär.
+$countries = Relativt_Form::phone_countries();
+check( 'listan börjar med Norden', array_slice( array_keys( $countries ), 0, 5 ) === [ 'SE', 'NO', 'DK', 'FI', 'IS' ] );
+check( 'landsnumren är bara siffror och börjar aldrig på noll', array_reduce( $countries, static fn( $ok, $c ) => $ok && preg_match( '/^[1-9]\d{0,3}$/', $c['dial'] ), true ) );
+check( 'varje land har en tvåbokstavskod och ett namn', array_reduce( array_keys( $countries ), static fn( $ok, $iso ) => $ok && preg_match( '/^[A-Z]{2}$/', $iso ) && '' !== $countries[ $iso ]['name'], true ) );
+
+// Valideringen är oförändrad: numret är en vanlig sträng.
+$GLOBALS['__form']['xf_fields'] = [ [ 'type' => 'tel', 'key' => 'mobil', 'label' => 'Mobil', 'phone_country' => 1 ] ];
+Relativt_Form::flush_fields_cache();
+$cc_ok = $engine->validate( 12, [ 'mobil' => '+46701234567' ] );
+check( 'ett svenskt nummer med landsnummer sparas som förut', 'mobil' === ( $cc_ok['values'][0]['key'] ?? '' ) && '0701234567' === $cc_ok['values'][0]['value'] && ! $cc_ok['errors'] );
+$cc_no = $engine->validate( 12, [ 'mobil' => '+4791234567' ] );
+check( 'ett norskt nummer sparas internationellt', '+4791234567' === ( $cc_no['values'][0]['value'] ?? '' ) && ! $cc_no['errors'] );
+$cc_bad = $engine->validate( 12, [ 'mobil' => 'ring mig' ] );
+check( 'text avvisas med samma meddelande som förut', ( $cc_bad['errors']['mobil'] ?? '' ) === $engine->messages()['tel'] );
+
+// get_fields: flaggan följer typen, så ett fält som byter typ inte får landsväljare i smyg.
+$gf = $engine->get_fields( 12 );
+check( 'get_fields bär landsväljaren på telefonfält', true === $gf[0]['phone_country'] && '' === $gf[0]['phone_default'] );
+$GLOBALS['__form']['xf_fields'] = [ [ 'type' => 'text', 'key' => 'mobil', 'label' => 'Mobil', 'phone_country' => 1, 'phone_default' => 'NO' ] ];
+Relativt_Form::flush_fields_cache();
+check( 'men inte på andra typer', false === $engine->get_fields( 12 )[0]['phone_country'] );
+
+// Filtren.
+$hooks_before = $GLOBALS['__hooks'];
+add_filter( 'relativt_form_phone_countries', static function ( array $list ): array {
+	$list['XX'] = [ 'name' => 'Testland', 'dial' => '+999' ];     // plus rensas bort
+	$list['yy'] = [ 'name' => '', 'dial' => '98' ];               // utan namn: släpps inte in
+	$list['ZZ'] = [ 'name' => 'Nolland', 'dial' => '0123' ];      // landsnummer börjar aldrig på noll
+	$list['AAA'] = [ 'name' => 'För lång kod', 'dial' => '12' ];
+	unset( $list['IS'] );
+	return $list;
+} );
+$filtered = Relativt_Form::phone_countries();
+check( 'filtret kan lägga till land, och landsnumret rensas', ( $filtered['XX']['dial'] ?? '' ) === '999' );
+check( 'filtret kan ta bort land', ! isset( $filtered['IS'] ) );
+check( 'trasiga poster från filtret släpps inte in', ! isset( $filtered['YY'] ) && ! isset( $filtered['ZZ'] ) && ! isset( $filtered['AAA'] ) );
+check( 'ett borttaget land är ingen giltig import', '' === Relativt_Form::clean_country( 'IS' ) && 'XX' === Relativt_Form::clean_country( 'xx' ) );
+$GLOBALS['__hooks'] = $hooks_before;
+
+add_filter( 'relativt_form_phone_default_country', static fn() => 'DK' );
+check( 'filtret byter standardland för fält utan eget val', str_contains( $render_phone( [ 'phone_country' => 1 ] ), 'value="+45 "' ) );
+check( 'men fältets eget val vinner', str_contains( $render_phone( [ 'phone_country' => 1, 'phone_default' => 'FI' ] ), 'value="+358 "' ) );
+$GLOBALS['__hooks'] = $hooks_before;
+
+// Export och import.
+$GLOBALS['__form']['xf_fields'] = [ [ 'type' => 'tel', 'key' => 'mobil', 'label' => 'Mobil', 'phone_country' => 1, 'phone_default' => 'NO' ] ];
+Relativt_Form::flush_fields_cache();
+$exported = Relativt_Form_Portability::instance()->build_payload( 12 )['settings']['xf_fields'][0] ?? [];
+check( 'landsväljaren och förvalt land följer med i exporten', 1 === (int) ( $exported['phone_country'] ?? 0 ) && 'NO' === ( $exported['phone_default'] ?? '' ) );
+$clean_cc = new ReflectionMethod( Relativt_Form_Portability::class, 'clean' );
+$clean_cc->setAccessible( true );
+$port_cc = Relativt_Form_Portability::instance();
+check( 'import: ett känt land godkänns', 'NO' === $clean_cc->invoke( $port_cc, 'no', 'country' ) );
+check( 'import: ett okänt land eller markup blir tomt', '' === $clean_cc->invoke( $port_cc, '"><script>', 'country' ) && '' === $clean_cc->invoke( $port_cc, [ 'NO' ], 'country' ) );
+
+$GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
+
 echo "\n" . str_repeat( '─', 50 ) . "\n";
 printf( "%d godkända, %d underkända\n\n", $passed, $failed );
 exit( $failed > 0 ? 1 : 0 );

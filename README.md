@@ -62,6 +62,15 @@ Fält för besökarens egna uppgifter får ett `autocomplete`-attribut, så att 
 - **Ett uttryckligt värde** (Namn, Förnamn, Företag/organisation …) när fältet heter något annat.
 - **Inget** för fält som inte är en uppgift om besökaren, t.ex. *Namn på er kontaktperson hos oss*.
 
+### Telefonfält med landsväljare
+
+Fälttypen Telefon har valet **Landsväljare** (av som standard). På: en rullista med flagga och landsnummer framför numret, och numret förifyllt med landsnumret. **Förvalt land** väljs per fält. Av: ett vanligt telefonfält, precis som förut.
+
+- Byter besökaren land byts landsnumret och numret behålls. Skriver besökaren ett annat landsnummer följer rullistan med.
+- Fältet skickas som ett vanligt värde (`+46701234567`), nollan före abonnentnumret tas bort (Italien undantaget), och bara landsnumret kvar räknas som tomt. Servern validerar som vanligt och sparar svenska nummer som `0701234567`.
+- Länderna (Norden först, sedan resten av Europa och några till) kan ändras med filtret `relativt_form_phone_countries`, standardlandet med `relativt_form_phone_default_country`.
+- Windows ritar flaggemojis som bokstäver (`SE`); väljaren fungerar ändå.
+
 ### Ikon i knappen
 
 Under formulärets flik **Texter** väljer du **Ikon i knappen** i ett rutnät med ikoner. **Ingen ikon** ger en knapp med bara text. Urvalet är 35 vanliga ikoner ur [Lucide](https://lucide.dev) – pilar, skicka, brev, bock, telefon, kalender, ladda ner, varukorg m.fl. – inbyggda i pluginet, så sidan hämtar inget från tredje part.
@@ -116,6 +125,7 @@ Typsnittet behöver aldrig sättas – formuläret ärver alltid sajtens (`font-
 | `--xf-accent` / `--xf-accent-text` | `#2b2a28` / `#fff` | skicka-knappen |
 | `--xf-icon-size` | `22px` | ikonen i knappen |
 | `--xf-icon-stroke` | `2` | linjetjocklek för ikoner ur Lucide (standardpilen är fylld och påverkas inte) |
+| `--xf-phone-divider` | `#d8d6d2` | linjen mellan landsväljaren och numret i telefonfält |
 | `--xf-error` | `#b32d2e` | felmeddelanden |
 | `--xf-focus-ring` | `#2b2a28` | fokusram |
 
@@ -194,6 +204,8 @@ add_filter( 'relativt_form_submit_icon_class', fn( $c ) => trim( "$c ct-fancy-ic
 | `relativt_form_submit_icon_class` | `''` | Extra klasser på ikonen |
 | `relativt_form_submit_icon` | ikonen som valts i formuläret | Byt ikonens SVG, eller returnera `''` för ingen ikon. Får `$svg`, `$form_id` och `$icon_key`. Vinner över valet i byggaren |
 | `relativt_form_messages` | svenska texter | Byt besökartexterna (felmeddelanden m.m.). Samma lista driver PHP och JS |
+| `relativt_form_phone_countries` | inbyggd lista | Länderna i landsväljaren: `ISO => [ 'name' => …, 'dial' => … ]`. Ordningen styr rullistan |
+| `relativt_form_phone_default_country` | `'SE'` | Standardland för landsväljare utan eget val. Får `$field` |
 | `relativt_form_max_links` | `3` | Max antal länkar i en textruta innan inskicket avvisas. `0` stänger av |
 | `relativt_form_utm_cookie` | `'auto'` | Kampanjkakans samtyckesläge: `auto`, `always` eller `never` |
 | `relativt_form_consent_categories` | `attribution`: statistics, marketing · `click_ids`: marketing | Samtyckeskategorierna för kampanjkakans två delar, se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke) |
@@ -480,10 +492,12 @@ export interface FormField {
   choices: Record<string, string>;   // värde => etikett, {} om inga val
   default: string;
   required: boolean;
-  width: 'full' | 'half';
+  width: 'full' | 'half' | 'third';
   cond_field: string;
   cond_value: string;
   autocomplete: string;              // färdigt värde för attributet, '' = inget
+  phone_country: boolean;            // telefonfält med landsväljare (1.12.0)
+  phone_default: string;             // ISO-kod för förvalt land, '' = sajtens standard
 }
 
 export interface FormDefinition {

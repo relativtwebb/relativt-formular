@@ -3,6 +3,22 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.12.0] – 2026-10-19
+
+Telefonfält kan få en **landsväljare**. **Formulär som inte rörs är oförändrade** – valet är av som standard.
+
+### Tillagt
+- **Landsväljare** på fälttypen Telefon i byggaren: en rullista med flagga och landsnummer framför numret, och numret förifyllt med landsnumret (`+46 `). **Förvalt land** väljs per fält (Sverige om inget anges).
+- Byter besökaren land byts landsnumret i fältet och numret behålls. Skriver besökaren själv ett annat landsnummer, eller webbläsaren autofyller ett helt nummer, följer rullistan och flaggan med.
+- Numret skickas som `+<landsnummer><nummer>` utan mellanrum. Nollan före abonnentnumret tas bort (`+44 07946 …` blir `+447946…`), utom för Italien där nollan ingår. Står bara landsnumret kvar räknas fältet som tomt. Servern validerar med samma `normalize_phone()` som förut, så svenska nummer sparas fortfarande i formen `0701234567`.
+- Filtren **`relativt_form_phone_countries`** (lägg till, ta bort eller sortera om länder: `'NO' => [ 'name' => 'Norge', 'dial' => '47' ]`) och **`relativt_form_phone_default_country`** (standardland, `'SE'`).
+- `phone_country` och `phone_default` följer med i JSON-exporten och i `GET /form/{id}`.
+- CSS-variabeln **`--xf-phone-divider`** för linjen mellan landsväljaren och numret.
+
+### Att veta
+- Rullistan är en vanlig `<select>` utan namn som ligger osynlig över flaggan, så tangentbord, skärmläsare och mobilens egen väljare fungerar. I listan står landsnamnet först (`Danmark (+45)`) så att skriv-för-att-välja fungerar.
+- Windows ritar flaggemojis som två bokstäver (`SE`) i stället för en flagga. Det läses som landskoden och väljaren fungerar, men ser inte likadant ut som på Mac och mobil.
+
 ## [1.11.0] – 2026-10-16
 
 Fält kan nu få **tredjedels bredd** – tre fält på samma rad.
