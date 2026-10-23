@@ -31,7 +31,7 @@ Saknas ACF Pro startar motorn ändå, så att posttyper, sparade formulär och i
 
 Ladda ner senaste zip-filen under [Releases](../../releases), installera under **Insticksprogram → Lägg till → Ladda upp**, aktivera.
 
-Uppdateringar dyker sedan upp som vanligt under Insticksprogram så fort en ny release taggas här.
+Uppdateringar dyker sedan upp som vanligt under Insticksprogram så fort en ny release taggas här. Bara formulär som är **publicerade** visas för besökare och tar emot inskick; ett utkast visas inte (redaktörer ser en notis i stället).
 
 ## Användning
 
@@ -651,7 +651,9 @@ git tag v1.0.1
 git push origin v1.0.1
 ```
 
-Resten sköter `release.yml`: den kontrollerar att taggen matchar Version-headern, kör servertesterna, bygger zippen och publicerar releasen med zippen bifogad och changelog-avsnittet som beskrivning.
+Resten sköter `release.yml`: den kontrollerar att taggen matchar Version-headern, kör servertesterna, bygger zippen och publicerar releasen med zippen bifogad och changelog-avsnittet som beskrivning. Sist i beskrivningen skrivs zippens SHA-256 (`SHA256: …`).
+
+**Uppdateraren installerar inget utan den summan.** Från 1.12.1 hämtar den zippen själv, jämför dess SHA-256 med release-texten (och GitHubs egen summa för tillgången) och vägrar installera om något inte stämmer. Paketet måste också ligga på `github.com` under repots egen sökväg. Publicerar du en release för hand, utan `release.yml`, måste zippen därför bifogas och raden `SHA256: <64 tecken>` stå på en egen rad i beskrivningen – annars erbjuds ingen uppdatering. Skyddet hindrar en manipulerad nedladdning och en pekad-om adress; det hjälper inte om någon tar över GitHub-kontot och publicerar en egen release. Slå därför på tvåfaktorsinloggning och skydda taggarna `v*` under repots inställningar.
 
 Kundsajterna ser uppdateringen inom tolv timmar — uppdateraren cachar GitHub-svaret så länge. Ska den fram direkt: **Insticksprogram → Sök efter uppdateringar**, eller töm transienten `relativt_form_release_*`.
 

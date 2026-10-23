@@ -663,6 +663,22 @@ final class Relativt_Form_Stats {
 		return [ "{$wpdb->posts} p" . $join, $where, $args ];
 	}
 
+	/**
+	 * Läser ett metafält som lästs rakt ur databasen. Det är alltid en array
+	 * som pluginet själv serialiserat, så objekt behövs aldrig: allowed_classes
+	 * stänger den väg där en manipulerad rad i databasen kunde instansiera
+	 * en klass (maybe_unserialize tillåter alla).
+	 *
+	 * @return mixed
+	 */
+	private static function read_meta( string $raw ) {
+		if ( '' === $raw || ! is_serialized( $raw ) ) {
+			return $raw;
+		}
+
+		return @unserialize( trim( $raw ), [ 'allowed_classes' => false ] ); // phpcs:ignore WordPress.PHP.NoSilencedErrors, WordPress.PHP.DiscouragedPHPFunctions -- allowed_classes är satt.
+	}
+
 	private static function has_db(): bool {
 		global $wpdb;
 		return isset( $wpdb ) && is_object( $wpdb );
@@ -713,7 +729,7 @@ final class Relativt_Form_Stats {
 
 			foreach ( $posts as $post ) {
 				$m    = $meta[ (int) $post->ID ] ?? [];
-				$data = maybe_unserialize( (string) ( $m['_xf_meta'] ?? '' ) );
+				$data = self::read_meta( (string) ( $m['_xf_meta'] ?? '' ) );
 
 				// IP-adressen och samtyckestexten ligger i samma metafält men används aldrig här – släpp dem direkt.
 				if ( is_array( $data ) ) {
@@ -723,7 +739,7 @@ final class Relativt_Form_Stats {
 				$fid     = (int) ( $m['_xf_form_id'] ?? 0 );
 				$answers = [];
 				if ( isset( $tracked_keys[ $fid ] ) ) {
-					$values = maybe_unserialize( (string) ( $m['_xf_values'] ?? '' ) );
+					$values = self::read_meta( (string) ( $m['_xf_values'] ?? '' ) );
 					foreach ( is_array( $values ) ? $values : [] as $v ) {
 						$k = (string) ( $v['key'] ?? '' );
 						if ( in_array( $k, $tracked_keys[ $fid ], true ) ) {

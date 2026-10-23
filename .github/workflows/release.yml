@@ -56,13 +56,23 @@ jobs:
       # Zippen bifogas som release-tillgång. Utan den faller uppdateraren
       # tillbaka på GitHubs zipball, som packar upp till "repo-1.0.1/" i
       # stället för "relativt-formular/".
+      #
+      # Sista raden i release-texten är zippens SHA-256. Uppdateraren
+      # (1.12.1+) hämtar zippen själv, jämför summan och installerar inget
+      # som inte stämmer – utan raden erbjuds ingen uppdatering alls.
       - name: Publicera release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           NOTES=$(awk '/^## \[/{ if (seen++) exit; next } seen' CHANGELOG.md)
 
+          ZIPS=(dist/*.zip)
+          [ "${#ZIPS[@]}" -eq 1 ] || { echo "::error::Väntade exakt en zip i dist/, hittade ${#ZIPS[@]}."; exit 1; }
+          SHA=$(sha256sum "${ZIPS[0]}" | cut -d' ' -f1)
+
           gh release create "$GITHUB_REF_NAME" \
-            dist/*.zip \
+            "${ZIPS[0]}" \
             --title "$GITHUB_REF_NAME" \
-            --notes "${NOTES:-Se CHANGELOG.md}"
+            --notes "${NOTES:-Se CHANGELOG.md}
+
+          SHA256: $SHA"

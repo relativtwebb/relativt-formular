@@ -3,6 +3,22 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.12.1] – 2026-10-23
+
+Säkerhetsrättning efter en genomgång av koden. Inga nya funktioner.
+
+### Ändrat
+- **Uppdateraren kontrollerar paketet.** Zippen hämtas bara från `github.com` under det egna repots sökväg (https, ingen port eller användaruppgift i adressen), och installeras bara om dess SHA-256 stämmer med releasen. Summan hämtas ur raden `SHA256: …` sist i release-texten (som `release.yml` skriver dit) och ur GitHubs egen summa för tillgången; finns båda måste de vara lika. Stämmer något inte avbryts uppdateringen med ett fel och den nedladdade filen raderas. GitHubs zipball används aldrig.
+- **Formulär som inte är publicerade tar inte emot inskick.** `GET /token` och `POST /submit` svarar 404 för utkast, väntande, privata, schemalagda och borttagna formulär, precis som `GET /form/{id}` redan gjorde. Tidigare gick det att skicka till ett ofärdigt formulär genom att gissa dess id, vilket sparade inskicket och mailade formulärets mottagare.
+- Mailets ämnesrad rensas från radbrytningar. Ämnet byggs av besökardata (`{fältnyckel}`), och en textruta behåller radbrytningar.
+- Statistiken läser inskickens metadata med `allowed_classes => false`. Datat är alltid arrayer som pluginet själv sparat, så ingenting ändras för befintliga inskick.
+
+### Att veta
+- **Kontrollera formulärstatus före uppdateringen.** Ett formulär som ligger som *utkast* men är inbäddat på en publik sida slutar fungera: shortcoden ritar inte längre ut det för besökare (redaktörer ser en notis) och inskick avvisas. Publicera formuläret. Lista dem med `wp post list --post_type=relativt_form --post_status=draft,pending,private,future --fields=ID,post_title,post_status`.
+- Importerade formulär skapas som utkast och måste publiceras innan de visas.
+- **Gäller från och med nästa uppdatering.** Sajter som kör 1.12.0 uppdateras till 1.12.1 med den gamla uppdateraren, som inte kontrollerar summan. Skyddet börjar gälla för uppdateringen *efter* 1.12.1.
+- En release utan bifogad zip, utan `SHA256:`-rad eller med en zip utanför repots sökväg erbjuds inte som uppdatering. Flyttas repot till ett nytt namn måste `RELATIVT_FORM_REPO` följa med, annars slutar uppdateringarna tyst.
+
 ## [1.12.0] – 2026-10-19
 
 Telefonfält kan få en **landsväljare**. **Formulär som inte rörs är oförändrade** – valet är av som standard.

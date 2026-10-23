@@ -1448,6 +1448,18 @@ final class Relativt_Form {
 				: '';
 		}
 
+		/*
+		 * 1.12.1: REST-rutterna tar bara emot inskick till publicerade
+		 * formulär. Ett utkast som ändå ritades ut skulle se ut att fungera
+		 * och sedan svara "Okänt formulär" när besökaren tryckt på Skicka.
+		 * Redaktörer får veta varför; besökare ser ingenting.
+		 */
+		if ( ! $this->is_published_form( $form_id ) ) {
+			return current_user_can( 'edit_posts' )
+				? '<p class="relativt-form-notice">Formuläret är inte publicerat och tar inte emot inskick. Publicera det för att visa det för besökare.</p>'
+				: '';
+		}
+
 		$fields = $this->get_fields( $form_id );
 		if ( ! $fields ) {
 			return current_user_can( 'edit_posts' )
@@ -1815,6 +1827,16 @@ final class Relativt_Form {
 	 * REST
 	 * ------------------------------------------------------------------ */
 
+	/**
+	 * Finns formuläret OCH är det publicerat? Utkast, formulär i papperskorgen
+	 * och privata formulär tar varken emot token eller inskick. Annars kan
+	 * vem som helst som gissar ett post-id (de är heltal) fylla ett
+	 * ofärdigt formulärs inkorg och skicka mail till dess mottagare.
+	 */
+	private function is_published_form( int $form_id ): bool {
+		return self::CPT_FORM === get_post_type( $form_id ) && 'publish' === get_post_status( $form_id );
+	}
+
 	public function register_routes(): void {
 		register_rest_route( self::REST_NS, '/token', [
 			'methods'             => 'GET',
@@ -1878,7 +1900,7 @@ final class Relativt_Form {
 	 */
 	public function rest_form( WP_REST_Request $request ) {
 		$form_id = (int) $request->get_param( 'id' );
-		if ( get_post_type( $form_id ) !== self::CPT_FORM || get_post_status( $form_id ) !== 'publish' ) {
+		if ( ! $this->is_published_form( $form_id ) ) {
 			return new WP_Error( 'xf_no_form', 'Okänt formulär.', [ 'status' => 404 ] );
 		}
 
@@ -1918,7 +1940,7 @@ final class Relativt_Form {
 	 */
 	public function rest_token( WP_REST_Request $request ) {
 		$form_id = (int) $request->get_param( 'form' );
-		if ( get_post_type( $form_id ) !== self::CPT_FORM ) {
+		if ( ! $this->is_published_form( $form_id ) ) {
 			return new WP_Error( 'xf_no_form', 'Okänt formulär.', [ 'status' => 404 ] );
 		}
 
@@ -1935,7 +1957,7 @@ final class Relativt_Form {
 		$form_id = (int) ( $body['form'] ?? 0 );
 		$msg     = $this->messages();
 
-		if ( get_post_type( $form_id ) !== self::CPT_FORM ) {
+		if ( ! $this->is_published_form( $form_id ) ) {
 			return $this->fail( 'Okänt formulär.', 404 );
 		}
 
@@ -2735,7 +2757,15 @@ final class Relativt_Form {
 			break; // Första matchande regel vinner.
 		}
 
-		return [ $to, $this->interpolate( $subject, $values ) ];
+		/*
+		 * Ämnet byggs av besökardata ({fältnyckel}) och textrutor behåller
+		 * radbrytningar. En rubrik får aldrig innehålla CR/LF – det är så
+		 * header-injektion går till. PHPMailer rensar också, men ett
+		 * mail-plugin eller en SMTP-krok behöver inte göra det.
+		 */
+		$subject = trim( (string) preg_replace( '/[\r\n]+/', ' ', $this->interpolate( $subject, $values ) ) );
+
+		return [ $to, $subject ];
 	}
 
 	/** Byter {faltnyckel} mot inskickat värde. */
