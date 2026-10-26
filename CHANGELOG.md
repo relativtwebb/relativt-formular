@@ -3,6 +3,20 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.12.2] – 2026-10-26
+
+Rättar felet **"Sessionen har gått ut. Ladda om sidan och försök igen."** som utloggade besökare kunde få vid inskick på sajter med sid-, REST- eller CDN-cache. Inga nya funktioner.
+
+### Rättat
+- **Token-svaret cachas inte längre.** `GET /token` skickar `Cache-Control: no-store, no-cache, must-revalidate, max-age=0`, `Pragma: no-cache`, ett utgånget `Expires` och `X-LiteSpeed-Cache-Control: no-cache`, sätter `DONOTCACHEPAGE` och anropar LiteSpeed Cache-kroken `litespeed_control_set_nocache`. Tidigare saknade svaret cache-headers för utloggade. LiteSpeed Cache cachar REST-svar som standard och serverade då samma nonce till alla besökare. En nonce gäller bara 12–24 timmar, så när den cachade var äldre än så avvisades varje inskick med `nonce`. JS:ens omförsök (ny token, en gång) fick samma gamla svar från cachen och föll också.
+- Felet syntes aldrig vid test, eftersom cacheprogram går förbi inloggade användare – de får alltid en färsk token. Även ett test i inkognitofönster kan lyckas så länge den cachade token är ung.
+- **JS-anropet till `/token` får en unik parameter (`&_=<tid>`) och `cache: 'no-store'`**, så att inte heller en cache, CDN eller proxy som struntar i serverns headers kan servera ett gammalt svar.
+
+### Att veta
+- Uppdatera pluginet och töm sedan sajtens cache (Purge All), så att ett redan cachat token-svar försvinner. Ett undantag för `/wp-json/relativt-form/` i cacheprogrammet behövs inte längre men skadar inte.
+- Har sajten en annan cache framför servern (CDN, värdens egen cache) räcker `no-store` i regel, eftersom den respekteras av de flesta. Gör den inte det hjälper den unika parametern i JS-anropet.
+- Headless: ett eget frontend som hämtar `/token` bör också lägga en unik parameter och `cache: 'no-store'` på anropet. Servern skickar rätt headers, men en egen proxy mellan frontend och WordPress kan fortfarande cacha.
+
 ## [1.12.1] – 2026-10-23
 
 Säkerhetsrättning efter en genomgång av koden. Inga nya funktioner.

@@ -194,10 +194,13 @@ class WP_REST_Request {
 class WP_REST_Response {
 	public $data;
 	public $status;
+	public $headers = [];
 	public function __construct( $data = null, $status = 200 ) {
 		$this->data   = $data;
 		$this->status = $status;
 	}
+	public function header( $key, $value, $replace = true ) { $this->headers[ $key ] = $value; }
+	public function get_headers() { return $this->headers; }
 }
 
 class WP_Error {

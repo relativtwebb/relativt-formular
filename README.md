@@ -451,7 +451,7 @@ Definitionen innehåller fälten (som byggaren sparat dem, rubriker inräknade; 
 ### Flödet
 
 1. **Hämta definitionen vid bygget** (eller med ISR) och rendera fälten. Honungsfältet (`honeypot`, i dag `xf_website`) renderas som ett textfält med samma namn, flyttat utanför skärmen – inte `display: none`, en del bottar hoppar över helt dolda fält. Villkorliga fält (`cond_field`/`cond_value`) utvärderas med samma regel som servern: fältet visas om **antingen** det tekniska värdet **eller** etiketten på det styrande fältet matchar något av de kommaseparerade värdena i `cond_value` (skiftlägesokänsligt); tomt `cond_value` = det styrande fältet ska bara ha ett värde. Dolda fält skickas inte med.
-2. **Hämta token vid första fokus/input**, inte vid sidladdning – nonce har en livslängd och sidan kan vara cachad. Tidsspärren (3 s) mäts från token.
+2. **Hämta token vid första fokus/input**, inte vid sidladdning – nonce har en livslängd och sidan kan vara cachad. Tidsspärren (3 s) mäts från token. Svaret skickas med `Cache-Control: no-store` (från 1.12.2), men lägg ändå en unik parameter (`&_=<tid>`) och `cache: 'no-store'` på anropet, så att inte en egen proxy eller CDN mellan frontend och WordPress serverar ett gammalt svar – en cachad nonce avvisas med `nonce` när den är äldre än 12–24 timmar.
 3. **POST `/submit` med JSON.** `credentials: 'omit'` räcker. `page` är frontendens egen adress. Värden: valfält skickar det tekniska värdet (nyckeln i `choices`), Flerval en array av värden, Kryssruta `"1"` eller `""`.
 4. **Hantera svaren som pluginets egen JS:**
    - `200 { ok: true, title, text, redirect? }` → visa tacktexten (eller följ `redirect`, om frontend vill).

@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.12.1
+Stable tag: 1.12.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,10 @@ Utan samtyckesverktyg skrivs kampanjkakan inte längre. Se CHANGELOG för hur
 det gamla beteendet behålls.
 
 == Changelog ==
+
+= 1.12.2 =
+Rättar "Sessionen har gått ut" för utloggade besökare på sajter med sid-,
+REST- eller CDN-cache. Token-svaret cachas inte längre. Se CHANGELOG.
 
 = 1.12.1 =
 Säkerhetsrättning. Uppdateraren installerar bara en zip från GitHub vars

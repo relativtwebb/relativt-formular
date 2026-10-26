@@ -45,6 +45,14 @@ final class Relativt_Form {
 	/** Minsta antal sekunder mellan att token hämtas och formuläret skickas. */
 	private const MIN_SECONDS = 3;
 
+	/** Headers som håller token-svaret utanför sid- och CDN-cacher. */
+	public const NO_CACHE_HEADERS = [
+		'Cache-Control'             => 'no-store, no-cache, must-revalidate, max-age=0, private',
+		'Pragma'                    => 'no-cache',
+		'Expires'                   => 'Wed, 11 Jan 1984 05:00:00 GMT',
+		'X-LiteSpeed-Cache-Control' => 'no-cache',
+	];
+
 	/** Max antal inskick per IP inom fönstret nedan. */
 	private const RATE_LIMIT   = 5;
 	private const RATE_WINDOW  = 600; // 10 minuter.
@@ -1944,12 +1952,30 @@ final class Relativt_Form {
 			return new WP_Error( 'xf_no_form', 'Okänt formulär.', [ 'status' => 404 ] );
 		}
 
-		$ts = time();
-		return [
+		/*
+		 * Token-svaret får ALDRIG cachas. En sidcache eller CDN som sparar det
+		 * serverar samma nonce till alla utloggade besökare tills cachen går
+		 * ut – och en nonce lever bara 12–24 timmar. Är den gammal avvisas
+		 * varje inskick med "Sessionen har gått ut", och JS:ens omförsök får
+		 * samma gamla svar från cachen. Inloggade märker inget, eftersom
+		 * cacheprogram går förbi dem – därför syns felet aldrig vid test.
+		 */
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			define( 'DONOTCACHEPAGE', true );
+		}
+		// LiteSpeed Cache (REST-cachen är på som standard) har ett eget API.
+		do_action( 'litespeed_control_set_nocache', 'relativt-form token' );
+
+		$ts       = time();
+		$response = new WP_REST_Response( [
 			'nonce' => wp_create_nonce( self::NONCE_ACTION . '_' . $form_id ),
 			'ts'    => $ts,
 			'sig'   => $this->sign( $form_id . '|' . $ts ),
-		];
+		] );
+		foreach ( self::NO_CACHE_HEADERS as $name => $value ) {
+			$response->header( $name, $value );
+		}
+		return $response;
 	}
 
 	public function rest_submit( WP_REST_Request $request ) {

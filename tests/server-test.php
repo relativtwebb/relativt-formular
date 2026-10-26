@@ -880,8 +880,36 @@ foreach ( [ 'draft', 'pending', 'private', 'trash', 'future' ] as $status ) {
 }
 $GLOBALS['__post_status'] = [];
 $GLOBALS['__transients']  = [];
-$tok = $engine->rest_token( new WP_REST_Request( [ 'form' => 12 ] ) );
+$tok_res = $engine->rest_token( new WP_REST_Request( [ 'form' => 12 ] ) );
+$tok     = $tok_res instanceof WP_REST_Response ? $tok_res->data : null;
 check( 'ett publicerat formulär får fortfarande token', is_array( $tok ) && isset( $tok['nonce'], $tok['ts'], $tok['sig'] ) );
+
+/*
+ * Token-svaret får inte cachas av en sidcache eller CDN. Cachas det serveras
+ * samma nonce till alla utloggade tills den går ut, och då avvisas varje
+ * inskick med "Sessionen har gått ut" – även efter JS:ens omförsök, som får
+ * samma gamla svar. Inloggade märker inget (cacheprogram går förbi dem).
+ */
+$tok_headers = $tok_res instanceof WP_REST_Response ? $tok_res->get_headers() : [];
+check( 'token-svaret skickar Cache-Control: no-store', str_contains( (string) ( $tok_headers['Cache-Control'] ?? '' ), 'no-store' ) );
+check( '…och no-cache, must-revalidate, max-age=0', str_contains( (string) ( $tok_headers['Cache-Control'] ?? '' ), 'no-cache' ) && str_contains( (string) ( $tok_headers['Cache-Control'] ?? '' ), 'must-revalidate' ) && str_contains( (string) ( $tok_headers['Cache-Control'] ?? '' ), 'max-age=0' ) );
+check( '…Pragma: no-cache och ett utgånget Expires', 'no-cache' === ( $tok_headers['Pragma'] ?? '' ) && '' !== ( $tok_headers['Expires'] ?? '' ) );
+check( '…och LiteSpeeds egen header X-LiteSpeed-Cache-Control: no-cache', 'no-cache' === ( $tok_headers['X-LiteSpeed-Cache-Control'] ?? '' ) );
+check( 'sidcacher som läser DONOTCACHEPAGE går förbi token-svaret', defined( 'DONOTCACHEPAGE' ) && true === DONOTCACHEPAGE );
+
+$nocache_calls = [];
+add_action( 'litespeed_control_set_nocache', static function ( $why = '' ) use ( &$nocache_calls ) {
+	$nocache_calls[] = $why;
+} );
+$engine->rest_token( new WP_REST_Request( [ 'form' => 12 ] ) );
+check( 'LiteSpeed Cache får veta att token-svaret inte ska cachas (litespeed_control_set_nocache)', 1 === count( $nocache_calls ) );
+
+// Varje token är ny: ts följer klockan, och svaret är signerat för formuläret.
+check( 'token-svarets ts är aktuellt (inte en cachad kopia)', abs( time() - (int) ( $tok['ts'] ?? 0 ) ) <= 2 );
+
+// Ett fel (okänt formulär) cachas inte heller som ett lyckat svar.
+$missing = $engine->rest_token( new WP_REST_Request( [ 'form' => 999999 ] ) );
+check( 'okänt formulär ger fortfarande 404, inte ett token-svar', $missing instanceof WP_Error );
 $res = $engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
 check( 'och tar fortfarande emot inskick', 200 === $res->status && true === ( $res->data['ok'] ?? false ) );
 $GLOBALS['__transients'] = [];

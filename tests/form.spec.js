@@ -622,6 +622,26 @@ test('utgången nonce hämtar ny token och gör om inskicket', async ({ page }) 
 	expect(await page.evaluate(() => window.__mockCalls.length)).toBe(2);
 });
 
+test('token-anropet har en unik parameter och går förbi webbläsarens och cachens kopia', async ({ page }) => {
+	// Nonce-omförsöket hämtar token två gånger i samma besök.
+	await page.goto(DEMO);
+	await page.evaluate(() => {
+		window.__mockFail = { status: 403, payload: { ok: false, code: 'nonce', message: 'Sessionen har gått ut.' }, once: true };
+	});
+
+	const form = page_form(page);
+	await fillValid(form);
+	await form.locator('.xf-submit').click();
+	await expect(form).toHaveClass(/is-submitted/);
+
+	const calls = await page.evaluate(() => window.__tokenCalls);
+	expect(calls.length).toBe(2);
+	for (const call of calls) {
+		expect(call.href).toMatch(/[?&]form=\d+&_=\d+$/);
+		expect(call.cache).toBe('no-store');
+	}
+});
+
 /* -----------------------------------------------------------------------------
  * Länkspärr och tillgänglighet
  * -------------------------------------------------------------------------- */
