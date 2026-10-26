@@ -45,6 +45,14 @@ final class Relativt_Form {
 	/** Minsta antal sekunder mellan att token hämtas och formuläret skickas. */
 	private const MIN_SECONDS = 3;
 
+	/** Headers som håller token-svaret utanför sid- och CDN-cacher. */
+	public const NO_CACHE_HEADERS = [
+		'Cache-Control'             => 'no-store, no-cache, must-revalidate, max-age=0, private',
+		'Pragma'                    => 'no-cache',
+		'Expires'                   => 'Wed, 11 Jan 1984 05:00:00 GMT',
+		'X-LiteSpeed-Cache-Control' => 'no-cache',
+	];
+
 	/** Max antal inskick per IP inom fönstret nedan. */
 	private const RATE_LIMIT   = 5;
 	private const RATE_WINDOW  = 600; // 10 minuter.
@@ -1448,6 +1456,18 @@ final class Relativt_Form {
 				: '';
 		}
 
+		/*
+		 * 1.12.1: REST-rutterna tar bara emot inskick till publicerade
+		 * formulär. Ett utkast som ändå ritades ut skulle se ut att fungera
+		 * och sedan svara "Okänt formulär" när besökaren tryckt på Skicka.
+		 * Redaktörer får veta varför; besökare ser ingenting.
+		 */
+		if ( ! $this->is_published_form( $form_id ) ) {
+			return current_user_can( 'edit_posts' )
+				? '<p class="relativt-form-notice">Formuläret är inte publicerat och tar inte emot inskick. Publicera det för att visa det för besökare.</p>'
+				: '';
+		}
+
 		$fields = $this->get_fields( $form_id );
 		if ( ! $fields ) {
 			return current_user_can( 'edit_posts' )
@@ -1815,6 +1835,16 @@ final class Relativt_Form {
 	 * REST
 	 * ------------------------------------------------------------------ */
 
+	/**
+	 * Finns formuläret OCH är det publicerat? Utkast, formulär i papperskorgen
+	 * och privata formulär tar varken emot token eller inskick. Annars kan
+	 * vem som helst som gissar ett post-id (de är heltal) fylla ett
+	 * ofärdigt formulärs inkorg och skicka mail till dess mottagare.
+	 */
+	private function is_published_form( int $form_id ): bool {
+		return self::CPT_FORM === get_post_type( $form_id ) && 'publish' === get_post_status( $form_id );
+	}
+
 	public function register_routes(): void {
 		register_rest_route( self::REST_NS, '/token', [
 			'methods'             => 'GET',
@@ -1878,7 +1908,7 @@ final class Relativt_Form {
 	 */
 	public function rest_form( WP_REST_Request $request ) {
 		$form_id = (int) $request->get_param( 'id' );
-		if ( get_post_type( $form_id ) !== self::CPT_FORM || get_post_status( $form_id ) !== 'publish' ) {
+		if ( ! $this->is_published_form( $form_id ) ) {
 			return new WP_Error( 'xf_no_form', 'Okänt formulär.', [ 'status' => 404 ] );
 		}
 
@@ -1918,16 +1948,34 @@ final class Relativt_Form {
 	 */
 	public function rest_token( WP_REST_Request $request ) {
 		$form_id = (int) $request->get_param( 'form' );
-		if ( get_post_type( $form_id ) !== self::CPT_FORM ) {
+		if ( ! $this->is_published_form( $form_id ) ) {
 			return new WP_Error( 'xf_no_form', 'Okänt formulär.', [ 'status' => 404 ] );
 		}
 
-		$ts = time();
-		return [
+		/*
+		 * Token-svaret får ALDRIG cachas. En sidcache eller CDN som sparar det
+		 * serverar samma nonce till alla utloggade besökare tills cachen går
+		 * ut – och en nonce lever bara 12–24 timmar. Är den gammal avvisas
+		 * varje inskick med "Sessionen har gått ut", och JS:ens omförsök får
+		 * samma gamla svar från cachen. Inloggade märker inget, eftersom
+		 * cacheprogram går förbi dem – därför syns felet aldrig vid test.
+		 */
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			define( 'DONOTCACHEPAGE', true );
+		}
+		// LiteSpeed Cache (REST-cachen är på som standard) har ett eget API.
+		do_action( 'litespeed_control_set_nocache', 'relativt-form token' );
+
+		$ts       = time();
+		$response = new WP_REST_Response( [
 			'nonce' => wp_create_nonce( self::NONCE_ACTION . '_' . $form_id ),
 			'ts'    => $ts,
 			'sig'   => $this->sign( $form_id . '|' . $ts ),
-		];
+		] );
+		foreach ( self::NO_CACHE_HEADERS as $name => $value ) {
+			$response->header( $name, $value );
+		}
+		return $response;
 	}
 
 	public function rest_submit( WP_REST_Request $request ) {
@@ -1935,7 +1983,7 @@ final class Relativt_Form {
 		$form_id = (int) ( $body['form'] ?? 0 );
 		$msg     = $this->messages();
 
-		if ( get_post_type( $form_id ) !== self::CPT_FORM ) {
+		if ( ! $this->is_published_form( $form_id ) ) {
 			return $this->fail( 'Okänt formulär.', 404 );
 		}
 
@@ -2735,7 +2783,15 @@ final class Relativt_Form {
 			break; // Första matchande regel vinner.
 		}
 
-		return [ $to, $this->interpolate( $subject, $values ) ];
+		/*
+		 * Ämnet byggs av besökardata ({fältnyckel}) och textrutor behåller
+		 * radbrytningar. En rubrik får aldrig innehålla CR/LF – det är så
+		 * header-injektion går till. PHPMailer rensar också, men ett
+		 * mail-plugin eller en SMTP-krok behöver inte göra det.
+		 */
+		$subject = trim( (string) preg_replace( '/[\r\n]+/', ' ', $this->interpolate( $subject, $values ) ) );
+
+		return [ $to, $subject ];
 	}
 
 	/** Byter {faltnyckel} mot inskickat värde. */

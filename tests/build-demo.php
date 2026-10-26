@@ -201,6 +201,7 @@ window.__mockCalls = [];
 // mocken efter ETT svar – så retry-testerna kan låta första försöket falla
 // och det andra lyckas, precis som mot en riktig server.
 window.__mockFail = null;
+window.__tokenCalls = [];
 // Sätt till en URL för att efterlikna ett formulär med tack-sida angiven.
 window.__mockRedirect = null;
 
@@ -210,6 +211,7 @@ window.fetch = async (url, options = {}) => {
 	const href = String(url);
 
 	if (href.includes('/token')) {
+		window.__tokenCalls.push({ href, cache: options.cache || null });
 		const ts = Math.floor(Date.now() / 1000) - 60; // äldre än tidsspärren
 		return new Response(JSON.stringify({ nonce: 'test-nonce', ts, sig: 'test-sig' }), {
 			status: 200, headers: { 'Content-Type': 'application/json' },

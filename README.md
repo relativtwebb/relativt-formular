@@ -31,7 +31,7 @@ Saknas ACF Pro startar motorn ändå, så att posttyper, sparade formulär och i
 
 Ladda ner senaste zip-filen under [Releases](../../releases), installera under **Insticksprogram → Lägg till → Ladda upp**, aktivera.
 
-Uppdateringar dyker sedan upp som vanligt under Insticksprogram så fort en ny release taggas här.
+Uppdateringar dyker sedan upp som vanligt under Insticksprogram så fort en ny release taggas här. Bara formulär som är **publicerade** visas för besökare och tar emot inskick; ett utkast visas inte (redaktörer ser en notis i stället).
 
 ## Användning
 
@@ -451,7 +451,7 @@ Definitionen innehåller fälten (som byggaren sparat dem, rubriker inräknade; 
 ### Flödet
 
 1. **Hämta definitionen vid bygget** (eller med ISR) och rendera fälten. Honungsfältet (`honeypot`, i dag `xf_website`) renderas som ett textfält med samma namn, flyttat utanför skärmen – inte `display: none`, en del bottar hoppar över helt dolda fält. Villkorliga fält (`cond_field`/`cond_value`) utvärderas med samma regel som servern: fältet visas om **antingen** det tekniska värdet **eller** etiketten på det styrande fältet matchar något av de kommaseparerade värdena i `cond_value` (skiftlägesokänsligt); tomt `cond_value` = det styrande fältet ska bara ha ett värde. Dolda fält skickas inte med.
-2. **Hämta token vid första fokus/input**, inte vid sidladdning – nonce har en livslängd och sidan kan vara cachad. Tidsspärren (3 s) mäts från token.
+2. **Hämta token vid första fokus/input**, inte vid sidladdning – nonce har en livslängd och sidan kan vara cachad. Tidsspärren (3 s) mäts från token. Svaret skickas med `Cache-Control: no-store` (från 1.12.2), men lägg ändå en unik parameter (`&_=<tid>`) och `cache: 'no-store'` på anropet, så att inte en egen proxy eller CDN mellan frontend och WordPress serverar ett gammalt svar – en cachad nonce avvisas med `nonce` när den är äldre än 12–24 timmar.
 3. **POST `/submit` med JSON.** `credentials: 'omit'` räcker. `page` är frontendens egen adress. Värden: valfält skickar det tekniska värdet (nyckeln i `choices`), Flerval en array av värden, Kryssruta `"1"` eller `""`.
 4. **Hantera svaren som pluginets egen JS:**
    - `200 { ok: true, title, text, redirect? }` → visa tacktexten (eller följ `redirect`, om frontend vill).
@@ -651,7 +651,9 @@ git tag v1.0.1
 git push origin v1.0.1
 ```
 
-Resten sköter `release.yml`: den kontrollerar att taggen matchar Version-headern, kör servertesterna, bygger zippen och publicerar releasen med zippen bifogad och changelog-avsnittet som beskrivning.
+Resten sköter `release.yml`: den kontrollerar att taggen matchar Version-headern, kör servertesterna, bygger zippen och publicerar releasen med zippen bifogad och changelog-avsnittet som beskrivning. Sist i beskrivningen skrivs zippens SHA-256 (`SHA256: …`).
+
+**Uppdateraren installerar inget utan den summan.** Från 1.12.1 hämtar den zippen själv, jämför dess SHA-256 med release-texten (och GitHubs egen summa för tillgången) och vägrar installera om något inte stämmer. Paketet måste också ligga på `github.com` under repots egen sökväg. Publicerar du en release för hand, utan `release.yml`, måste zippen därför bifogas och raden `SHA256: <64 tecken>` stå på en egen rad i beskrivningen – annars erbjuds ingen uppdatering. Skyddet hindrar en manipulerad nedladdning och en pekad-om adress; det hjälper inte om någon tar över GitHub-kontot och publicerar en egen release. Slå därför på tvåfaktorsinloggning och skydda taggarna `v*` under repots inställningar.
 
 Kundsajterna ser uppdateringen inom tolv timmar — uppdateraren cachar GitHub-svaret så länge. Ska den fram direkt: **Insticksprogram → Sök efter uppdateringar**, eller töm transienten `relativt_form_release_*`.
 

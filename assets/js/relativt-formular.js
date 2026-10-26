@@ -916,11 +916,15 @@
 		/**
 		 * Nonce och tidsstämpel hämtas separat, så att en cachad sida inte
 		 * serverar en utgången nonce. Tidsstämpeln är signerad på servern.
+		 * Anropet får en unik parameter och cache: 'no-store', så att inte
+		 * heller en sidcache, CDN eller proxy som struntar i serverns headers
+		 * kan servera ett gammalt svar.
 		 */
 		fetchToken() {
 			if (this.token) return Promise.resolve(this.token);
-			this.tokenPromise ??= fetch(`${this.rest}token?form=${encodeURIComponent(this.id)}`, {
+			this.tokenPromise ??= fetch(`${this.rest}token?form=${encodeURIComponent(this.id)}&_=${Date.now()}`, {
 				credentials: 'same-origin',
+				cache: 'no-store',
 			})
 				.then((r) => (r.ok ? r.json() : null))
 				.then((data) => {

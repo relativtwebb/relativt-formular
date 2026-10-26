@@ -194,10 +194,13 @@ class WP_REST_Request {
 class WP_REST_Response {
 	public $data;
 	public $status;
+	public $headers = [];
 	public function __construct( $data = null, $status = 200 ) {
 		$this->data   = $data;
 		$this->status = $status;
 	}
+	public function header( $key, $value, $replace = true ) { $this->headers[ $key ] = $value; }
+	public function get_headers() { return $this->headers; }
 }
 
 class WP_Error {
@@ -330,6 +333,9 @@ if ( ! function_exists( 'get_the_date' ) ) {
 	function get_the_date( $format = '', $post = null ) { return '2026-10-01 09:30'; }
 }
 function home_url( $path = '' ) { return 'https://exempel.se/' . ltrim( (string) $path, '/' ); }
+function is_serialized( $data ) {
+	return is_string( $data ) && 1 === preg_match( '/^(?:[aOsibd]:|N;)/', trim( $data ) );
+}
 function maybe_unserialize( $v ) {
 	if ( is_string( $v ) && preg_match( '/^[aOsibd]:/', $v ) ) {
 		$u = @unserialize( $v, [ 'allowed_classes' => false ] );

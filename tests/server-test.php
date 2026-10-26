@@ -306,6 +306,14 @@ $GLOBALS['__form']['xf_subject'] = 'Nytt från {namn} ({jagar})';
 check( 'fältnycklar i ämnesraden byts ut', $subject4 === 'Nytt från Anna (Företag)', $subject4 );
 $GLOBALS['__form'] = xf_test_form();
 
+// Ämnet byggs av besökardata. Radbrytningar (header-injektion) får inte ut.
+$GLOBALS['__form']['xf_subject'] = 'Meddelande: {namn}';
+$injected = [ [ 'key' => 'namn', 'label' => 'Namn', 'type' => 'textarea', 'value' => "Anna\r\nBcc: offer@exempel.se\nX-Spam: 1", 'raw' => '' ] ];
+[ , $subject5 ] = call( $engine, 'resolve_recipient', [ 12, $injected ] );
+check( 'radbrytningar i ämnesraden tas bort', ! preg_match( '/[\r\n]/', $subject5 ), json_encode( $subject5 ) );
+check( 'resten av texten finns kvar', str_starts_with( $subject5, 'Meddelande: Anna' ) && str_contains( $subject5, 'Bcc: offer@exempel.se' ), $subject5 );
+$GLOBALS['__form'] = xf_test_form();
+
 echo "\nMail\n";
 
 $GLOBALS['__mail'] = [];
@@ -854,6 +862,64 @@ check( 'valideringsfel svarar 422 per fält', 422 === $res->status && isset( $re
 $res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'form' => 999 ] ) ) );
 check( 'okänt formulär svarar 404', 404 === $res->status );
 
+/*
+ * 1.12.1: bara PUBLICERADE formulär tar emot token och inskick. Post-id:n är
+ * heltal, så annars kan vem som helst fylla ett ofärdigt formulärs inkorg
+ * och skicka mail till dess mottagare.
+ */
+foreach ( [ 'draft', 'pending', 'private', 'trash', 'future' ] as $status ) {
+	$GLOBALS['__post_status'][12] = $status;
+	$GLOBALS['__mail']            = [];
+	$GLOBALS['__posts']           = [];
+	$GLOBALS['__transients']      = [];
+	$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+	check( "inskick till ett formulär med status {$status} svarar 404", 404 === $res->status && false === ( $res->data['ok'] ?? true ) );
+	check( "…och ingenting sparas eller mailas ({$status})", [] === $GLOBALS['__posts'] && [] === $GLOBALS['__mail'] );
+	$tok = $engine->rest_token( new WP_REST_Request( [ 'form' => 12 ] ) );
+	check( "token för ett formulär med status {$status} svarar 404", $tok instanceof WP_Error && 404 === ( $tok->data['status'] ?? 0 ) );
+}
+$GLOBALS['__post_status'] = [];
+$GLOBALS['__transients']  = [];
+$tok_res = $engine->rest_token( new WP_REST_Request( [ 'form' => 12 ] ) );
+$tok     = $tok_res instanceof WP_REST_Response ? $tok_res->data : null;
+check( 'ett publicerat formulär får fortfarande token', is_array( $tok ) && isset( $tok['nonce'], $tok['ts'], $tok['sig'] ) );
+
+/*
+ * Token-svaret får inte cachas av en sidcache eller CDN. Cachas det serveras
+ * samma nonce till alla utloggade tills den går ut, och då avvisas varje
+ * inskick med "Sessionen har gått ut" – även efter JS:ens omförsök, som får
+ * samma gamla svar. Inloggade märker inget (cacheprogram går förbi dem).
+ */
+$tok_headers = $tok_res instanceof WP_REST_Response ? $tok_res->get_headers() : [];
+check( 'token-svaret skickar Cache-Control: no-store', str_contains( (string) ( $tok_headers['Cache-Control'] ?? '' ), 'no-store' ) );
+check( '…och no-cache, must-revalidate, max-age=0', str_contains( (string) ( $tok_headers['Cache-Control'] ?? '' ), 'no-cache' ) && str_contains( (string) ( $tok_headers['Cache-Control'] ?? '' ), 'must-revalidate' ) && str_contains( (string) ( $tok_headers['Cache-Control'] ?? '' ), 'max-age=0' ) );
+check( '…Pragma: no-cache och ett utgånget Expires', 'no-cache' === ( $tok_headers['Pragma'] ?? '' ) && '' !== ( $tok_headers['Expires'] ?? '' ) );
+check( '…och LiteSpeeds egen header X-LiteSpeed-Cache-Control: no-cache', 'no-cache' === ( $tok_headers['X-LiteSpeed-Cache-Control'] ?? '' ) );
+check( 'sidcacher som läser DONOTCACHEPAGE går förbi token-svaret', defined( 'DONOTCACHEPAGE' ) && true === DONOTCACHEPAGE );
+
+$nocache_calls = [];
+add_action( 'litespeed_control_set_nocache', static function ( $why = '' ) use ( &$nocache_calls ) {
+	$nocache_calls[] = $why;
+} );
+$engine->rest_token( new WP_REST_Request( [ 'form' => 12 ] ) );
+check( 'LiteSpeed Cache får veta att token-svaret inte ska cachas (litespeed_control_set_nocache)', 1 === count( $nocache_calls ) );
+
+// Varje token är ny: ts följer klockan, och svaret är signerat för formuläret.
+check( 'token-svarets ts är aktuellt (inte en cachad kopia)', abs( time() - (int) ( $tok['ts'] ?? 0 ) ) <= 2 );
+
+// Ett fel (okänt formulär) cachas inte heller som ett lyckat svar.
+$missing = $engine->rest_token( new WP_REST_Request( [ 'form' => 999999 ] ) );
+check( 'okänt formulär ger fortfarande 404, inte ett token-svar', $missing instanceof WP_Error );
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body() ) );
+check( 'och tar fortfarande emot inskick', 200 === $res->status && true === ( $res->data['ok'] ?? false ) );
+$GLOBALS['__transients'] = [];
+
+// Shortcoden ritar inte ut ett formulär som inte kan ta emot något.
+$GLOBALS['__post_status'][12] = 'draft';
+check( 'shortcoden ritar inte ut ett utkast för besökare', '' === $engine->render_shortcode( [ 'id' => 12 ] ) );
+$GLOBALS['__post_status'] = [];
+check( 'men ritar ut det publicerade', str_contains( $engine->render_shortcode( [ 'id' => 12 ] ), '<form' ) );
+
 echo "\nTack-sida\n";
 
 /** Plockar ut ett fält ur inställningsgruppen. */
@@ -1348,6 +1414,28 @@ check( 'men startas i wp-admin och hänger på admin_menu', 'startad' === trim( 
 require_once __DIR__ . '/../includes/class-relativt-form-stats.php';
 $stats = Relativt_Form_Stats::instance();
 check( 'och följer med i zip-filen', str_contains( (string) file_get_contents( __DIR__ . '/../build/build.php' ), "'includes/class-relativt-form-stats.php'" ) );
+
+echo "\nStatistik: läsning av metafält\n";
+
+$read_meta = new ReflectionMethod( Relativt_Form_Stats::class, 'read_meta' );
+$read_meta->setAccessible( true );
+$arr_meta  = [ 'utm' => [ 'utm_source' => 'google' ], 'referrer' => 'https://exempel.se/' ];
+check( 'en serialiserad array läses som array', $arr_meta === $read_meta->invoke( null, serialize( $arr_meta ) ) );
+check( 'tom sträng ger tom sträng, inget fel', '' === $read_meta->invoke( null, '' ) );
+check( 'en ickeserialiserad sträng lämnas orörd', 'bara text' === $read_meta->invoke( null, 'bara text' ) );
+
+class Xf_Probe_Gadget {
+	public static bool $woke = false;
+	public function __wakeup(): void { self::$woke = true; }
+	public function __destruct() { self::$woke = true; }
+}
+// Handskriven serialisering, så att testet inte själv skapar ett objekt.
+$gadget  = 'O:15:"Xf_Probe_Gadget":0:{}';
+$payload = $read_meta->invoke( null, $gadget );
+check( 'objekt instansieras aldrig (allowed_classes)', ! ( $payload instanceof Xf_Probe_Gadget ) && ! Xf_Probe_Gadget::$woke );
+$nested = $read_meta->invoke( null, 'a:1:{s:1:"x";' . $gadget . '}' );
+check( 'ett objekt i en array blir heller ingen riktig instans', is_array( $nested ) && ! ( $nested['x'] instanceof Xf_Probe_Gadget ) && ! Xf_Probe_Gadget::$woke );
+check( 'trasig serialisering ger false, inget fel', false === $read_meta->invoke( null, 'a:2:{s:1:"x";' ) );
 
 echo "\nStatistik: kanaler\n";
 
@@ -2144,6 +2232,151 @@ check( 'import: ett okänt land eller markup blir tomt', '' === $clean_cc->invok
 
 $GLOBALS['__form'] = xf_test_form();
 Relativt_Form::flush_fields_cache();
+
+echo "\nUppdateraren\n";
+
+/*
+ * 1.12.1: paketet kommer ur ett API-svar. Bara en https-adress hos GitHub
+ * under det egna repots sökväg godtas, och zippen installeras bara om dess
+ * SHA-256 stämmer med release-texten (och GitHubs egen summa, om den finns).
+ */
+require_once __DIR__ . '/../includes/class-relativt-form-updater.php';
+
+if ( ! function_exists( 'wp_remote_get' ) ) {
+	function wp_remote_get( $url, $args = [] ) {
+		$GLOBALS['__remote_calls'][] = [ 'url' => $url, 'args' => $args ];
+		return $GLOBALS['__release_response'];
+	}
+}
+if ( ! function_exists( 'download_url' ) ) {
+	function download_url( $url, $timeout = 300 ) {
+		$GLOBALS['__downloaded'][] = $url;
+		$file = tempnam( sys_get_temp_dir(), 'xfpkg' );
+		file_put_contents( $file, $GLOBALS['__package_bytes'] );
+		return $file;
+	}
+}
+
+$xf_repo   = 'relativtwebb/relativt-formular';
+$xf_bytes  = 'PK-detta-är-den-riktiga-zippen';
+$xf_sha    = hash( 'sha256', $xf_bytes );
+$xf_good   = 'https://github.com/' . $xf_repo . '/releases/download/v1.13.0/relativt-formular-1.13.0.zip';
+
+/** Ett release-svar från GitHub. */
+function xf_release_response( array $over = [] ): array {
+	global $xf_good, $xf_sha;
+	$asset = array_merge( [ 'name' => 'relativt-formular-1.13.0.zip', 'browser_download_url' => $xf_good, 'digest' => 'sha256:' . $xf_sha ], $over['asset'] ?? [] );
+	if ( array_key_exists( 'digest', $over ) ) {
+		$asset['digest'] = $over['digest'];
+	}
+	return [
+		'response' => [ 'code' => 200 ],
+		'body'     => json_encode( [
+			'tag_name'    => 'v1.13.0',
+			'zipball_url' => 'https://api.github.com/repos/relativtwebb/relativt-formular/zipball/v1.13.0',
+			'body'        => $over['notes'] ?? ( "Ändringar\n\nSHA256: {$xf_sha}" ),
+			'published_at' => '2026-10-30T10:00:00Z',
+			'assets'      => [ $asset ],
+		] ),
+	];
+}
+
+function xf_updater(): Relativt_Form_Updater {
+	global $xf_repo;
+	$GLOBALS['__transients'] = [];
+	return new Relativt_Form_Updater( '/var/www/wp-content/plugins/relativt-formular/relativt-formular.php', $xf_repo, '1.12.1', '8.0' );
+}
+function xf_release( Relativt_Form_Updater $u ): ?array {
+	return call( $u, 'release' );
+}
+function xf_offers_update( Relativt_Form_Updater $u ): bool {
+	$t = $u->inject_update( (object) [ 'response' => [], 'no_update' => [] ] );
+	return isset( $t->response['relativt-formular/relativt-formular.php'] );
+}
+
+$GLOBALS['__release_response'] = xf_release_response();
+$u = xf_updater();
+$r = xf_release( $u );
+check( 'en riktig release godtas med paket och summa', is_array( $r ) && $xf_good === $r['zip'] && $xf_sha === $r['sha256'] );
+check( 'och uppdateringen erbjuds', xf_offers_update( $u ) );
+check( 'uppdateraren hakar på nedladdningen', in_array( 'verify_package', hooked_methods( 'upgrader_pre_download' ), true ) );
+
+// Summan bara i release-texten, eller bara från GitHub, räcker var för sig.
+$GLOBALS['__release_response'] = xf_release_response( [ 'digest' => '' ] );
+check( 'enbart summan i release-texten räcker', $xf_sha === ( xf_release( xf_updater() )['sha256'] ?? '' ) );
+$GLOBALS['__release_response'] = xf_release_response( [ 'notes' => 'Ändringar utan summa' ] );
+check( 'enbart GitHubs egen summa räcker', $xf_sha === ( xf_release( xf_updater() )['sha256'] ?? '' ) );
+
+// Ingen summa alls: ingen uppdatering erbjuds.
+$GLOBALS['__release_response'] = xf_release_response( [ 'notes' => 'Ändringar utan summa', 'digest' => '' ] );
+$u = xf_updater();
+check( 'utan kontrollsumma tomt paket', '' === xf_release( $u )['zip'] && '' === xf_release( $u )['sha256'] );
+check( 'och ingen uppdatering erbjuds', ! xf_offers_update( $u ) );
+
+// Summorna säger emot varandra.
+$GLOBALS['__release_response'] = xf_release_response( [ 'notes' => 'SHA256: ' . str_repeat( 'a', 64 ) ] );
+check( 'olika summor i release-texten och hos GitHub ger inget paket', '' === xf_release( xf_updater() )['zip'] );
+
+// Adresser som inte godtas.
+$bad_urls = [
+	'annan värd'                => 'https://evil.example/' . $xf_repo . '/releases/download/v1.13.0/x.zip',
+	'värd med github.com som prefix' => 'https://github.com.evil.example/' . $xf_repo . '/releases/download/v1.13.0/x.zip',
+	'http i stället för https'  => 'http://github.com/' . $xf_repo . '/releases/download/v1.13.0/x.zip',
+	'annat repo'                => 'https://github.com/angripare/relativt-formular/releases/download/v1.13.0/x.zip',
+	'repo-prefix utan snedstreck' => 'https://github.com/' . $xf_repo . '-fork/releases/download/v1.13.0/x.zip',
+	'användaruppgifter i adressen' => 'https://github.com@evil.example/' . $xf_repo . '/releases/download/v1.13.0/x.zip',
+	'egen port'                 => 'https://github.com:8443/' . $xf_repo . '/releases/download/v1.13.0/x.zip',
+	'sökvägstrick'              => 'https://github.com/' . $xf_repo . '/../angripare/x/releases/download/v1/x.zip',
+	'ingen adress'              => '',
+];
+foreach ( $bad_urls as $why => $url ) {
+	$GLOBALS['__release_response'] = xf_release_response( [ 'asset' => [ 'browser_download_url' => $url ] ] );
+	$u = xf_updater();
+	check( "paketadress avvisas: {$why}", '' === xf_release( $u )['zip'] && ! xf_offers_update( $u ) );
+}
+// Ingen bifogad zip: GitHubs zipball används aldrig, ens med summa i texten.
+$no_asset = xf_release_response();
+$body     = json_decode( $no_asset['body'], true );
+$body['assets'] = [];
+$no_asset['body'] = json_encode( $body );
+$GLOBALS['__release_response'] = $no_asset;
+$u = xf_updater();
+check( 'utan bifogad zip erbjuds ingen uppdatering (zipball används aldrig)', '' === xf_release( $u )['zip'] && ! xf_offers_update( $u ) );
+$GLOBALS['__release_response'] = xf_release_response( [ 'asset' => [ 'browser_download_url' => 'https://GitHub.com/RelativtWebb/Relativt-Formular/releases/download/v1.13.0/x.zip' ] ] );
+check( 'versaler i värd och repo spelar ingen roll', '' !== xf_release( xf_updater() )['zip'] );
+
+// Nedladdningen.
+$GLOBALS['__release_response'] = xf_release_response();
+$u    = xf_updater();
+$meta = [ 'plugin' => 'relativt-formular/relativt-formular.php' ];
+
+$GLOBALS['__package_bytes'] = $xf_bytes;
+$GLOBALS['__downloaded']    = [];
+$file = $u->verify_package( false, $xf_good, null, $meta );
+check( 'ett paket med rätt summa lämnas vidare', is_string( $file ) && file_exists( $file ) && $xf_bytes === file_get_contents( $file ) );
+if ( is_string( $file ) ) {
+	unlink( $file );
+}
+
+$GLOBALS['__package_bytes'] = $xf_bytes . 'x';
+$bad = $u->verify_package( false, $xf_good, null, $meta );
+check( 'ett manipulerat paket avvisas', $bad instanceof WP_Error && 'relativt_form_checksum' === $bad->code );
+check( 'och den nedladdade filen raderas', [] === glob( sys_get_temp_dir() . '/xfpkg*' ) );
+
+$GLOBALS['__downloaded'] = [];
+$other = $u->verify_package( false, 'https://evil.example/x.zip', null, $meta );
+check( 'ett paket som inte är releasens avvisas utan nedladdning', $other instanceof WP_Error && 'relativt_form_package' === $other->code && [] === $GLOBALS['__downloaded'] );
+
+check( 'andra plugins uppdateringar lämnas orörda', false === $u->verify_package( false, 'https://evil.example/x.zip', null, [ 'plugin' => 'annat/annat.php' ] ) );
+check( 'och uppdateringar utan plugin-uppgift likaså', false === $u->verify_package( false, 'https://evil.example/x.zip', null, [] ) );
+check( 'har någon annan redan tagit över nedladdningen lämnas den', '/tmp/redan' === $u->verify_package( '/tmp/redan', $xf_good, null, $meta ) );
+
+$GLOBALS['__release_response'] = xf_release_response( [ 'notes' => 'utan summa', 'digest' => '' ] );
+$nosum = xf_updater()->verify_package( false, $xf_good, null, $meta );
+check( 'utan kontrollsumma i releasen laddas inget ner', $nosum instanceof WP_Error && 'relativt_form_package' === $nosum->code );
+
+$workflow = (string) file_get_contents( __DIR__ . '/../.github/workflows/release.yml' );
+check( 'release.yml skriver zippens SHA-256 sist i release-texten', str_contains( $workflow, 'sha256sum' ) && str_contains( $workflow, 'SHA256: $SHA' ) );
 
 echo "\n" . str_repeat( '─', 50 ) . "\n";
 printf( "%d godkända, %d underkända\n\n", $passed, $failed );
