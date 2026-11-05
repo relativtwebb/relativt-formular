@@ -84,6 +84,7 @@ final class Relativt_Form_Portability {
 		'autocomplete' => 'text',
 		'phone_country' => 'bool',
 		'phone_default' => 'country',
+		'confirm'     => 'key',
 	];
 
 	private const RULE_ROW = [

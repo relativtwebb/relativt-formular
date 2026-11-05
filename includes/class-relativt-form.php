@@ -77,6 +77,13 @@ final class Relativt_Form {
 	private const STATIC_TYPES = [ 'heading' ];
 
 	/**
+	 * Fälttyper som ett bekräftelsefält (1.13.0) kan upprepa. Bara enradiga
+	 * fält där det går att skriva fel: en textruta upprepar ingen, och ett
+	 * val behöver ingen bekräftelse.
+	 */
+	public const CONFIRM_TARGETS = [ 'text', 'email', 'tel', 'url', 'number', 'date' ];
+
+	/**
 	 * Max antal länkar i en textruta innan inskicket avvisas. Länkspam är den
 	 * vanligaste sortens skräp som tar sig förbi honungsfälla och tidsspärr.
 	 * Justeras med filtret relativt_form_max_links; 0 stänger av kontrollen.
@@ -257,6 +264,7 @@ final class Relativt_Form {
 		add_action( 'acf/save_post', [ $this, 'lock_field_keys' ], 5 );
 		add_filter( 'acf/prepare_field/key=field_xf_f_cond_field', [ $this, 'populate_field_choices' ] );
 		add_filter( 'acf/prepare_field/key=field_xf_r_field', [ $this, 'populate_field_choices' ] );
+		add_filter( 'acf/prepare_field/key=field_xf_f_confirm', [ $this, 'populate_confirm_choices' ] );
 
 		// Fångar felstavade mottagaradresser redan när kunden sparar, i stället
 		// för som ett tyst misslyckat mail veckan efter.
@@ -484,6 +492,7 @@ final class Relativt_Form {
 			'number'   => 'Ange ett nummer.',
 			'date'     => 'Kontrollera datumet.',
 			'url'      => 'Ange en giltig webbadress, t.ex. https://exempel.se.',
+			'confirm'  => 'Stämmer inte överens. Kontrollera att du skrivit likadant båda gångerna.',
 			'choice'   => 'Ogiltigt val.',
 			'links'    => 'Meddelandet innehåller för många länkar.',
 			'consent'  => 'Du behöver godkänna villkoren.',
@@ -572,6 +581,7 @@ final class Relativt_Form {
 			'url'        => 'URL',
 			'number'     => 'Nummer',
 			'date'       => 'Datum',
+			'confirm'    => 'Bekräftelse (upprepa fält)',
 			'textarea'   => 'Textruta',
 			'select'     => 'Rullista',
 			'buttons'    => 'Val-knappar',
@@ -703,6 +713,24 @@ final class Relativt_Form {
 							'readonly' => 1,
 							'wrapper'  => [ 'class' => 'xf-hidden-key' ],
 						],
+						/*
+						 * 1.13.0. Bekräftelsefältet får typ, tangentbord, autofyll,
+						 * landsväljare och "obligatoriskt" från fältet det upprepar,
+						 * och sparas aldrig – se get_fields() och validate().
+						 */
+						[
+							'key'               => 'field_xf_f_confirm',
+							'label'             => 'Ska stämma med',
+							'name'              => 'confirm',
+							'type'              => 'select',
+							'allow_null'        => 1,
+							'ui'                => 1,
+							'choices'           => [],
+							'instructions'      => 'Fältet besökaren skriver samma sak i, t.ex. E-post. Bekräftelsen får samma typ som det och sparas inte. Är fältet nytt: spara formuläret först, så finns det i listan.',
+							'conditional_logic' => [ [
+								[ 'field' => 'field_xf_f_type', 'operator' => '==', 'value' => 'confirm' ],
+							] ],
+						],
 						[
 							'key'     => 'field_xf_f_placeholder',
 							'label'   => 'Platshållare',
@@ -749,6 +777,10 @@ final class Relativt_Form {
 							'name'    => 'default',
 							'type'    => 'text',
 							'wrapper' => [ 'width' => '34' ],
+							// Ett förifyllt bekräftelsefält bekräftar ingenting.
+							'conditional_logic' => [ [
+								[ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'confirm' ],
+							] ],
 						],
 						[
 							'key'     => 'field_xf_f_required',
@@ -757,6 +789,10 @@ final class Relativt_Form {
 							'type'    => 'true_false',
 							'ui'      => 1,
 							'wrapper' => [ 'width' => '33' ],
+							// Bekräftelsen är obligatorisk när fältet den upprepar är det.
+							'conditional_logic' => [ [
+								[ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'confirm' ],
+							] ],
 						],
 						[
 							'key'     => 'field_xf_f_width',
@@ -1094,10 +1130,30 @@ final class Relativt_Form {
 
 		$choices = [];
 		foreach ( $this->get_fields( $post_id ) as $f ) {
-			if ( in_array( $f['type'], self::STATIC_TYPES, true ) || '' === $f['key'] ) {
+			// En bekräftelse är samma svar en gång till – inget att styra av.
+			if ( in_array( $f['type'], self::STATIC_TYPES, true ) || 'confirm' === $f['type'] || '' === $f['key'] ) {
 				continue;
 			}
 			$choices[ $f['key'] ] = sprintf( '%s (%s)', $f['label'], $f['key'] );
+		}
+
+		$field['choices'] = $choices;
+		return $field;
+	}
+
+	/** Fyller bekräftelsefältets väljare med de fält som går att upprepa. */
+	public function populate_confirm_choices( $field ) {
+		$post_id = $this->current_admin_post_id();
+		if ( ! $post_id ) {
+			return $field;
+		}
+
+		$types   = self::field_type_labels();
+		$choices = [];
+		foreach ( $this->get_fields( $post_id ) as $f ) {
+			if ( '' !== $f['key'] && in_array( $f['type'], self::CONFIRM_TARGETS, true ) ) {
+				$choices[ $f['key'] ] = sprintf( '%s (%s, %s)', $f['label'], $types[ $f['type'] ] ?? $f['type'], $f['key'] );
+			}
 		}
 
 		$field['choices'] = $choices;
@@ -1195,10 +1251,69 @@ final class Relativt_Form {
 				// Landsväljare (1.12.0). Bara telefonfält kan ha en; '' i förvalet = sajtens standard.
 				'phone_country' => ! empty( $row['phone_country'] ) && 'tel' === $type,
 				'phone_default' => self::clean_country( $row['phone_default'] ?? '' ),
+				// Bekräftelsefält (1.13.0): nyckeln till fältet som upprepas.
+				'confirm'      => 'confirm' === $type ? sanitize_key( (string) ( $row['confirm'] ?? '' ) ) : '',
+				'confirm_type' => '',
 			];
 		}
 
-		return $cache[ $form_id ] = $fields;
+		return $cache[ $form_id ] = $this->resolve_confirms( $fields );
+	}
+
+	/**
+	 * Bekräftelsefälten ärver det som gör dem till samma fält en gång till:
+	 * typen (confirm_type), om de är obligatoriska, landsväljaren och
+	 * autofyllen. Saknar fältet ett villkor ärver det också originalets – en
+	 * bekräftelse av ett dolt fält ska inte synas. Pekar fältet inte på
+	 * något giltigt (borttaget fält, fel typ, sig självt) blir confirm_type
+	 * tom, och då ritas fältet inte ut och kontrolleras inte.
+	 *
+	 * @param array<int,array<string,mixed>> $fields
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function resolve_confirms( array $fields ): array {
+		$by_key = [];
+		foreach ( $fields as $f ) {
+			if ( '' !== $f['key'] ) {
+				$by_key[ $f['key'] ] = $f;
+			}
+		}
+
+		foreach ( $fields as $i => $f ) {
+			if ( 'confirm' !== $f['type'] ) {
+				continue;
+			}
+
+			$f['default'] = '';
+			$f['stats']   = false;
+
+			$target = $by_key[ $f['confirm'] ] ?? null;
+			if ( ! $target || $f['confirm'] === $f['key'] || ! in_array( $target['type'], self::CONFIRM_TARGETS, true ) ) {
+				$f['confirm_type'] = '';
+				$f['required']     = false;
+				$fields[ $i ]      = $f;
+				continue;
+			}
+
+			$f['confirm_type']  = $target['type'];
+			$f['required']      = $target['required'];
+			$f['phone_country'] = $target['phone_country'];
+			$f['phone_default'] = $target['phone_default'];
+
+			// Samma uppgift om besökaren som originalet: en autofylld adress är
+			// ingen felskrivning, och WCAG 1.3.5 gäller båda fälten.
+			$token             = $this->autocomplete_for( $target );
+			$f['autocomplete'] = '' !== $token ? $token : 'off';
+
+			if ( '' === $f['cond_field'] ) {
+				$f['cond_field'] = $target['cond_field'];
+				$f['cond_value'] = $target['cond_value'];
+			}
+
+			$fields[ $i ] = $f;
+		}
+
+		return $fields;
 	}
 
 	private static function clean_autocomplete( $value ): string {
@@ -1358,6 +1473,9 @@ final class Relativt_Form {
 	 */
 	public function autocomplete_for( array $f ): string {
 		$type   = (string) ( $f['type'] ?? '' );
+		if ( 'confirm' === $type ) {
+			$type = (string) ( $f['confirm_type'] ?? '' );
+		}
 		$choice = self::clean_autocomplete( $f['autocomplete'] ?? '' );
 
 		if ( ! in_array( $type, [ 'text', 'email', 'tel', 'url' ], true ) || 'off' === $choice ) {
@@ -1647,6 +1765,20 @@ final class Relativt_Form {
 		$name  = 'fields[' . $key . ']';
 		$value = $presets[ $key ] ?? $f['default'];
 
+		/*
+		 * Bekräftelsefält (1.13.0) ritas som fältet de upprepar ($as). Utan
+		 * giltigt original finns inget att bekräfta – då ritas ingenting,
+		 * hellre än ett fält som aldrig kan bli fel. Förval ignoreras.
+		 */
+		$as = $type;
+		if ( 'confirm' === $type ) {
+			if ( '' === ( $f['confirm_type'] ?? '' ) ) {
+				return '';
+			}
+			$as    = $f['confirm_type'];
+			$value = '';
+		}
+
 		$wrap_classes = [ 'xf-field', 'xf-field--' . $f['width'], 'xf-type-' . sanitize_html_class( $type ) ];
 
 		$attrs = [
@@ -1673,6 +1805,10 @@ final class Relativt_Form {
 		}
 		if ( 'hidden' === $type ) {
 			$attrs['hidden'] = 'hidden';
+		}
+		if ( 'confirm' === $type ) {
+			$attrs['data-xf-confirm']      = $f['confirm'];
+			$attrs['data-xf-confirm-type'] = $as;
 		}
 
 		$attr_str = '';
@@ -1791,21 +1927,21 @@ final class Relativt_Form {
 				break;
 
 			default:
-				$input_type = in_array( $type, [ 'email', 'tel', 'number', 'date', 'url' ], true ) ? $type : 'text';
+				$input_type = in_array( $as, [ 'email', 'tel', 'number', 'date', 'url' ], true ) ? $as : 'text';
 
 				// Rätt tangentbord på mobil och ifyllnadshjälp från webbläsaren.
 				$hints = [
 					'email' => ' inputmode="email" spellcheck="false"',
 					'tel'   => ' inputmode="tel"',
 					'url'   => ' inputmode="url" spellcheck="false"',
-				][ $type ] ?? '';
+				][ $as ] ?? '';
 				$autocomplete = $this->autocomplete_for( $f );
 				if ( '' !== $autocomplete ) {
 					$hints .= ' autocomplete="' . esc_attr( $autocomplete ) . '"';
 				}
 
 				// 1.12.0: telefonfält med landsväljare. Utan valet är markupen oförändrad.
-				if ( 'tel' === $type && ! empty( $f['phone_country'] ) ) {
+				if ( 'tel' === $as && ! empty( $f['phone_country'] ) ) {
 					$this->render_phone_country( $f, $id, $name, $value, $ph, $hints, $required );
 					break;
 				}
@@ -2328,6 +2464,11 @@ final class Relativt_Form {
 				}
 			}
 
+			// Bekräftelser kontrolleras efter alla andra fält och sparas aldrig.
+			if ( 'confirm' === $f['type'] ) {
+				continue;
+			}
+
 			$value = $raw[ $key ] ?? '';
 			$type  = $f['type'];
 
@@ -2426,7 +2567,77 @@ final class Relativt_Form {
 			];
 		}
 
+		$errors += $this->validate_confirms( $fields, $raw, $flat, $errors );
+
 		return [ 'values' => $values, 'errors' => $errors ];
+	}
+
+	/**
+	 * Bekräftelsefälten (1.13.0). Körs sist, så att originalet redan är
+	 * kontrollerat oavsett ordningen i formuläret. Har originalet ett eget fel
+	 * – eller är det dolt av sitt villkor – säger bekräftelsen ingenting:
+	 * besökaren ska rätta en sak i taget. Speglas i JS.
+	 *
+	 * @param array<int,array<string,mixed>> $fields
+	 * @param array<string,string>           $errors Felen hittills.
+	 * @return array<string,string> Felen för bekräftelsefälten.
+	 */
+	private function validate_confirms( array $fields, array $raw, array $flat, array $errors ): array {
+		$msg    = $this->messages();
+		$by_key = array_column( $fields, null, 'key' );
+		$out    = [];
+
+		foreach ( $fields as $f ) {
+			if ( 'confirm' !== $f['type'] || '' === $f['confirm_type'] || '' === $f['key'] ) {
+				continue;
+			}
+			$target = $by_key[ $f['confirm'] ] ?? null;
+			if ( ! $target || isset( $errors[ $target['key'] ] ) ) {
+				continue;
+			}
+			if ( '' !== $f['cond_field'] && ! $this->matches_any( $flat[ $f['cond_field'] ] ?? [], $f['cond_value'] ) ) {
+				continue;
+			}
+			if ( '' !== $target['cond_field'] && ! $this->matches_any( $flat[ $target['cond_field'] ] ?? [], $target['cond_value'] ) ) {
+				continue;
+			}
+
+			$expected = $this->confirm_key( $f['confirm_type'], $this->flatten( $raw[ $target['key'] ] ?? '' ) );
+			$given    = $this->confirm_key( $f['confirm_type'], $this->flatten( $raw[ $f['key'] ] ?? '' ) );
+
+			if ( '' === $given && '' !== $expected ) {
+				$out[ $f['key'] ] = $msg['required'];
+			} elseif ( $given !== $expected ) {
+				$out[ $f['key'] ] = $msg['confirm'];
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Det två värden jämförs som i ett bekräftelsefält. Mellanrum i början
+	 * och slutet räknas inte, och flera mellanrum i rad räknas som ett.
+	 * E-post jämförs utan skillnad på versaler, telefonnummer och webbadresser
+	 * i normaliserad form (070-123 45 67 = +46701234567). Övrigt jämförs
+	 * exakt. Speglar confirmKey() i relativt-formular.js.
+	 */
+	public function confirm_key( string $type, string $value ): string {
+		$value = trim( (string) preg_replace( '/\s+/u', ' ', $value ) );
+		if ( '' === $value ) {
+			return '';
+		}
+
+		switch ( $type ) {
+			case 'email':
+				return mb_strtolower( $value, 'UTF-8' );
+			case 'tel':
+				return $this->normalize_phone( $value ) ?? $value;
+			case 'url':
+				return $this->normalize_url( $value ) ?? $value;
+			default:
+				return $value;
+		}
 	}
 
 	/* ---------------------------------------------------------------------
@@ -3187,8 +3398,13 @@ final class Relativt_Form {
 		echo '<table class="xf-map"><tbody>';
 		foreach ( $fields as $f ) {
 			$cond = '';
+			if ( 'confirm' === $f['type'] ) {
+				$cond .= '' !== $f['confirm_type']
+					? sprintf( '<div class="xf-map-cond">bekräftar %s, sparas inte</div>', esc_html( $labels[ $f['confirm'] ] ?? $f['confirm'] ) )
+					: '<div class="xf-map-cond" style="color:#b32d2e">saknar fält att stämma med – visas inte</div>';
+			}
 			if ( '' !== $f['cond_field'] ) {
-				$cond = sprintf(
+				$cond .= sprintf(
 					'<div class="xf-map-cond">visas om %s = %s</div>',
 					esc_html( $labels[ $f['cond_field'] ] ?? $f['cond_field'] ),
 					esc_html( '' !== $f['cond_value'] ? $f['cond_value'] : 'ifyllt' )

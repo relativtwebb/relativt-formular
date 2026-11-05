@@ -2233,6 +2233,153 @@ check( 'import: ett okänt land eller markup blir tomt', '' === $clean_cc->invok
 $GLOBALS['__form'] = xf_test_form();
 Relativt_Form::flush_fields_cache();
 
+echo "\nBekräftelsefält (1.13.0)\n";
+
+$confirm_form = static function ( array $extra = [] ): void {
+	$GLOBALS['__form']['xf_fields'] = array_merge( [
+		[ 'type' => 'text', 'key' => 'namn', 'label' => 'Namn', 'required' => 1 ],
+		[ 'type' => 'email', 'key' => 'epost', 'label' => 'E-post', 'required' => 1, 'width' => 'half' ],
+		[ 'type' => 'confirm', 'key' => 'epost2', 'label' => 'Bekräfta e-post', 'confirm' => 'epost', 'width' => 'half', 'placeholder' => 'Samma adress igen' ],
+	], $extra );
+	Relativt_Form::flush_fields_cache();
+};
+$render_confirm = static function ( array $presets = [] ) use ( $engine, $render_form_method ): string {
+	return (string) $render_form_method->invoke( $engine, 12, $presets, '' );
+};
+$confirm_field = static function ( string $html, string $key ): string {
+	return preg_match( '/<div class="xf-field[^"]*" data-xf-key="' . preg_quote( $key, '/' ) . '".*?<p class="xf-error"[^>]*><\/p><\/div>/s', $html, $m ) ? $m[0] : '';
+};
+
+// Byggaren.
+check( 'typen finns i byggaren', 'Bekräftelse (upprepa fält)' === ( Relativt_Form::field_type_labels()['confirm'] ?? '' ) );
+$confirm_def = sub_field_def( 'field_xf_f_confirm' );
+check( 'väljaren Ska stämma med finns och visas bara för bekräftelser', 'confirm' === ( $confirm_def['name'] ?? '' ) && 'confirm' === ( $confirm_def['conditional_logic'][0][0]['value'] ?? '' ) && '==' === ( $confirm_def['conditional_logic'][0][0]['operator'] ?? '' ) );
+check( 'väljaren fylls med formulärets fält', in_array( 'populate_confirm_choices', hooked_methods( 'acf/prepare_field/key=field_xf_f_confirm' ), true ) );
+$hides = static fn( ?array $def ) => in_array( [ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'confirm' ], $def['conditional_logic'][0] ?? [], true );
+check( 'Obligatoriskt och Förvalt värde döljs för bekräftelser', $hides( sub_field_def( 'field_xf_f_required' ) ) && $hides( sub_field_def( 'field_xf_f_default' ) ) );
+
+$confirm_form( [
+	[ 'type' => 'textarea', 'key' => 'meddelande', 'label' => 'Meddelande' ],
+	[ 'type' => 'select', 'key' => 'amne', 'label' => 'Ämne', 'choices' => "A\nB" ],
+	[ 'type' => 'tel', 'key' => 'telefon', 'label' => 'Telefon' ],
+] );
+$_GET['post'] = 12;
+$confirm_choices = $engine->populate_confirm_choices( [ 'choices' => [] ] )['choices'];
+check( 'bara enradiga fält går att upprepa', [ 'namn', 'epost', 'telefon' ] === array_keys( $confirm_choices ) );
+check( 'med typen i namnet', 'E-post (E-post, epost)' === ( $confirm_choices['epost'] ?? '' ) );
+$cond_choices = $engine->populate_field_choices( [ 'choices' => [] ] )['choices'];
+check( 'en bekräftelse kan inte styra villkor eller mottagarregler', ! isset( $cond_choices['epost2'] ) && isset( $cond_choices['epost'] ) );
+unset( $_GET['post'] );
+
+// get_fields: arvet från originalet.
+$confirm_form( [
+	[ 'type' => 'tel', 'key' => 'mobil', 'label' => 'Mobil', 'phone_country' => 1, 'phone_default' => 'NO', 'cond_field' => 'namn', 'cond_value' => '' ],
+	[ 'type' => 'confirm', 'key' => 'mobil2', 'label' => 'Mobil igen', 'confirm' => 'mobil' ],
+	[ 'type' => 'confirm', 'key' => 'borta', 'label' => 'Pekar på inget', 'confirm' => 'finnsinte' ],
+	[ 'type' => 'confirm', 'key' => 'sjalv', 'label' => 'Pekar på sig själv', 'confirm' => 'sjalv' ],
+	[ 'type' => 'textarea', 'key' => 'meddelande', 'label' => 'Meddelande' ],
+	[ 'type' => 'confirm', 'key' => 'medd2', 'label' => 'Textruta igen', 'confirm' => 'meddelande' ],
+	[ 'type' => 'confirm', 'key' => 'forval', 'label' => 'Med förval', 'confirm' => 'namn', 'default' => 'Anna', 'stats' => 1, 'required' => 0 ],
+] );
+$cf = array_column( $engine->get_fields( 12 ), null, 'key' );
+check( 'bekräftelsen får originalets typ', 'email' === $cf['epost2']['confirm_type'] && 'epost' === $cf['epost2']['confirm'] );
+check( 'och är obligatorisk när originalet är det', true === $cf['epost2']['required'] && true === $cf['forval']['required'] );
+check( 'landsväljaren och förvalt land ärvs', true === $cf['mobil2']['phone_country'] && 'NO' === $cf['mobil2']['phone_default'] );
+check( 'originalets villkor ärvs när bekräftelsen saknar ett eget', 'namn' === $cf['mobil2']['cond_field'] );
+check( 'förval och statistik gäller aldrig en bekräftelse', '' === $cf['forval']['default'] && false === $cf['forval']['stats'] );
+check( 'ett borttaget original, sig självt eller en textruta ger inget att bekräfta', '' === $cf['borta']['confirm_type'] && '' === $cf['sjalv']['confirm_type'] && '' === $cf['medd2']['confirm_type'] );
+check( 'vanliga fält har tomma bekräftelsenycklar', '' === $cf['epost']['confirm'] && '' === $cf['epost']['confirm_type'] );
+
+// Rendering.
+$html_c = $render_confirm( [ 'epost2' => 'smugglad@exempel.se' ] );
+$c_html = $confirm_field( $html_c, 'epost2' );
+check( 'bekräftelsen ritas som ett e-postfält', str_contains( $c_html, 'type="email"' ) && str_contains( $c_html, 'inputmode="email"' ) && str_contains( $c_html, 'name="fields[epost2]"' ) );
+check( 'med samma autofyll som originalet', str_contains( $c_html, 'autocomplete="email"' ) );
+check( 'och pekar ut originalet för JS', str_contains( $c_html, 'data-xf-confirm="epost"' ) && str_contains( $c_html, 'data-xf-confirm-type="email"' ) && str_contains( $c_html, 'xf-type-confirm' ) );
+check( 'obligatorisk som originalet', str_contains( $c_html, 'data-xf-required="1"' ) && str_contains( $c_html, ' required>' ) );
+check( 'etikett, platshållare och bredd är bekräftelsens egna', str_contains( $c_html, '>Bekräfta e-post<' ) && str_contains( $c_html, 'placeholder="Samma adress igen"' ) && str_contains( $c_html, 'xf-field--half' ) );
+check( 'förval från shortcode eller förvalt värde fyller aldrig i bekräftelsen', ! str_contains( $c_html, 'smugglad@' ) && ! str_contains( $confirm_field( $html_c, 'forval' ), 'value="Anna"' ) );
+$m_html = $confirm_field( $html_c, 'mobil2' );
+check( 'en bekräftelse av ett telefonfält med landsväljare får landsväljaren', str_contains( $m_html, 'class="xf-phone"' ) && str_contains( $m_html, 'value="+47 "' ) && str_contains( $m_html, 'autocomplete="tel"' ) );
+check( 'och originalets villkor', str_contains( $m_html, 'data-xf-cond-field="namn"' ) );
+check( 'en bekräftelse utan giltigt original ritas inte ut', '' === $confirm_field( $html_c, 'borta' ) && '' === $confirm_field( $html_c, 'sjalv' ) && '' === $confirm_field( $html_c, 'medd2' ) && ! str_contains( $html_c, 'data-xf-key="borta"' ) );
+
+// Jämförelsen.
+check( 'jämförelse: e-post utan skillnad på versaler och kantmellanrum', $engine->confirm_key( 'email', ' Anna@Exempel.SE ' ) === $engine->confirm_key( 'email', 'anna@exempel.se' ) );
+check( 'jämförelse: telefon i normaliserad form', $engine->confirm_key( 'tel', '070-123 45 67' ) === $engine->confirm_key( 'tel', '+46701234567' ) );
+check( 'jämförelse: webbadress med och utan schema', $engine->confirm_key( 'url', 'exempel.se/sida' ) === $engine->confirm_key( 'url', 'https://exempel.se/sida' ) );
+check( 'jämförelse: text exakt, men flera mellanrum räknas som ett', 'Kund  123' !== 'Kund 123' && $engine->confirm_key( 'text', 'Kund  123' ) === $engine->confirm_key( 'text', 'Kund 123' ) && $engine->confirm_key( 'text', 'abc' ) !== $engine->confirm_key( 'text', 'ABC' ) );
+check( 'jämförelse: ett ogiltigt nummer jämförs som det står', '12' === $engine->confirm_key( 'tel', ' 12 ' ) );
+
+// Valideringen.
+$confirm_form();
+$msg_c = $engine->messages();
+check( 'meddelandet finns och kan filtreras som de andra', '' !== ( $msg_c['confirm'] ?? '' ) );
+$same = $engine->validate( 12, [ 'namn' => 'Anna', 'epost' => 'anna@exempel.se', 'epost2' => 'ANNA@exempel.se ' ] );
+check( 'lika adresser godkänns', ! $same['errors'] );
+check( 'bekräftelsen sparas aldrig, originalet som vanligt', null === value_of( $same['values'], 'epost2' ) && 'anna@exempel.se' === value_of( $same['values'], 'epost' ) );
+$diff = $engine->validate( 12, [ 'namn' => 'Anna', 'epost' => 'anna@exempel.se', 'epost2' => 'ana@exempel.se' ] );
+check( 'olika adresser avvisas på bekräftelsen', $msg_c['confirm'] === ( $diff['errors']['epost2'] ?? '' ) && ! isset( $diff['errors']['epost'] ) );
+$empty_c = $engine->validate( 12, [ 'namn' => 'Anna', 'epost' => 'anna@exempel.se' ] );
+check( 'tom bekräftelse när originalet är ifyllt ger Fyll i', $msg_c['required'] === ( $empty_c['errors']['epost2'] ?? '' ) );
+$bad_orig = $engine->validate( 12, [ 'namn' => 'Anna', 'epost' => 'anna@', 'epost2' => 'annat' ] );
+check( 'har originalet ett eget fel säger bekräftelsen ingenting', isset( $bad_orig['errors']['epost'] ) && ! isset( $bad_orig['errors']['epost2'] ) );
+$missing_orig = $engine->validate( 12, [ 'namn' => 'Anna' ] );
+check( 'tomt obligatoriskt original: felet visas bara där', isset( $missing_orig['errors']['epost'] ) && ! isset( $missing_orig['errors']['epost2'] ) );
+
+// Ordningen spelar ingen roll: bekräftelsen före originalet.
+$GLOBALS['__form']['xf_fields'] = [
+	[ 'type' => 'confirm', 'key' => 'kundnr2', 'label' => 'Kundnummer igen', 'confirm' => 'kundnr' ],
+	[ 'type' => 'text', 'key' => 'kundnr', 'label' => 'Kundnummer' ],
+];
+Relativt_Form::flush_fields_cache();
+check( 'bekräftelse före originalet: lika godkänns', ! $engine->validate( 12, [ 'kundnr' => 'A-123', 'kundnr2' => 'A-123' ] )['errors'] );
+check( 'och olika avvisas', isset( $engine->validate( 12, [ 'kundnr' => 'A-123', 'kundnr2' => 'a-123' ] )['errors']['kundnr2'] ) );
+check( 'valfritt original som lämnas tomt: tom bekräftelse godkänns', ! $engine->validate( 12, [] )['errors'] );
+check( 'men en ifylld bekräftelse av ett tomt original avvisas', $msg_c['confirm'] === ( $engine->validate( 12, [ 'kundnr2' => 'A-123' ] )['errors']['kundnr2'] ?? '' ) );
+
+// Villkor: ett dolt original kontrolleras inte, och då inte heller bekräftelsen.
+$GLOBALS['__form']['xf_fields'] = [
+	[ 'type' => 'buttons', 'key' => 'kontakt', 'label' => 'Kontakt', 'choices' => "mail : Mail\nring : Ring" ],
+	[ 'type' => 'tel', 'key' => 'tel', 'label' => 'Telefon', 'required' => 1, 'cond_field' => 'kontakt', 'cond_value' => 'ring' ],
+	[ 'type' => 'confirm', 'key' => 'tel2', 'label' => 'Telefon igen', 'confirm' => 'tel' ],
+];
+Relativt_Form::flush_fields_cache();
+check( 'dolt original: ingen bekräftelse krävs', ! $engine->validate( 12, [ 'kontakt' => 'mail' ] )['errors'] );
+check( 'synligt original: telefonnummer i olika form godkänns', ! $engine->validate( 12, [ 'kontakt' => 'ring', 'tel' => '070-123 45 67', 'tel2' => '+46 70 123 45 67' ] )['errors'] );
+check( 'och olika nummer avvisas', isset( $engine->validate( 12, [ 'kontakt' => 'ring', 'tel' => '070-123 45 67', 'tel2' => '070-123 45 68' ] )['errors']['tel2'] ) );
+
+// Inskicket: bekräftelsen hamnar varken i mailet eller i det sparade inskicket.
+$confirm_form();
+$GLOBALS['__transients'] = [];
+$GLOBALS['__mail']       = [];
+$GLOBALS['__posts']      = [];
+$res_c = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'fields' => [ 'namn' => 'Anna', 'epost' => 'anna@exempel.se', 'epost2' => 'Anna@exempel.se' ] ] ) ) );
+check( 'inskick med rätt bekräftelse går igenom', 200 === $res_c->status && 1 === count( $GLOBALS['__mail'] ) && 1 === count( $GLOBALS['__posts'] ) );
+check( 'bekräftelsen syns inte i mailet', ! str_contains( (string) ( $GLOBALS['__mail'][0]['body'] ?? '' ), 'Bekräfta e-post' ) && ! str_contains( (string) ( $GLOBALS['__mail'][0]['body'] ?? '' ), 'Anna@exempel.se' ) );
+check( 'och sparas inte med inskicket', ! str_contains( (string) wp_json_encode( $GLOBALS['__posts'], JSON_UNESCAPED_UNICODE ), 'epost2' ) );
+$GLOBALS['__transients'] = [];
+$res_bad = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'fields' => [ 'namn' => 'Anna', 'epost' => 'anna@exempel.se', 'epost2' => 'anna@exempel.com' ] ] ) ) );
+check( 'fel bekräftelse svarar 422 med felet på bekräftelsen', 422 === $res_bad->status && isset( $res_bad->data['errors']['epost2'] ) );
+
+// Headless och fältkartan.
+$def_c = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+$def_cf = array_column( $def_c['fields'] ?? [], null, 'key' );
+check( 'headless: bekräftelsen följer med med originalet och typen', 'epost' === ( $def_cf['epost2']['confirm'] ?? '' ) && 'email' === ( $def_cf['epost2']['confirm_type'] ?? '' ) && 'email' === ( $def_cf['epost2']['autocomplete'] ?? '' ) );
+check( 'headless: meddelandet följer med', $msg_c['confirm'] === ( $def_c['messages']['confirm'] ?? '' ) );
+ob_start();
+call( $engine, 'print_map', [ 12 ] );
+$map_c = (string) ob_get_clean();
+check( 'fältkartan visar vad bekräftelsen bekräftar', str_contains( $map_c, 'bekräftar E-post, sparas inte' ) );
+
+// Export och import.
+$exp_c = array_column( Relativt_Form_Portability::instance()->build_payload( 12 )['settings']['xf_fields'] ?? [], null, 'key' );
+check( 'originalets nyckel följer med i exporten', 'epost' === ( $exp_c['epost2']['confirm'] ?? '' ) && 'confirm' === ( $exp_c['epost2']['type'] ?? '' ) );
+check( 'import: typen godkänns och nyckeln saneras', 'confirm' === $clean_cc->invoke( $port_cc, 'confirm', 'type' ) && 'epost' === $clean_cc->invoke( $port_cc, 'Epost"><', 'key' ) );
+
+$GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
+
 echo "\nUppdateraren\n";
 
 /*

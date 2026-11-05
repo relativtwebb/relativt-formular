@@ -9,7 +9,7 @@ Byggd för byråarbete: samma motor på flera kundsajter, formulär som kan flyt
 - **Formulärbyggare i wp-admin.** Fält läggs till, döps om och sorteras genom att dra. Varje formulär får en shortcode.
 - **Villkorliga fält** som utvärderas *på servern*. Ett fält som inte ska synas renderas dolt direkt i HTML:en — det behöver alltså inte JavaScript för att göra rätt, och en besökare med skript avstängt ser samma formulär som alla andra.
 - **Mottagarregler.** Skicka till olika adresser beroende på vad besökaren svarat. Regler får skrivas med antingen etiketten eller det tekniska värdet — båda träffar.
-- **Validering** av e-post, telefon och URL, spegelvänd mellan PHP och JavaScript så klienten och servern aldrig är oense. Svenska nummer normaliseras till ett format, internationella släpps igenom. URL:er normaliseras med `https://` om schemat saknas, så länken alltid går att klicka på i mailet.
+- **Validering** av e-post, telefon och URL, spegelvänd mellan PHP och JavaScript så klienten och servern aldrig är oense. Svenska nummer normaliseras till ett format, internationella släpps igenom. URL:er normaliseras med `https://` om schemat saknas, så länken alltid går att klicka på i mailet. [Bekräftelsefält](#bekräftelsefält) låter besökaren skriva t.ex. e-postadressen två gånger.
 - **Spamskydd** utan CAPTCHA: honungsfälla, HMAC-signerad tidsstämpel med minsta tid, frekvensspärr per IP och länkspärr i textrutor. Valfritt per formulär: [Cloudflare Turnstile](#cloudflare-turnstile).
 - **UTM-attribution** via förstapartskaka, så att inskicket bär med sig vilken kampanj besökaren kom ifrån. Kakan skrivs bara med samtycke via [Relativt Cookie Consent](https://github.com/relativtwebb/relativt-cookie-consent), WP Consent API eller en egen JS-krok, och annonsklick-id (`gclid`/`fbclid`) bara med samtycke till marknadsföring – se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke).
 - **Inskickslagring** med konfigurerbar gallring och CSV-export.
@@ -70,6 +70,17 @@ Fälttypen Telefon har valet **Landsväljare** (av som standard). På: en rullis
 - Fältet skickas som ett vanligt värde (`+46701234567`), nollan före abonnentnumret tas bort (Italien undantaget), och bara landsnumret kvar räknas som tomt. Servern validerar som vanligt och sparar svenska nummer som `0701234567`.
 - Länderna (Norden först, sedan resten av Europa och några till) kan ändras med filtret `relativt_form_phone_countries`, standardlandet med `relativt_form_phone_default_country`.
 - Windows ritar flaggemojis som bokstäver (`SE`); väljaren fungerar ändå.
+
+### Bekräftelsefält
+
+Fälttypen **Bekräftelse (upprepa fält)** låter besökaren skriva en uppgift två gånger, t.ex. *E-post* och *Bekräfta e-post*. Välj fältet i **Ska stämma med**; går fältet inte att välja är det nytt – spara formuläret först.
+
+- Bekräftelsen **får sin typ från originalet**: e-post, telefon (med landsväljare om originalet har en), URL, nummer, datum eller text, med samma tangentbord på mobilen och samma autofyll. Textrutor och valfält kan inte bekräftas.
+- Den är **obligatorisk när originalet är det**, och ärver originalets villkor om den saknar ett eget. Är originalet dolt kontrolleras ingen av dem. Etikett, platshållare, hjälptext och bredd är bekräftelsens egna; förvalt värde och förval från shortcode eller URL fylls aldrig i.
+- **Jämförelsen:** mellanrum i kanterna räknas inte och flera mellanrum i rad räknas som ett. E-post jämförs utan skillnad på versaler, telefonnummer och webbadresser i normaliserad form (`070-123 45 67` = `+46 70 123 45 67`, `exempel.se` = `https://exempel.se`). Text, nummer och datum jämförs exakt. Samma regler i PHP och JS.
+- **Felen:** stämmer värdena inte visas `Stämmer inte överens. Kontrollera att du skrivit likadant båda gångerna.` vid bekräftelsen (meddelandenyckeln `confirm` i `relativt_form_messages`). Tom bekräftelse av ett ifyllt original ger *Fyll i detta fält.* Har originalet ett eget fel säger bekräftelsen ingenting.
+- Bekräftelsen **sparas aldrig**: den finns inte i mailet, i inskicket, i CSV-exporten eller i statistiken, och kan inte användas i villkor eller mottagarregler.
+- Pekar fältet inte på något giltigt (originalet borttaget) ritas det inte ut. Fältkartan i sidokolumnen säger då *saknar fält att stämma med*.
 
 ### Ikon i knappen
 
@@ -463,6 +474,7 @@ Definitionen innehåller fälten (som byggaren sparat dem, rubriker inräknade; 
 5. **Posta direkt från webbläsaren till WordPress, inte via en server-proxy** (t.ex. en Next route handler). Bakom en proxy delar alla besökare proxyns IP, och frekvensspärren – fem inskick per tio minuter – gäller då hela sajten på en gång. Ligger WordPress själv bakom en proxy/CDN pekar sajten ut rätt header med `relativt_form_client_ip` (se [Filter](#filter)).
 6. **UTM:** utan pluginets JS skrivs ingen `xf_src`-kaka. Frontend kan skicka `utm` själv i samma format (`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`, `gclid`, `fbclid`, `landing`, `referrer`); annars är fälten tomma i mailet. Inget mer behövs. Samma samtyckesregler gäller som för pluginets eget skript – servern kan inte kontrollera samtycket, så det är frontendens ansvar: skicka `gclid`/`fbclid` bara med samtycke till marknadsföring, och spara inga värden mellan sidvisningar utan samtycke. Se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke).
 7. **Autofyll:** fältens `autocomplete` är färdigt att sätta som attribut (`''` = inget attribut), se [Autofyll](#autofyll).
+8. **Bekräftelsefält** (`type: 'confirm'`): rendera som `confirm_type`, och inte alls om den är tom. Skicka värdet under bekräftelsens egen nyckel – servern jämför och svarar med fel på den nyckeln. Se [Bekräftelsefält](#bekräftelsefält).
 
 **Turnstile i headless:** är `turnstile.enabled` sant renderar frontend widgeten med `turnstile.site_key` (lägg till frontendens domän på widgeten hos Cloudflare) och skickar token som `turnstile`. Återställ widgeten efter varje slutgiltigt misslyckat svar – men inte vid de tysta omförsöken för `toofast` och `nonce`, där är token fortfarande oanvänd.
 
@@ -480,7 +492,8 @@ och peka bara om filtret om `REMOTE_ADDR` visar CDN:ets adress. Ta bort loggning
 ```ts
 export type FieldType =
   | 'text' | 'email' | 'tel' | 'url' | 'number' | 'date' | 'textarea'
-  | 'select' | 'buttons' | 'radio' | 'checkboxes' | 'checkbox' | 'hidden' | 'heading';
+  | 'select' | 'buttons' | 'radio' | 'checkboxes' | 'checkbox' | 'hidden' | 'heading'
+  | 'confirm';
 
 export interface FormField {
   type: FieldType;
@@ -498,6 +511,8 @@ export interface FormField {
   autocomplete: string;              // färdigt värde för attributet, '' = inget
   phone_country: boolean;            // telefonfält med landsväljare (1.12.0)
   phone_default: string;             // ISO-kod för förvalt land, '' = sajtens standard
+  confirm: string;                   // bekräftelsefält (1.13.0): originalets nyckel, annars ''
+  confirm_type: string;              // originalets typ – rendera som den; '' = rendera inte
 }
 
 export interface FormDefinition {
@@ -626,15 +641,15 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 601 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
-npx playwright test         # 194 tester i riktig webbläsare, desktop och mobil
+php tests/server-test.php   # 750 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
+npx playwright test         # 310 tester i riktig webbläsare, desktop och mobil
 ```
 
 Har du redan en Chromium på maskinen som Playwright inte installerat själv, peka ut den med `CHROMIUM_PATH=/sökväg/till/chrome npx playwright test`. Utan variabeln används Playwrights egen.
 
 IDN-testet (`kontakt@räksmörgås.se`) hoppas över om PHP-tillägget `intl` saknas, eftersom motorn hoppar över punycode-översättningen i samma läge. CI installerar `intl`, så den vägen testas där.
 
-Demon som webbläsartesterna körs mot genereras av den riktiga renderaren via reflektion (`php tests/build-demo.php`). Den kan alltså inte glida ifrån koden. Cloudflares Turnstile-skript ersätts där av en stub med samma yta, så testerna inte beror på nätverket. Statistiksidan får en egen demo med påhittade inskick på samma sätt (`php tests/build-stats-demo.php` → `demo-stats.html`). Ikonerna på knappen och ikonväljaren har en egen (`php tests/build-icon-demo.php` → `demo-icons.html`); väljaren där är en modell av ACF:s markup, eftersom ACF Pro inte finns i CI.
+Demon som webbläsartesterna körs mot genereras av den riktiga renderaren via reflektion (`php tests/build-demo.php`). Den kan alltså inte glida ifrån koden. Cloudflares Turnstile-skript ersätts där av en stub med samma yta, så testerna inte beror på nätverket. Statistiksidan får en egen demo med påhittade inskick på samma sätt (`php tests/build-stats-demo.php` → `demo-stats.html`). Ikonerna på knappen och ikonväljaren har en egen (`php tests/build-icon-demo.php` → `demo-icons.html`); väljaren där är en modell av ACF:s markup, eftersom ACF Pro inte finns i CI. Bekräftelsefälten likaså (`php tests/build-confirm-demo.php` → `demo-confirm.html`).
 
 Båda sviterna kör automatiskt vid varje push. Servertesterna körs mot PHP 8.0, 8.2 och 8.4 — det är den matrisen som bevisar `Requires PHP: 8.0`, inte headern i sig.
 
