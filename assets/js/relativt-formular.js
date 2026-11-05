@@ -361,6 +361,7 @@
 		number: 'Ange ett nummer.',
 		date: 'Kontrollera datumet.',
 		url: 'Ange en giltig webbadress, t.ex. https://exempel.se.',
+		confirm: 'Stämmer inte överens. Kontrollera att du skrivit likadant båda gångerna.',
 		links: 'Meddelandet innehåller för många länkar.',
 		consent: 'Du behöver godkänna villkoren.',
 		generic: 'Något gick fel. Försök igen om en liten stund.',
@@ -525,6 +526,21 @@
 		} catch {
 			return null;
 		}
+	};
+
+	/**
+	 * Det två värden jämförs som i ett bekräftelsefält (1.13.0). Speglar
+	 * confirm_key() i class-relativt-form.php: mellanrum i kanterna räknas inte
+	 * och flera i rad räknas som ett, e-post utan skillnad på versaler,
+	 * telefonnummer och webbadresser normaliserade, övrigt exakt.
+	 */
+	const confirmKey = (type, raw) => {
+		const value = String(raw ?? '').replace(/\s+/g, ' ').trim();
+		if (value === '') return '';
+		if (type === 'email') return value.toLowerCase();
+		if (type === 'tel') return normalizePhone(value) ?? value;
+		if (type === 'url') return normalizeUrl(value) ?? value;
+		return value;
 	};
 
 	class RelativtForm {
@@ -733,6 +749,8 @@
 			const params = new URLSearchParams(location.search);
 			for (const field of this.fields) {
 				const key = field.dataset.xfKey;
+				// Ett förifyllt bekräftelsefält bekräftar ingenting.
+				if (field.dataset.xfConfirm) continue;
 				if (params.has(key)) this.setValue(key, params.get(key));
 			}
 		}
@@ -849,6 +867,7 @@
 
 		validate() {
 			let firstBad = null;
+			const confirms = [];
 
 			for (const field of this.fields) {
 				if (!this.condSatisfied(field)) continue;
@@ -858,6 +877,12 @@
 				if (type === 'heading' || type === 'hidden') continue;
 
 				const value = String(this.valueOf(key)).trim();
+
+				// Bekräftelsefält (1.13.0) kontrolleras sist, när originalet är klart.
+				if (type === 'confirm') {
+					confirms.push(field);
+					continue;
+				}
 
 				/*
 				 * data-xf-required sätts av renderaren. required-ATTRIBUTET
@@ -893,6 +918,23 @@
 					this.showError(field, MESSAGES.links);
 					firstBad ??= field;
 				}
+			}
+
+			/*
+			 * Speglar validate_confirms(): har originalet ett eget fel, eller är
+			 * det dolt av sitt villkor, säger bekräftelsen ingenting.
+			 */
+			for (const field of confirms) {
+				const target = this.wrapper(field.dataset.xfConfirm);
+				if (!target || !this.condSatisfied(target) || target.classList.contains('has-error')) continue;
+				const as = field.dataset.xfConfirmType;
+				const expected = confirmKey(as, this.valueOf(field.dataset.xfConfirm));
+				const given = confirmKey(as, this.valueOf(field.dataset.xfKey));
+				const message = given === '' && expected !== '' ? MESSAGES.required : given !== expected ? MESSAGES.confirm : '';
+				if (!message) continue;
+				this.showError(field, message);
+				// Fokus till det fel som står först i formuläret, även om det kontrollerades sist.
+				if (!firstBad || field.compareDocumentPosition(firstBad) & Node.DOCUMENT_POSITION_FOLLOWING) firstBad = field;
 			}
 
 			const consent = this.root.querySelector('.xf-type-consent .xf-check-input');
@@ -1191,6 +1233,13 @@
 			this.form.addEventListener('input', (event) => {
 				const field = event.target.closest?.('.xf-field');
 				if (field?.classList.contains('has-error')) this.clearError(field);
+				// Ändras originalet gäller inte bekräftelsens gamla fel längre.
+				const key = field?.dataset.xfKey;
+				if (key) {
+					for (const confirm of this.fields) {
+						if (confirm.dataset.xfConfirm === key && confirm.classList.contains('has-error')) this.clearError(confirm);
+					}
+				}
 			});
 
 			this.form.addEventListener('submit', (event) => {

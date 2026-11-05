@@ -3,6 +3,23 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.13.0] – 2026-11-05
+
+Ny fälttyp: **Bekräftelse (upprepa fält)**, för t.ex. *Bekräfta e-post*. **Formulär som inte rörs är oförändrade.**
+
+### Tillagt
+- Fälttypen **Bekräftelse (upprepa fält)** med valet **Ska stämma med** i byggaren. Väljaren listar formulärets text-, e-post-, telefon-, URL-, nummer- och datumfält.
+- Bekräftelsen **ärver från originalet**: typ (och därmed tangentbord och inbyggd validering), autofyll, landsväljare och förvalt land, och om fältet är obligatoriskt. Saknar bekräftelsen ett eget villkor ärver den originalets. Obligatoriskt och Förvalt värde döljs i byggaren för typen; förval från shortcode eller URL fylls aldrig i.
+- Kontrollen görs i webbläsaren och på servern med samma regler (`confirm_key()` / `confirmKey()`): kantmellanrum räknas inte, flera mellanrum räknas som ett, e-post utan skillnad på versaler, telefon och URL normaliserade, övrigt exakt. Bekräftelsen kontrolleras efter alla andra fält, så ordningen i formuläret spelar ingen roll. Har originalet ett eget fel, eller är det dolt, säger bekräftelsen ingenting.
+- Meddelandet **`confirm`** (*Stämmer inte överens. Kontrollera att du skrivit likadant båda gångerna.*), filtrerbart med `relativt_form_messages` och med i `GET /form/{id}`.
+- `confirm` (originalets nyckel) och `confirm_type` (originalets typ, tom om originalet saknas) i `GET /form/{id}`. `confirm` följer med i JSON-exporten och godkänns vid import.
+- Fältkartan i sidokolumnen visar vad bekräftelsen bekräftar, eller att den saknar ett giltigt original.
+
+### Att veta
+- Bekräftelsen **sparas aldrig**: den finns inte i mailet, i det sparade inskicket, i CSV-exporten eller i statistiken, och kan inte väljas i villkor eller mottagarregler.
+- Ett bekräftelsefält som pekar på ett borttaget fält, på sig självt eller på en textruta ritas inte ut. Ett nytt original måste sparas en gång innan det går att välja.
+- Klistra in är inte blockerat. Det skulle stoppa lösenordshanterare och hjälpmedel men inte felskrivningar som redan står i originalet.
+
 ## [1.12.2] – 2026-10-26
 
 Rättar felet **"Sessionen har gått ut. Ladda om sidan och försök igen."** som utloggade besökare kunde få vid inskick på sajter med sid-, REST- eller CDN-cache. Inga nya funktioner.
