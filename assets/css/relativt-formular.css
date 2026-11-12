@@ -46,6 +46,17 @@
 	--xf-phone-divider: #d8d6d2; /* linjen mellan landsväljaren och numret */
 	--xf-error: #b32d2e;
 	--xf-focus-ring: #2b2a28;
+	/* Flerstegsformulär (1.14.0) – gäller bara formulär med steg */
+	--xf-step-duration: 220ms;   /* per halva av stegbytet (ut, sedan in) */
+	--xf-step-distance: 24px;    /* hur långt steget glider */
+	--xf-step-easing: cubic-bezier(0.2, 0.7, 0.3, 1);
+	--xf-step-scroll-offset: 24px; /* luft ovanför formuläret när sidan scrollar dit, t.ex. för en fast meny */
+	--xf-progress-height: 4px;
+	--xf-progress-track: #e7e5e1;
+	--xf-progress-fill: var(--xf-accent);
+	--xf-prev-bg: transparent;   /* Tillbaka-knappen */
+	--xf-prev-text: var(--xf-text);
+	--xf-prev-border: #d8d6d2;
 	/* Brytpunkten (768px) ligger hårdkodad i media-frågorna längre ned –
 	   en CSS-variabel KAN inte användas i @media, så en --xf-breakpoint här
 	   vore bara en inställning som ser ut att göra något. */
@@ -647,6 +658,222 @@
 }
 
 /* -----------------------------------------------------------------------------
+   Flerstegsformulär (1.14.0)
+   Bara formulär där PHP satt klassen xf-multistep berörs – alla andra
+   formulär ser exakt likadana ut som förut.
+
+   Animationen styrs av variablerna ovan och klasserna xf-anim-slide,
+   xf-anim-fade och xf-anim-none (valet "Animation mellan stegen" i
+   wp-admin). Egen animation från sajtens CSS: skriv över keyframes-namnen,
+   t.ex.
+       .relativt-form.xf-multistep .xf-step.is-entering { animation-name: min-in; }
+   Recept, även för JS-animationer, i docs/flerstegsformular.md.
+   -------------------------------------------------------------------------- */
+
+.relativt-form.xf-multistep {
+	scroll-margin-top: var(--xf-step-scroll-offset);
+}
+
+/* FUNKTION, inte utseende: bara det aktiva steget syns, och knapparna och
+   sista stegets delar följer vilket steg besökaren står i. Skrivs reglerna
+   över syns flera steg samtidigt, eller en knapp som inte gör något. */
+.relativt-form.xf-multistep .xf-step:not(.is-active) {
+	display: none !important;
+}
+
+.relativt-form.xf-multistep.is-first-step .xf-prev,
+.relativt-form.xf-multistep.is-last-step .xf-next,
+.relativt-form.xf-multistep:not(.is-last-step) .xf-submit,
+.relativt-form.xf-multistep:not(.is-last-step) .xf-type-consent,
+.relativt-form.xf-multistep:not(.is-last-step) .xf-type-turnstile,
+.relativt-form.xf-multistep:not(.is-last-step) .xf-consent {
+	display: none !important;
+}
+
+.relativt-form .xf-steps {
+	/* Glidet får inte ge sidan en vågrät scrollist. Utfallet ger plats åt
+	   fokusringar som annars hade klippts i kanten. */
+	overflow-x: clip;
+	margin: 0 -6px;
+	padding: 0 6px;
+}
+
+.relativt-form .xf-step:focus {
+	outline: none;
+}
+
+.relativt-form .xf-step-title {
+	margin: 0 0 var(--xf-gap-row);
+	font-size: 20px;
+	line-height: 1.35;
+	color: var(--xf-text);
+}
+
+.relativt-form .xf-step-help {
+	margin: calc(var(--xf-gap-row) * -0.6) 0 var(--xf-gap-row);
+	font-size: 14px;
+	line-height: 1.55;
+	color: #6f6d67;
+}
+
+/* Stegindikatorn */
+.relativt-form .xf-progress {
+	margin-bottom: 24px;
+}
+
+.relativt-form .xf-progress-text {
+	margin: 0 0 8px;
+	font-size: var(--xf-label-size);
+	line-height: 1.4;
+	color: #6f6d67;
+}
+
+.relativt-form .xf-progress--none {
+	margin: 0;
+}
+
+.relativt-form .xf-progress-bar {
+	height: var(--xf-progress-height);
+	border-radius: var(--xf-progress-height);
+	background: var(--xf-progress-track);
+	overflow: hidden;
+}
+
+.relativt-form .xf-progress-fill {
+	display: block;
+	height: 100%;
+	border-radius: inherit;
+	background: var(--xf-progress-fill);
+	transition: width var(--xf-step-duration) var(--xf-step-easing);
+}
+
+/* Knapparna. Nästa ser ut som skicka-knappen; Tillbaka är sekundär. */
+.relativt-form.xf-multistep .xf-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+}
+
+.relativt-form .xf-step-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	cursor: pointer;
+	font-family: inherit;
+	font-size: var(--xf-input-size);
+	border-radius: var(--xf-radius);
+	transition: filter 0.18s ease, background-color 0.18s ease;
+}
+
+.relativt-form .xf-next {
+	padding: 22px 28px;
+	border: 0;
+	background: var(--xf-accent);
+	color: var(--xf-accent-text);
+}
+
+.relativt-form .xf-next:hover {
+	filter: brightness(0.96);
+}
+
+.relativt-form .xf-prev {
+	padding: 21px 22px;
+	border: 1px solid var(--xf-prev-border);
+	background: var(--xf-prev-bg);
+	color: var(--xf-prev-text);
+}
+
+.relativt-form .xf-prev:hover {
+	background: var(--xf-field-bg);
+}
+
+.relativt-form .xf-step-btn-icon {
+	display: inline-flex;
+	align-items: center;
+	line-height: 0;
+}
+
+.relativt-form .xf-step-btn-icon svg {
+	width: var(--xf-icon-size);
+	height: var(--xf-icon-size);
+	display: block;
+	fill: currentColor;
+}
+
+.relativt-form .xf-step-btn-icon svg[fill="none"] {
+	fill: none;
+	stroke: currentColor;
+	stroke-width: var(--xf-icon-stroke);
+}
+
+.relativt-form.is-sending .xf-prev {
+	opacity: 0.6;
+	pointer-events: none;
+}
+
+/* Mobil: Tillbaka efter innehållet, Nästa/Skicka fyller resten av raden. */
+@media (max-width: 768px) {
+	.relativt-form.xf-multistep .xf-next,
+	.relativt-form.xf-multistep .xf-submit {
+		flex: 1 1 auto;
+		width: auto;
+	}
+}
+
+/* Animationerna. Glidet byter riktning när besökaren backar. */
+.relativt-form.xf-multistep {
+	--xf-step-dir: 1;
+}
+
+.relativt-form.xf-multistep.is-going-back {
+	--xf-step-dir: -1;
+}
+
+@keyframes xf-step-slide-out {
+	to {
+		opacity: 0;
+		transform: translateX(calc(var(--xf-step-distance) * var(--xf-step-dir) * -1));
+	}
+}
+
+@keyframes xf-step-slide-in {
+	from {
+		opacity: 0;
+		transform: translateX(calc(var(--xf-step-distance) * var(--xf-step-dir)));
+	}
+}
+
+@keyframes xf-step-fade-out {
+	to {
+		opacity: 0;
+	}
+}
+
+@keyframes xf-step-fade-in {
+	from {
+		opacity: 0;
+	}
+}
+
+.relativt-form.xf-anim-slide .xf-step.is-leaving {
+	animation: xf-step-slide-out var(--xf-step-duration) var(--xf-step-easing) both;
+}
+
+.relativt-form.xf-anim-slide .xf-step.is-entering {
+	animation: xf-step-slide-in var(--xf-step-duration) var(--xf-step-easing) both;
+}
+
+.relativt-form.xf-anim-fade .xf-step.is-leaving {
+	animation: xf-step-fade-out var(--xf-step-duration) var(--xf-step-easing) both;
+}
+
+.relativt-form.xf-anim-fade .xf-step.is-entering {
+	animation: xf-step-fade-in var(--xf-step-duration) var(--xf-step-easing) both;
+}
+
+/* -----------------------------------------------------------------------------
    I Oxygens builder ska formuläret vara ett vanligt, synligt block:
    inget döljs av villkor eftersom JS inte körs där.
    -------------------------------------------------------------------------- */
@@ -655,6 +882,12 @@ body.oxygen-builder-body .relativt-form .xf-field[hidden],
 body.oxygen-builder-body .relativt-form .xf-thanks[hidden] {
 	display: flex !important;
 	opacity: 0.6;
+}
+
+/* Alla steg under varandra, så att hela formuläret går att se och styla. */
+body.oxygen-builder-body .relativt-form.xf-multistep .xf-step {
+	display: block !important;
+	margin-bottom: 32px;
 }
 
 /* -----------------------------------------------------------------------------
@@ -671,5 +904,10 @@ body.oxygen-builder-body .relativt-form .xf-thanks[hidden] {
 @media (prefers-reduced-motion: reduce) {
 	.relativt-form * {
 		transition: none !important;
+	}
+
+	/* Stegbyten sker direkt. JS väntar då inte på någon animation. */
+	.relativt-form .xf-step {
+		animation: none !important;
 	}
 }

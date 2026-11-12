@@ -22,6 +22,7 @@ const SHIP = [
 	'readme.txt',
 	'README.md',
 	'CHANGELOG.md',
+	'docs/flerstegsformular.md',
 	'includes/class-relativt-form.php',
 	'includes/class-relativt-form-icons.php',
 	'includes/LUCIDE-LICENSE.txt',

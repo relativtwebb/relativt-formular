@@ -2525,6 +2525,264 @@ check( 'utan kontrollsumma i releasen laddas inget ner', $nosum instanceof WP_Er
 $workflow = (string) file_get_contents( __DIR__ . '/../.github/workflows/release.yml' );
 check( 'release.yml skriver zippens SHA-256 sist i release-texten', str_contains( $workflow, 'sha256sum' ) && str_contains( $workflow, 'SHA256: $SHA' ) );
 
+echo "\nBefintliga formulär efter 1.14.0 (facit från 1.13.0)\n";
+
+/*
+ * Löftet för flerstegsstödet: ett formulär som inte slagit på det renderas
+ * BYTE FÖR BYTE som i 1.13.0, och headless-definitionen är oförändrad.
+ * Facit genererades av tests/render-snapshots.php mot 1.13.0-koden.
+ */
+require_once __DIR__ . '/render-snapshots.php';
+$xf_facit = json_decode( (string) file_get_contents( __DIR__ . '/fixtures/render-1.13.0.json' ), true );
+$xf_now   = xf_render_snapshots();
+check( 'facit finns och har alla fyra formulären', is_array( $xf_facit ) && 4 === count( $xf_facit ) );
+foreach ( (array) $xf_facit as $name => $html ) {
+	check( "{$name}: identisk med 1.13.0", ( $xf_now[ $name ] ?? null ) === $html );
+}
+
+echo "\nFlerstegsformulär (1.14.0)\n";
+
+/** Ett flerstegsformulär: tre steg, det andra med stegvillkor. */
+function xf_ms_form( array $over = [] ): array {
+	return array_merge( xf_test_form(), [
+		'xf_fields'           => [
+			[ 'type' => 'text', 'key' => 'namn', 'label' => 'Namn', 'required' => 1 ],
+			[ 'type' => 'buttons', 'key' => 'kundtyp', 'label' => 'Jag är', 'choices' => "foretag : Företag\nprivat : Privat", 'default' => 'foretag' ],
+			[ 'type' => 'step', 'key' => 'steg_foretag', 'label' => 'Företaget', 'help' => 'Om er', 'cond_field' => 'kundtyp', 'cond_value' => 'foretag' ],
+			[ 'type' => 'text', 'key' => 'foretag', 'label' => 'Företag', 'required' => 1 ],
+			[ 'type' => 'email', 'key' => 'epost', 'label' => 'E-post', 'required' => 1 ],
+			[ 'type' => 'confirm', 'key' => 'epost2', 'label' => 'E-post igen', 'confirm' => 'epost' ],
+			[ 'type' => 'step', 'key' => 'steg_sist', 'label' => 'Sist' ],
+			[ 'type' => 'textarea', 'key' => 'meddelande', 'label' => 'Meddelande' ],
+		],
+		'xf_rules'            => [],
+		'xf_multistep'        => 1,
+		'xf_step_first_title' => 'Om dig',
+	], $over );
+}
+
+function xf_ms_render( array $form, array $presets = [] ): string {
+	$GLOBALS['__form'] = $form;
+	Relativt_Form::flush_fields_cache();
+	return (string) call( Relativt_Form::instance(), 'render_form', [ 12, $presets, '' ] );
+}
+
+check( 'Nytt steg finns bland fälttyperna', isset( Relativt_Form::field_type_labels()['step'] ) );
+check( 'och räknas som en statisk typ (tar inte emot svar)', in_array( 'step', ( new ReflectionClassConstant( Relativt_Form::class, 'STATIC_TYPES' ) )->getValue(), true ) );
+
+// Indelningen.
+$GLOBALS['__form'] = xf_ms_form();
+Relativt_Form::flush_fields_cache();
+$xf_steps = $engine->split_steps( 12, $engine->get_fields( 12 ) );
+check( 'tre steg', 3 === count( $xf_steps ) );
+check( 'steg 1 får rubriken från inställningen', 'Om dig' === $xf_steps[0]['title'] );
+check( 'steg 2 får rubrik, ingress och villkor från sin rad', 'Företaget' === $xf_steps[1]['title'] && 'Om er' === $xf_steps[1]['help'] && 'kundtyp' === $xf_steps[1]['cond_field'] && 'foretag' === $xf_steps[1]['cond_value'] );
+check( 'stegraden ingår inte i stegets fält', [ 'foretag', 'epost', 'epost2' ] === array_column( $xf_steps[1]['fields'], 'key' ) );
+check( 'är ett flerstegsformulär', $engine->is_multistep( 12 ) );
+
+$GLOBALS['__form'] = xf_ms_form( [ 'xf_fields' => [
+	[ 'type' => 'step', 'key' => 's1', 'label' => 'Först' ],
+	[ 'type' => 'text', 'key' => 'a', 'label' => 'A' ],
+	[ 'type' => 'step', 'key' => 's2', 'label' => 'Tomt' ],
+	[ 'type' => 'step', 'key' => 's3', 'label' => 'Andra' ],
+	[ 'type' => 'text', 'key' => 'b', 'label' => 'B' ],
+	[ 'type' => 'step', 'key' => 's4', 'label' => 'Sist utan fält' ],
+] ] );
+Relativt_Form::flush_fields_cache();
+$xf_steps = $engine->split_steps( 12, $engine->get_fields( 12 ) );
+check( 'tomma steg tas bort (stegrad först, två i rad, sist)', [ 'Först', 'Andra' ] === array_column( $xf_steps, 'title' ) );
+
+$GLOBALS['__form'] = xf_ms_form( [ 'xf_multistep' => 0 ] );
+Relativt_Form::flush_fields_cache();
+check( 'reglaget av: inte flerstegs, trots stegrader', ! $engine->is_multistep( 12 ) );
+$GLOBALS['__form'] = xf_ms_form( [ 'xf_fields' => [ [ 'type' => 'text', 'key' => 'a', 'label' => 'A' ], [ 'type' => 'step', 'key' => 's', 'label' => 'S' ] ] ] );
+Relativt_Form::flush_fields_cache();
+check( 'reglaget på men bara ett steg: inte flerstegs', ! $engine->is_multistep( 12 ) );
+$GLOBALS['__form'] = xf_ms_form( [ 'xf_multistep' => null ] );
+Relativt_Form::flush_fields_cache();
+check( 'formulär sparade före 1.14.0 (inget värde alls): inte flerstegs', ! $engine->is_multistep( 12 ) );
+
+// Renderingen.
+$html = xf_ms_render( xf_ms_form() );
+check( 'roten får xf-multistep, animationsklass och is-first-step', str_contains( $html, 'class="relativt-form xf-multistep xf-anim-slide is-first-step"' ) );
+check( 'antalet steg som data-attribut', str_contains( $html, 'data-xf-steps="3"' ) );
+check( 'tre stegbehållare, bara den första aktiv', 3 === substr_count( $html, 'data-xf-step="' ) && 1 === substr_count( $html, 'class="xf-step is-active"' ) );
+check( 'indikatorn: text och stapel', str_contains( $html, '>Steg 1 av 3</p>' ) && str_contains( $html, 'class="xf-progress-fill" style="width: 33.333%"' ) );
+check( 'indikatorns text är en aria-live-region med mall', str_contains( $html, 'data-xf-template="Steg {current} av {total}" aria-live="polite"' ) );
+check( 'stegrubriken namnger gruppen', (bool) preg_match( '/role="group" tabindex="-1" aria-labelledby="(xf-12-\d+-step-1)".*?<p class="xf-step-title" id="\1">Företaget<\/p>/s', $html ) );
+check( 'ingressen ritas under rubriken', str_contains( $html, '<p class="xf-step-help">Om er</p>' ) );
+check( 'stegvillkoret skrivs som data-attribut', str_contains( $html, 'data-xf-step-cond-field="kundtyp" data-xf-step-cond-value="foretag"' ) );
+check( 'stegraden blir inget fält', ! str_contains( $html, 'data-xf-key="steg_foretag"' ) );
+check( 'alla fält ritas, i sina steg', str_contains( $html, 'data-xf-key="foretag"' ) && str_contains( $html, 'data-xf-key="meddelande"' ) );
+check( 'Tillbaka och Nästa före skicka-knappen', (bool) preg_match( '/data-xf-prev>.*data-xf-next>.*class="xf-submit/s', $html ) );
+check( 'stegknapparna är type="button"', 2 === substr_count( $html, '<button type="button" class="xf-step-btn' ) );
+check( 'standardtexterna', str_contains( $html, '<span class="xf-step-btn-text">Nästa</span>' ) && str_contains( $html, '<span class="xf-step-btn-text">Tillbaka</span>' ) );
+check( 'Nästa: text, sedan standardpilen', str_contains( $html, 'Nästa</span><span class="xf-step-btn-icon" aria-hidden="true">' . Relativt_Form_Icons::svg( 'standard' ) ) );
+check( 'Tillbaka: spegelvänd pil, sedan text', str_contains( $html, Relativt_Form_Icons::svg( 'standard-left' ) . '</span><span class="xf-step-btn-text">Tillbaka' ) );
+
+$html = xf_ms_render( xf_ms_form( [
+	'xf_step_next_text' => 'Fortsätt', 'xf_step_prev_text' => 'Bakåt',
+	'xf_step_next_icon' => 'send', 'xf_step_prev_icon' => 'none',
+	'xf_step_indicator' => 'text', 'xf_step_animation' => 'fade',
+] ) );
+check( 'egna knapptexter', str_contains( $html, '>Fortsätt</span>' ) && str_contains( $html, '>Bakåt</span>' ) );
+check( 'egen ikon på Nästa', str_contains( $html, Relativt_Form_Icons::svg( 'send' ) ) );
+check( 'Ingen ikon på Tillbaka', (bool) preg_match( '/<button type="button" class="xf-step-btn xf-prev" data-xf-prev><span class="xf-step-btn-text">Bakåt<\/span><\/button>/', $html ) );
+check( 'bara text: ingen stapel', ! str_contains( $html, 'xf-progress-bar' ) && str_contains( $html, 'xf-progress--text' ) );
+check( 'tona-animationen', str_contains( $html, 'xf-anim-fade' ) );
+
+$html = xf_ms_render( xf_ms_form( [ 'xf_step_indicator' => 'none', 'xf_step_animation' => '"><script>', 'xf_step_next_icon' => 'finns-inte' ] ) );
+check( 'ingen indikator: texten finns kvar, dold för seende', str_contains( $html, 'class="xf-progress-text xf-sr-only"' ) );
+check( 'okänd animation ger förvalet', str_contains( $html, 'xf-anim-slide' ) && ! str_contains( $html, '<script>' ) );
+check( 'okänd ikon ger standardpilen', str_contains( $html, 'Nästa</span><span class="xf-step-btn-icon" aria-hidden="true">' . Relativt_Form_Icons::svg( 'standard' ) ) );
+
+$GLOBALS['__form'] = xf_ms_form( [ 'xf_step_first_title' => '' ] );
+$html = xf_ms_render( $GLOBALS['__form'] );
+check( 'steg utan rubrik namnges av räknaren', (bool) preg_match( '/data-xf-step="0" role="group" tabindex="-1" aria-label="Steg 1 av 3"><div class="xf-grid">/', $html ) );
+
+// Filtren.
+add_filter( 'relativt_form_submit_class', static fn() => 'btn' );
+add_filter( 'relativt_form_submit_text_class', static fn() => 'ct-text-block' );
+add_filter( 'relativt_form_step_counter', static fn() => '{current}/{total}' );
+$html = xf_ms_render( xf_ms_form() );
+check( 'Nästa ärver skicka-knappens temaklasser', str_contains( $html, 'class="xf-step-btn xf-next btn" data-xf-next' ) && str_contains( $html, 'class="xf-step-btn-text ct-text-block">Nästa' ) );
+check( 'Tillbaka gör det inte', str_contains( $html, 'class="xf-step-btn xf-prev" data-xf-prev' ) );
+check( 'räknarens mall kan filtreras', str_contains( $html, '>1/3</p>' ) && str_contains( $html, 'data-xf-template="{current}/{total}"' ) );
+add_filter( 'relativt_form_step_button_class', static fn( $c, $id, $dir ) => 'prev' === $dir ? 'btn-ghost' : $c, 10, 3 );
+add_filter( 'relativt_form_step_icon', static fn( $svg, $id, $dir ) => 'prev' === $dir ? '' : $svg, 10, 3 );
+$html = xf_ms_render( xf_ms_form() );
+check( 'stegknapparna kan få egna klasser per riktning', str_contains( $html, 'class="xf-step-btn xf-prev btn-ghost"' ) && str_contains( $html, 'class="xf-step-btn xf-next btn"' ) );
+check( 'och ikonen kan filtreras bort per riktning', str_contains( $html, 'data-xf-prev><span class="xf-step-btn-text">' ) );
+foreach ( [ 'relativt_form_submit_class', 'relativt_form_submit_text_class', 'relativt_form_step_counter', 'relativt_form_step_button_class', 'relativt_form_step_icon' ] as $xf_hook ) {
+	remove_all_filters( $xf_hook );
+}
+
+// Samtycke och Turnstile.
+$GLOBALS['__options']['relativt_form_turnstile'] = [ 'site_key' => '1x00000000000000000000AA', 'secret' => 'hemlig' ];
+$html = xf_ms_render( xf_ms_form( [ 'xf_turnstile' => 1, 'xf_consent_box' => 1 ] ) );
+check( 'Turnstile renderas uppskjutet (utan cf-turnstile) i flerstegsformulär', str_contains( $html, 'class="xf-turnstile" data-sitekey="1x00000000000000000000AA" data-xf-turnstile data-xf-turnstile-defer' ) );
+check( 'samtyckesrutan finns kvar (CSS visar den i sista steget)', str_contains( $html, 'xf-type-consent' ) );
+$html = xf_ms_render( xf_ms_form( [ 'xf_turnstile' => 1, 'xf_multistep' => 0 ] ) );
+check( 'utan flerstegsläge är Turnstile som förut', str_contains( $html, 'class="xf-turnstile cf-turnstile" data-sitekey="1x00000000000000000000AA" data-xf-turnstile>' ) );
+$GLOBALS['__options'] = [];
+
+// Reglaget av: stegraderna blir rubriker.
+$html = xf_ms_render( xf_ms_form( [ 'xf_multistep' => 0 ] ) );
+check( 'reglaget av: ingen stegmarkup', ! str_contains( $html, 'xf-multistep' ) && ! str_contains( $html, 'xf-step' ) && ! str_contains( $html, 'xf-progress' ) );
+check( 'stegraden ritas som en rubrik med ingress', str_contains( $html, 'class="xf-field xf-field--full xf-type-heading" data-xf-key="steg_foretag"' ) && str_contains( $html, '<p class="xf-heading">Företaget</p><p class="xf-help">Om er</p>' ) );
+check( 'och dess villkor gäller rubriken, som för en vanlig rubrik', str_contains( $html, 'data-xf-key="steg_foretag" data-xf-cond-field="kundtyp"' ) );
+
+// Servervalideringen.
+$GLOBALS['__form'] = xf_ms_form();
+Relativt_Form::flush_fields_cache();
+$r = $engine->validate( 12, [ 'namn' => 'Anna', 'kundtyp' => 'privat' ] );
+check( 'överhoppat steg: dess obligatoriska fält krävs inte', ! isset( $r['errors']['foretag'] ) && ! isset( $r['errors']['epost'] ) );
+check( 'och dess värden sparas inte', null === value_of( $r['values'], 'foretag' ) );
+$r = $engine->validate( 12, [ 'namn' => 'Anna', 'kundtyp' => 'privat', 'foretag' => 'Smuggel AB', 'epost' => 'a@b.se', 'epost2' => 'fel@b.se' ] );
+check( 'inte ens om de skickas med', null === value_of( $r['values'], 'foretag' ) && ! isset( $r['errors']['epost2'] ) );
+$r = $engine->validate( 12, [ 'namn' => 'Anna', 'kundtyp' => 'foretag' ] );
+check( 'öppet steg: dess obligatoriska fält krävs', isset( $r['errors']['foretag'] ) && isset( $r['errors']['epost'] ) );
+// Villkoret skrivet med etiketten ("Företag") i stället för värdet, som kunden ofta gör.
+$GLOBALS['__form']['xf_fields'][2]['cond_value'] = 'Företag';
+Relativt_Form::flush_fields_cache();
+$r = $engine->validate( 12, [ 'namn' => 'Anna', 'kundtyp' => 'foretag', 'foretag' => 'Exempel AB', 'epost' => 'a@b.se', 'epost2' => 'fel@b.se' ] );
+check( 'stegvillkoret matchar etiketten också', 'Exempel AB' === value_of( $r['values'], 'foretag' ) );
+check( 'bekräftelsen i ett öppet steg kontrolleras', isset( $r['errors']['epost2'] ) );
+check( 'fält efter steget påverkas inte', ! isset( $r['errors']['meddelande'] ) );
+
+$GLOBALS['__form'] = xf_ms_form( [ 'xf_multistep' => 0 ] );
+Relativt_Form::flush_fields_cache();
+$r = $engine->validate( 12, [ 'namn' => 'Anna', 'kundtyp' => 'privat' ] );
+check( 'reglaget av: stegradens villkor styr inga fält', isset( $r['errors']['foretag'] ) );
+
+// Hela inskicket, rakt igenom.
+$GLOBALS['__form']      = xf_ms_form();
+$GLOBALS['__transients'] = [];
+$GLOBALS['__mail']       = [];
+Relativt_Form::flush_fields_cache();
+$res = $engine->rest_submit( new WP_REST_Request( xf_submit_body( [ 'fields' => [ 'namn' => 'Anna', 'kundtyp' => 'privat', 'meddelande' => 'Hej' ] ] ) ) );
+check( 'inskick som hoppat över ett steg går igenom', 200 === $res->status && ! empty( $res->data['ok'] ), (string) wp_json_encode( $res->data ) );
+check( 'stegraderna syns inte i mailet', ! str_contains( (string) ( end( $GLOBALS['__mail'] )['body'] ?? '' ), 'Företaget' ) );
+
+// Headless.
+$GLOBALS['__form'] = xf_ms_form();
+Relativt_Form::flush_fields_cache();
+$def = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+check( 'REST: flerstegsformulär har en multistep-nyckel', is_array( $def['multistep'] ?? null ) );
+check( 'med texter, ikoner, indikator och animation', [ 'first_title' => 'Om dig', 'indicator' => 'bar', 'animation' => 'slide', 'counter' => 'Steg {current} av {total}', 'next' => 'Nästa', 'prev' => 'Tillbaka', 'next_icon' => 'standard', 'prev_icon' => 'standard-left' ] === $def['multistep'] );
+check( 'och stegraderna som typen step bland fälten', [ 'steg_foretag', 'steg_sist' ] === array_values( array_column( array_filter( $def['fields'], static fn( $f ) => 'step' === $f['type'] ), 'key' ) ) );
+$GLOBALS['__form'] = xf_ms_form( [ 'xf_multistep' => 0 ] );
+Relativt_Form::flush_fields_cache();
+$def = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+check( 'REST, reglaget av: ingen multistep-nyckel', ! array_key_exists( 'multistep', $def ) );
+check( 'och stegraderna som rubriker – en äldre frontend ser aldrig typen step', ! in_array( 'step', array_column( $def['fields'], 'type' ), true ) && 'heading' === ( $def['fields'][2]['type'] ?? '' ) );
+
+// Admin-notiserna.
+$GLOBALS['__form'] = xf_ms_form();
+Relativt_Form::flush_fields_cache();
+check( 'notis: ett korrekt flerstegsformulär ger ingen', [] === $engine->multistep_issues( 12 ) );
+$GLOBALS['__form'] = xf_ms_form( [ 'xf_fields' => [ [ 'type' => 'text', 'key' => 'a', 'label' => 'A' ] ] ] );
+Relativt_Form::flush_fields_cache();
+$xf_issues = $engine->multistep_issues( 12 );
+check( 'notis: påslaget utan två steg varnar', 1 === count( $xf_issues ) && 'warning' === $xf_issues[0]['level'] && str_contains( $xf_issues[0]['text'], 'ger inte två steg' ) );
+$GLOBALS['__form'] = xf_ms_form( [ 'xf_multistep' => 0 ] );
+Relativt_Form::flush_fields_cache();
+$xf_issues = $engine->multistep_issues( 12 );
+check( 'notis: stegrader med reglaget av informerar', 1 === count( $xf_issues ) && 'info' === $xf_issues[0]['level'] && str_contains( $xf_issues[0]['text'], 'visas som rubriker' ) );
+$GLOBALS['__form'] = xf_ms_form();
+$GLOBALS['__form']['xf_fields'][2]['cond_field'] = 'meddelande';
+Relativt_Form::flush_fields_cache();
+$xf_issues = $engine->multistep_issues( 12 );
+check( 'notis: ett steg som styrs av ett senare fält varnar', 1 === count( $xf_issues ) && str_contains( $xf_issues[0]['text'], 'Steg 2 ("Företaget") styrs av fältet "meddelande"' ) );
+
+$GLOBALS['__can']    = true;
+$GLOBALS['__screen'] = (object) [ 'base' => 'post', 'post_type' => 'relativt_form' ];
+$_GET['post']        = 12;
+ob_start();
+$engine->multistep_notice();
+check( 'notisen skrivs ut på formulärets redigeringsskärm', str_contains( (string) ob_get_clean(), 'notice-warning' ) );
+$GLOBALS['__screen'] = (object) [ 'base' => 'edit', 'post_type' => 'relativt_form' ];
+ob_start();
+$engine->multistep_notice();
+check( 'men inte i formulärlistan', '' === (string) ob_get_clean() );
+unset( $_GET['post'], $GLOBALS['__screen'] );
+$GLOBALS['__can'] = false;
+check( 'notisen hängs på admin_notices', in_array( 'multistep_notice', hooked_methods( 'admin_notices' ), true ) );
+
+// Byggaren.
+$GLOBALS['__field_groups'] = [];
+$engine->register_fields();
+$xf_settings = array_column( $GLOBALS['__field_groups']['group_xf_settings']['fields'] ?? [], null, 'name' );
+check( 'reglaget finns och är av som standard', 0 === ( $xf_settings['xf_multistep']['default_value'] ?? null ) && 'true_false' === ( $xf_settings['xf_multistep']['type'] ?? '' ) );
+$xf_dependent = [ 'xf_step_first_title', 'xf_step_indicator', 'xf_step_animation', 'xf_step_next_text', 'xf_step_prev_text', 'xf_step_next_icon', 'xf_step_prev_icon' ];
+check( 'alla steginställningar syns bara när reglaget är på', [] === array_filter( $xf_dependent, static fn( $n ) => ( $xf_settings[ $n ]['conditional_logic'][0][0]['field'] ?? '' ) !== 'field_xf_multistep' ) );
+check( 'ikonväljarna har hela ikonbiblioteket', array_keys( $xf_settings['xf_step_next_icon']['choices'] ?? [] ) === Relativt_Form_Icons::keys() && array_keys( $xf_settings['xf_step_prev_icon']['choices'] ?? [] ) === Relativt_Form_Icons::keys() );
+check( 'Tillbaka har spegelvänd pil som förval', 'standard-left' === ( $xf_settings['xf_step_prev_icon']['default_value'] ?? '' ) );
+check( 'stegförklaringen visas bara för typen Nytt steg', 'step' === ( sub_field_def( 'field_xf_f_step_note' )['conditional_logic'][0][0]['value'] ?? '' ) );
+check( 'Bredd döljs för stegrader', 'step' === ( sub_field_def( 'field_xf_f_width' )['conditional_logic'][0][0]['value'] ?? '' ) );
+$xf_icon_css = Relativt_Form_Icons::picker_css( Relativt_Form::NEXT_ICON_FIELD_KEY );
+check( 'ikonväljarens CSS riktas mot Nästa-väljaren', str_contains( $xf_icon_css, '[data-key="field_xf_step_next_icon"]' ) && str_contains( $xf_icon_css, 'input[value="standard-left"]' ) );
+
+// Ikonerna.
+check( 'spegelvänd standardpil är en giltig nyckel', 'standard-left' === Relativt_Form_Icons::normalize( 'standard-left' ) );
+check( 'och speglas med en transform på <g>', str_contains( Relativt_Form_Icons::svg( 'standard-left' ), '<g transform="matrix(-1 0 0 1 960 0)">' ) );
+foreach ( [ 'arrow-left', 'chevron-left', 'chevrons-left', 'circle-arrow-left' ] as $xf_icon ) {
+	check( "ikonen {$xf_icon} finns", $xf_icon === Relativt_Form_Icons::normalize( $xf_icon ) );
+}
+
+// Export och import.
+$GLOBALS['__form'] = xf_ms_form( [ 'xf_step_next_icon' => 'send', 'xf_step_indicator' => 'text' ] );
+$payload = $port->build_payload( 12 );
+foreach ( [ 'xf_multistep', 'xf_step_first_title', 'xf_step_indicator', 'xf_step_animation', 'xf_step_next_text', 'xf_step_prev_text', 'xf_step_next_icon', 'xf_step_prev_icon' ] as $xf_name ) {
+	check( "{$xf_name} följer med i exporten", array_key_exists( $xf_name, $payload['settings'] ) );
+}
+check( 'stegraderna följer med som typen step', 'step' === ( $payload['settings']['xf_fields'][2]['type'] ?? '' ) );
+check( 'och typen step överlever importens vitlista', 'step' === $clean->invoke( $port, 'step', 'type' ) );
+check( 'ikonvalet saneras som nyckel vid import', 'send' === $clean->invoke( $port, 'Send!', 'key' ) );
+
+$GLOBALS['__form'] = xf_test_form();
+Relativt_Form::flush_fields_cache();
+
 echo "\n" . str_repeat( '─', 50 ) . "\n";
 printf( "%d godkända, %d underkända\n\n", $passed, $failed );
 exit( $failed > 0 ? 1 : 0 );

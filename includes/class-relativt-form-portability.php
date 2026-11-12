@@ -65,6 +65,16 @@ final class Relativt_Form_Portability {
 		'xf_log_ip'       => 'bool',
 		// Bara valet per formulär. Nycklarna är sajtens och följer aldrig med.
 		'xf_turnstile'    => 'bool',
+		// Flerstegsformulär (1.14.0). Indikator och animation valideras mot
+		// listorna i Relativt_Form vid rendering; okänt värde ger förvalet.
+		'xf_multistep'        => 'bool',
+		'xf_step_first_title' => 'text',
+		'xf_step_indicator'   => 'text',
+		'xf_step_animation'   => 'text',
+		'xf_step_next_text'   => 'text',
+		'xf_step_prev_text'   => 'text',
+		'xf_step_next_icon'   => 'key',
+		'xf_step_prev_icon'   => 'key',
 	];
 
 	private const FIELD_ROW = [
