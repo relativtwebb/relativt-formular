@@ -562,12 +562,23 @@
 
 			this.fields = [...root.querySelectorAll('[data-xf-key]')].filter((el) => el.dataset.xfKey !== '');
 
+			/*
+			 * Flerstegsformulär (1.14.0). PHP sätter klassen xf-multistep bara
+			 * när formuläret har minst två steg; annars är this.steps tom och
+			 * ingen stegkod körs.
+			 */
+			this.steps = root.classList.contains('xf-multistep') ? [...root.querySelectorAll('.xf-step[data-xf-step]')] : [];
+			if (this.steps.length < 2) this.steps = [];
+			this.stepIndex = 0;
+			this.animating = false;
+
 			this.applyUrlPresets();
 			// Efter förvalen: ett förifyllt nummer kan tillhöra ett annat land än förvalda.
 			this.wirePhoneFields();
 			this.mountTurnstile();
 			this.wireA11y();
 			this.bind();
+			if (this.steps.length) this.bindSteps();
 			this.evaluateConditions();
 
 			root.classList.add('is-ready');
@@ -782,6 +793,9 @@
 
 				if (!visible) this.clearError(field);
 			}
+
+			// Ett svar kan hoppa över eller ta fram ett senare steg (1.14.0).
+			if (this.steps.length) this.updateSteps();
 		}
 
 		/**
@@ -794,6 +808,13 @@
 		 * att typen inte syns är en annan sak än att fältet inte gäller.
 		 */
 		condSatisfied(field) {
+			// Flerstegsformulär: ett fält i ett överhoppat steg är inte med (1.14.0).
+			if (this.steps.length && !this.stepOpen(this.stepOf(field))) return false;
+			return this.ownCondSatisfied(field);
+		}
+
+		/** Bara fältets eget villkor, utan stegets. */
+		ownCondSatisfied(field) {
 			const controller = field.dataset.xfCondField;
 			if (!controller) return true;
 			return this.matches(this.candidatesOf(controller), field.dataset.xfCondValue);
@@ -809,6 +830,8 @@
 		 */
 		mountTurnstile() {
 			if (!this.turnstileBox) return;
+			// Flerstegsformulär: renderas först när sista steget visas, se ensureTurnstile().
+			if (this.turnstileBox.hasAttribute('data-xf-turnstile-defer')) return;
 			// Implicit rendering hittar bara containrar som finns när api.js
 			// laddas. Ett formulär som läggs in senare (ajax-modal) renderas här.
 			if (document.readyState === 'complete' && window.turnstile?.render && !this.turnstileBox.childElementCount) {
@@ -818,6 +841,37 @@
 					/* Redan renderad – inget att göra. */
 				}
 			}
+		}
+
+		/**
+		 * Flerstegsformulär (1.14.0): widgeten ligger i sista steget, som är
+		 * dolt tills besökaren kommer dit. Den renderas därför först då – inte
+		 * i en dold behållare. Hinner besökaren dit innan Cloudflares api.js
+		 * laddats försöker vi igen en stund.
+		 */
+		ensureTurnstile() {
+			const box = this.turnstileBox;
+			if (!box || !box.hasAttribute('data-xf-turnstile-defer') || box.childElementCount || this.turnstileTimer) return;
+
+			const attempt = () => {
+				if (box.childElementCount) return true;
+				if (!window.turnstile?.render) return false;
+				try {
+					window.turnstile.render(box);
+				} catch {
+					/* Redan renderad – inget att göra. */
+				}
+				return true;
+			};
+
+			if (attempt()) return;
+			let tries = 0;
+			this.turnstileTimer = setInterval(() => {
+				if (attempt() || ++tries > 60) {
+					clearInterval(this.turnstileTimer);
+					this.turnstileTimer = null;
+				}
+			}, 250);
 		}
 
 		turnstileToken() {
@@ -865,11 +919,18 @@
 
 		/* -- Validering --------------------------------------------------- */
 
-		validate() {
+		/**
+		 * Klientvalideringen. Utan argument kontrolleras hela formuläret, som
+		 * inför inskicket. Flerstegsformulär (1.14.0) skickar in fälten i det
+		 * aktuella steget och final = false: då hoppas samtyckesrutan och
+		 * Turnstile över (de hör till sista steget), liksom bekräftelser vars
+		 * original ligger i ett senare steg som besökaren inte nått ännu.
+		 */
+		validate(fields = this.fields, final = true) {
 			let firstBad = null;
 			const confirms = [];
 
-			for (const field of this.fields) {
+			for (const field of fields) {
 				if (!this.condSatisfied(field)) continue;
 
 				const key = field.dataset.xfKey;
@@ -927,6 +988,7 @@
 			for (const field of confirms) {
 				const target = this.wrapper(field.dataset.xfConfirm);
 				if (!target || !this.condSatisfied(target) || target.classList.contains('has-error')) continue;
+				if (!final && this.steps.indexOf(this.stepOf(target)) > this.stepIndex) continue;
 				const as = field.dataset.xfConfirmType;
 				const expected = confirmKey(as, this.valueOf(field.dataset.xfConfirm));
 				const given = confirmKey(as, this.valueOf(field.dataset.xfKey));
@@ -936,6 +998,8 @@
 				// Fokus till det fel som står först i formuläret, även om det kontrollerades sist.
 				if (!firstBad || field.compareDocumentPosition(firstBad) & Node.DOCUMENT_POSITION_FOLLOWING) firstBad = field;
 			}
+
+			if (!final) return firstBad;
 
 			const consent = this.root.querySelector('.xf-type-consent .xf-check-input');
 			if (consent && !consent.checked) {
@@ -1070,12 +1134,19 @@
 		}
 
 		async submit() {
-			if (this.busy) return;
+			if (this.busy || this.animating) return;
+
+			// Flerstegsformulär: Enter i ett fält före sista steget betyder Nästa.
+			if (this.steps.length && !this.onLastStep()) {
+				this.next();
+				return;
+			}
 
 			this.clearAllErrors();
 
 			const bad = this.validate();
 			if (bad) {
+				await this.revealStepOf(bad);
 				bad.querySelector('input, select, textarea')?.focus();
 				return;
 			}
@@ -1135,6 +1206,9 @@
 							this.formError.textContent = message;
 						}
 					}
+					// Flerstegsformulär: felet kan ligga i ett tidigare steg (1.14.0).
+					const first = this.root.querySelector('.xf-field.has-error');
+					if (first) await this.revealStepOf(first);
 					this.root.querySelector('.has-error input, .has-error select, .has-error textarea')?.focus();
 					return;
 				}
@@ -1217,6 +1291,249 @@
 			}
 
 			this.thanks?.focus?.();
+		}
+
+		/* -- Steg (1.14.0) ------------------------------------------------ */
+
+		/*
+		 * Flerstegsformulär. Alla steg finns i markupen från start; CSS visar
+		 * bara det med klassen is-active. Rotens klasser is-first-step och
+		 * is-last-step styr knapparna (Tillbaka, Nästa, Skicka) och sista
+		 * stegets delar (samtycke, Turnstile).
+		 *
+		 * Ett steg hoppas över när dess eget villkor inte är uppfyllt, eller
+		 * när det inte har något fält kvar att fylla i – alla är dolda av sina
+		 * villkor. Överhoppade steg räknas inte i "Steg 2 av 4".
+		 *
+		 * Events, på formulärets rot (bubblar):
+		 *   relativt-form:step-leave – innan steget lämnas. detail.waitUntil(promise)
+		 *                              låter en egen animation (t.ex. GSAP) hinna klart.
+		 *   relativt-form:step       – när det nya steget visas. Bra för spårning
+		 *                              av var besökare hoppar av.
+		 */
+
+		bindSteps() {
+			this.prevBtn = this.root.querySelector('[data-xf-prev]');
+			this.nextBtn = this.root.querySelector('[data-xf-next]');
+			this.progressText = this.root.querySelector('[data-xf-progress-text]');
+			this.progressFill = this.root.querySelector('.xf-progress-fill');
+
+			this.prevBtn?.addEventListener('click', () => this.prev());
+			this.nextBtn?.addEventListener('click', () => this.next());
+
+			/*
+			 * Enter i ett fält före sista steget. Formulärets submit-händelse
+			 * fångar det också (se submit()), men en webbläsare skickar inte
+			 * alltid formuläret när skicka-knappen är dold – därför här.
+			 */
+			this.form.addEventListener('keydown', (event) => {
+				if (event.key !== 'Enter' || event.isComposing || this.onLastStep()) return;
+				const el = event.target;
+				if (!(el instanceof HTMLInputElement)) return;
+				if (['checkbox', 'button', 'submit', 'reset', 'file'].includes(el.type)) return;
+				event.preventDefault();
+				this.next();
+			});
+
+			this.updateSteps();
+		}
+
+		stepOf(el) {
+			return el?.closest?.('.xf-step[data-xf-step]') ?? null;
+		}
+
+		/** Stegets eget villkor. Steg utan villkor är alltid öppna. */
+		stepOpen(step) {
+			const controller = step?.dataset.xfStepCondField;
+			if (!controller) return true;
+			return this.matches(this.candidatesOf(controller), step.dataset.xfStepCondValue);
+		}
+
+		/** Har steget något kvar att fylla i? Rubriker och dolda fält räknas inte. */
+		stepHasInput(step) {
+			return this.fields.some((field) => {
+				if (this.stepOf(field) !== step) return false;
+				if (field.classList.contains('xf-type-hidden') || !this.inputs(field).length) return false;
+				return this.ownCondSatisfied(field);
+			});
+		}
+
+		/** Stegen besökaren går igenom, i ordning. Det aktuella är alltid med. */
+		visibleSteps() {
+			const current = this.steps[this.stepIndex];
+			return this.steps.filter((step) => step === current || (this.stepOpen(step) && this.stepHasInput(step)));
+		}
+
+		onLastStep() {
+			if (!this.steps.length) return true;
+			const visible = this.visibleSteps();
+			return visible[visible.length - 1] === this.steps[this.stepIndex];
+		}
+
+		/** Knappar, indikator och sista stegets delar efter aktuellt läge. */
+		updateSteps() {
+			const visible = this.visibleSteps();
+			const current = this.steps[this.stepIndex];
+			const position = visible.indexOf(current) + 1;
+			const total = visible.length;
+			const last = position === total;
+
+			this.root.classList.toggle('is-first-step', position === 1);
+			this.root.classList.toggle('is-last-step', last);
+			this.root.dataset.xfStep = String(position);
+
+			if (this.progressText) {
+				const text = (this.progressText.dataset.xfTemplate || 'Steg {current} av {total}')
+					.replace('{current}', String(position))
+					.replace('{total}', String(total));
+				// Bara vid ändring – texten är en aria-live-region.
+				if (this.progressText.textContent !== text) this.progressText.textContent = text;
+			}
+			if (this.progressFill) this.progressFill.style.width = `${(position / total) * 100}%`;
+
+			if (last) this.ensureTurnstile();
+		}
+
+		/** Väntar ut stegets CSS-animation, om den har någon. */
+		animationDone(el) {
+			const style = getComputedStyle(el);
+			const seconds = (value) =>
+				Math.max(0, ...String(value).split(',').map((v) => (v.trim().endsWith('ms') ? parseFloat(v) / 1000 : parseFloat(v) || 0)));
+			const total = (seconds(style.animationDuration) + seconds(style.animationDelay)) * 1000;
+			if (style.animationName === 'none' || total <= 0) return Promise.resolve();
+
+			return new Promise((resolve) => {
+				const done = () => {
+					clearTimeout(timer);
+					el.removeEventListener('animationend', onEnd);
+					resolve();
+				};
+				const onEnd = (event) => {
+					if (event.target === el) done();
+				};
+				// Reserv om animationend aldrig kommer (fliken i bakgrunden, avbruten animation).
+				const timer = setTimeout(done, total + 100);
+				el.addEventListener('animationend', onEnd);
+			});
+		}
+
+		reducedMotion() {
+			return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+		}
+
+		stepDetail(step, extra = {}) {
+			const visible = this.visibleSteps();
+			return {
+				formId: this.id,
+				root: this.root,
+				step: visible.indexOf(step) + 1,
+				total: visible.length,
+				title: step.querySelector('.xf-step-title')?.textContent ?? '',
+				element: step,
+				...extra,
+			};
+		}
+
+		/**
+		 * Byter till steget med index `index`. direction: 1 framåt, -1 bakåt.
+		 *
+		 * Låset (this.animating) gäller bara medan det gamla steget lämnas, så
+		 * att ett dubbelklick på Nästa inte hoppar två steg. När det nya steget
+		 * väl visas går det att klicka vidare direkt, även mitt i inglidningen.
+		 */
+		async goTo(index, direction) {
+			const from = this.steps[this.stepIndex];
+			const to = this.steps[index];
+			if (!to || from === to || this.animating) return;
+
+			const dir = direction > 0 ? 'next' : 'prev';
+			this.animating = true;
+			try {
+				const waits = [];
+				this.root.dispatchEvent(
+					new CustomEvent('relativt-form:step-leave', {
+						bubbles: true,
+						detail: {
+							...this.stepDetail(from),
+							to,
+							direction: dir,
+							waitUntil: (promise) => waits.push(Promise.resolve(promise).catch(() => {})),
+						},
+					})
+				);
+
+				this.root.classList.toggle('is-going-back', direction < 0);
+				from.classList.remove('is-entering');
+				from.classList.add('is-leaving');
+				await Promise.all([this.animationDone(from), ...waits]);
+				from.classList.remove('is-active', 'is-leaving');
+
+				this.stepIndex = index;
+				to.classList.add('is-active', 'is-entering');
+				this.updateSteps();
+				this.scrollToForm();
+				to.focus({ preventScroll: true });
+			} finally {
+				this.animating = false;
+			}
+
+			this.root.dispatchEvent(
+				new CustomEvent('relativt-form:step', {
+					bubbles: true,
+					detail: this.stepDetail(to, { direction: dir }),
+				})
+			);
+
+			await this.animationDone(to);
+			to.classList.remove('is-entering');
+		}
+
+		/** Har formulärets överkant scrollat ur bild flyttas den tillbaka in. */
+		scrollToForm() {
+			const top = this.root.getBoundingClientRect().top;
+			if (top >= 0 && top < window.innerHeight) return;
+			this.root.scrollIntoView({ block: 'start', behavior: this.reducedMotion() ? 'auto' : 'smooth' });
+		}
+
+		/** Nästa: kontrollera det aktuella steget, gå sedan vidare. */
+		async next() {
+			if (this.busy || this.animating) return;
+
+			const step = this.steps[this.stepIndex];
+			const fields = this.fields.filter((field) => this.stepOf(field) === step);
+			for (const field of fields) this.clearError(field);
+			if (this.formError) this.formError.textContent = '';
+
+			const bad = this.validate(fields, false);
+			if (bad) {
+				bad.querySelector('input, select, textarea')?.focus();
+				return;
+			}
+
+			// Token hämtas redan vid första fokus; det här täcker en besökare som bara klickat.
+			this.fetchToken();
+
+			const visible = this.visibleSteps();
+			const target = visible[visible.indexOf(step) + 1];
+			if (target) await this.goTo(this.steps.indexOf(target), 1);
+		}
+
+		/** Tillbaka: utan kontroll – besökaren ska kunna backa från ett halvfärdigt steg. */
+		async prev() {
+			if (this.busy || this.animating) return;
+
+			const visible = this.visibleSteps();
+			const target = visible[visible.indexOf(this.steps[this.stepIndex]) - 1];
+			if (target) await this.goTo(this.steps.indexOf(target), -1);
+		}
+
+		/** Visar steget som ett fält (eller fel) ligger i, t.ex. vid ett fel från servern. */
+		async revealStepOf(el) {
+			if (!this.steps.length) return;
+			const step = this.stepOf(el);
+			const index = this.steps.indexOf(step);
+			if (index < 0 || index === this.stepIndex) return;
+			await this.goTo(index, index < this.stepIndex ? -1 : 1);
 		}
 
 		/* -- Bindningar ---------------------------------------------------- */

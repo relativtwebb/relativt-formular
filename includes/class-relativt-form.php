@@ -35,6 +35,25 @@ final class Relativt_Form {
 	/** ACF-nyckeln för ikonväljaren. Väljarens CSS riktas mot den. */
 	public const ICON_FIELD_KEY = 'field_xf_submit_icon';
 
+	/** ACF-nycklarna för ikonväljarna på Nästa- och Tillbaka-knapparna (1.14.0). */
+	public const NEXT_ICON_FIELD_KEY = 'field_xf_step_next_icon';
+	public const PREV_ICON_FIELD_KEY = 'field_xf_step_prev_icon';
+
+	/**
+	 * Flerstegsformulärens val (1.14.0): stegindikator och animation.
+	 * Första nyckeln i varje lista är förvalet.
+	 */
+	public const STEP_INDICATORS = [
+		'bar'  => 'Stapel och text (Steg 2 av 4)',
+		'text' => 'Bara text',
+		'none' => 'Ingen (läses ändå upp för skärmläsare)',
+	];
+	public const STEP_ANIMATIONS = [
+		'slide' => 'Glid och tona',
+		'fade'  => 'Tona',
+		'none'  => 'Ingen',
+	];
+
 	/** Antal renderingar per formulär under den här sidladdningen (för unika id på <form>). */
 	private static array $render_count = [];
 	public const CPT_ENTRY    = 'relativt_entry';
@@ -73,8 +92,12 @@ final class Relativt_Form {
 	 */
 	public const STATS_TYPES = [ 'select', 'buttons', 'radio', 'checkboxes', 'checkbox', 'hidden' ];
 
-	/** Fälttyper som inte tar emot användarinmatning. */
-	private const STATIC_TYPES = [ 'heading' ];
+	/**
+	 * Fälttyper som inte tar emot användarinmatning. 'step' (1.14.0) är
+	 * avgränsaren mellan stegen i ett flerstegsformulär; är flerstegsläget av
+	 * ritas den som en rubrik.
+	 */
+	private const STATIC_TYPES = [ 'heading', 'step' ];
 
 	/**
 	 * Fälttyper som ett bekräftelsefält (1.13.0) kan upprepa. Bara enradiga
@@ -279,6 +302,7 @@ final class Relativt_Form {
 		add_action( 'admin_post_relativt_form_export', [ $this, 'export_csv' ] );
 		add_action( 'admin_notices', [ $this, 'mail_failure_notice' ] );
 		add_action( 'admin_notices', [ $this, 'turnstile_notice' ] );
+		add_action( 'admin_notices', [ $this, 'multistep_notice' ] );
 
 		// Gallring.
 		add_action( 'after_switch_theme', [ $this, 'schedule_cleanup' ] );
@@ -590,6 +614,7 @@ final class Relativt_Form {
 			'checkbox'   => 'Kryssruta',
 			'hidden'     => 'Dolt fält',
 			'heading'    => 'Rubrik / avdelare',
+			'step'       => 'Nytt steg (flerstegsformulär)',
 		];
 	}
 
@@ -695,6 +720,7 @@ final class Relativt_Form {
 							'instructions'      => 'Etiketten läses ändå upp för skärmläsare när den är avstängd.',
 							'conditional_logic' => [ [
 								[ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'heading' ],
+								[ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'step' ],
 							] ],
 						],
 						/*
@@ -712,6 +738,22 @@ final class Relativt_Form {
 							'type'     => 'text',
 							'readonly' => 1,
 							'wrapper'  => [ 'class' => 'xf-hidden-key' ],
+						],
+						/*
+						 * 1.14.0. Förklaring för typen Nytt steg. Ett ACF-
+						 * meddelande sparar inget värde och följer därför
+						 * inte med i export eller inskick.
+						 */
+						[
+							'key'               => 'field_xf_f_step_note',
+							'label'             => '',
+							'name'              => '',
+							'type'              => 'message',
+							'message'           => 'Fälten under den här raden hamnar i ett nytt steg. Etiketten blir stegets rubrik och hjälptexten en ingress under den. Ett villkor nedan hoppar över hela steget. Kräver att Flerstegsformulär är påslaget under Inställningar → Steg – annars visas raden som en vanlig rubrik.',
+							'new_lines'         => '',
+							'conditional_logic' => [ [
+								[ 'field' => 'field_xf_f_type', 'operator' => '==', 'value' => 'step' ],
+							] ],
 						],
 						/*
 						 * 1.13.0. Bekräftelsefältet får typ, tangentbord, autofyll,
@@ -739,6 +781,7 @@ final class Relativt_Form {
 							'wrapper' => [ 'width' => '50' ],
 							'conditional_logic' => [ [
 								[ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'heading' ],
+								[ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'step' ],
 							] ],
 						],
 						/*
@@ -780,6 +823,7 @@ final class Relativt_Form {
 							// Ett förifyllt bekräftelsefält bekräftar ingenting.
 							'conditional_logic' => [ [
 								[ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'confirm' ],
+								[ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'step' ],
 							] ],
 						],
 						[
@@ -792,6 +836,7 @@ final class Relativt_Form {
 							// Bekräftelsen är obligatorisk när fältet den upprepar är det.
 							'conditional_logic' => [ [
 								[ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'confirm' ],
+								[ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'step' ],
 							] ],
 						],
 						[
@@ -802,6 +847,10 @@ final class Relativt_Form {
 							'default_value' => 'full',
 							'wrapper' => [ 'width' => '33' ],
 							'choices' => [ 'full' => 'Hel bredd', 'half' => 'Halv bredd (1/2)', 'third' => 'Tredjedels bredd (1/3)' ],
+							// Ett steg är alltid hela formulärets bredd.
+							'conditional_logic' => [ [
+								[ 'field' => 'field_xf_f_type', 'operator' => '!=', 'value' => 'step' ],
+							] ],
 						],
 						/*
 						 * 1.12.0. Telefonfält med landsväljare: rullista med flagga
@@ -1043,6 +1092,97 @@ final class Relativt_Form {
 					'name'         => 'xf_error_text',
 					'type'         => 'text',
 					'default_value'=> 'Något gick fel. Försök igen, eller mejla oss direkt.',
+				],
+
+				/*
+				 * 1.14.0. Flerstegsformulär. Av som standard – inget formulär
+				 * blir flerstegs utan att någon aktivt slår på det, och alla
+				 * steginställningar nedan syns bara när det är påslaget.
+				 */
+				[ 'key' => 'field_xf_tab_steps', 'label' => 'Steg', 'type' => 'tab' ],
+				[
+					'key'           => 'field_xf_multistep',
+					'label'         => 'Flerstegsformulär',
+					'name'          => 'xf_multistep',
+					'type'          => 'true_false',
+					'ui'            => 1,
+					'default_value' => 0,
+					'instructions'  => 'Delar formuläret i steg vid varje rad av typen "Nytt steg" i fältlistan. Varje steg kontrolleras innan besökaren går vidare. Av = ett vanligt formulär; stegraderna visas då som rubriker.',
+				],
+				[
+					'key'               => 'field_xf_step_first_title',
+					'label'             => 'Rubrik för första steget',
+					'name'              => 'xf_step_first_title',
+					'type'              => 'text',
+					'instructions'      => 'Valfri. Fälten före den första "Nytt steg"-raden är steg 1 – de övriga stegen får sin rubrik från sin rad.',
+					'conditional_logic' => [ [ [ 'field' => 'field_xf_multistep', 'operator' => '==', 'value' => '1' ] ] ],
+				],
+				[
+					'key'               => 'field_xf_step_indicator',
+					'label'             => 'Stegindikator',
+					'name'              => 'xf_step_indicator',
+					'type'              => 'select',
+					'choices'           => self::STEP_INDICATORS,
+					'default_value'     => 'bar',
+					'wrapper'           => [ 'width' => '50' ],
+					'conditional_logic' => [ [ [ 'field' => 'field_xf_multistep', 'operator' => '==', 'value' => '1' ] ] ],
+				],
+				[
+					'key'               => 'field_xf_step_animation',
+					'label'             => 'Animation mellan stegen',
+					'name'              => 'xf_step_animation',
+					'type'              => 'select',
+					'choices'           => self::STEP_ANIMATIONS,
+					'default_value'     => 'slide',
+					'wrapper'           => [ 'width' => '50' ],
+					'instructions'      => 'Tid och avstånd styrs av sajtens CSS (--xf-step-duration, --xf-step-distance). Stängs av automatiskt för besökare som valt minskad rörelse.',
+					'conditional_logic' => [ [ [ 'field' => 'field_xf_multistep', 'operator' => '==', 'value' => '1' ] ] ],
+				],
+				[
+					'key'               => 'field_xf_step_next_text',
+					'label'             => 'Text på Nästa-knappen',
+					'name'              => 'xf_step_next_text',
+					'type'              => 'text',
+					'default_value'     => 'Nästa',
+					'wrapper'           => [ 'width' => '50' ],
+					'conditional_logic' => [ [ [ 'field' => 'field_xf_multistep', 'operator' => '==', 'value' => '1' ] ] ],
+				],
+				[
+					'key'               => 'field_xf_step_prev_text',
+					'label'             => 'Text på Tillbaka-knappen',
+					'name'              => 'xf_step_prev_text',
+					'type'              => 'text',
+					'default_value'     => 'Tillbaka',
+					'wrapper'           => [ 'width' => '50' ],
+					'conditional_logic' => [ [ [ 'field' => 'field_xf_multistep', 'operator' => '==', 'value' => '1' ] ] ],
+				],
+				[
+					'key'               => self::NEXT_ICON_FIELD_KEY,
+					'label'             => 'Ikon i Nästa-knappen',
+					'name'              => 'xf_step_next_icon',
+					'type'              => 'radio',
+					'layout'            => 'horizontal',
+					'allow_null'        => 0,
+					'other_choice'      => 0,
+					'return_format'     => 'value',
+					'choices'           => Relativt_Form_Icons::choices(),
+					'default_value'     => Relativt_Form_Icons::STANDARD,
+					'instructions'      => 'Visas efter texten, som i skicka-knappen.',
+					'conditional_logic' => [ [ [ 'field' => 'field_xf_multistep', 'operator' => '==', 'value' => '1' ] ] ],
+				],
+				[
+					'key'               => self::PREV_ICON_FIELD_KEY,
+					'label'             => 'Ikon i Tillbaka-knappen',
+					'name'              => 'xf_step_prev_icon',
+					'type'              => 'radio',
+					'layout'            => 'horizontal',
+					'allow_null'        => 0,
+					'other_choice'      => 0,
+					'return_format'     => 'value',
+					'choices'           => Relativt_Form_Icons::choices(),
+					'default_value'     => Relativt_Form_Icons::STANDARD_LEFT,
+					'instructions'      => 'Visas före texten.',
+					'conditional_logic' => [ [ [ 'field' => 'field_xf_multistep', 'operator' => '==', 'value' => '1' ] ] ],
 				],
 
 				[ 'key' => 'field_xf_tab_data', 'label' => 'Lagring', 'type' => 'tab' ],
@@ -1557,6 +1697,240 @@ final class Relativt_Form {
 	}
 
 	/* ---------------------------------------------------------------------
+	 * Flerstegsformulär (1.14.0)
+	 * ------------------------------------------------------------------ */
+
+	/**
+	 * Fältlistan uppdelad i steg vid varje rad av typen "Nytt steg".
+	 *
+	 * Fälten före första stegraden är steg 1, med rubriken från inställningen
+	 * xf_step_first_title. Ett steg utan fält – stegraden står först eller
+	 * sist, eller två stegrader i rad – tas bort, så att besökaren aldrig
+	 * hamnar i ett tomt steg. Stegraden själv ingår inte i stegets fält.
+	 *
+	 * @param array<int,array<string,mixed>> $fields
+	 * @return array<int,array{title:string,help:string,cond_field:string,cond_value:string,fields:array}>
+	 */
+	public function split_steps( int $form_id, array $fields ): array {
+		$steps   = [];
+		$current = [
+			'title'      => trim( (string) $this->setting( $form_id, 'xf_step_first_title', '' ) ),
+			'help'       => '',
+			'cond_field' => '',
+			'cond_value' => '',
+			'fields'     => [],
+		];
+
+		foreach ( $fields as $f ) {
+			if ( 'step' !== $f['type'] ) {
+				$current['fields'][] = $f;
+				continue;
+			}
+			if ( $current['fields'] ) {
+				$steps[] = $current;
+			}
+			$current = [
+				'title'      => trim( (string) $f['label'] ),
+				'help'       => trim( (string) $f['help'] ),
+				'cond_field' => (string) $f['cond_field'],
+				'cond_value' => (string) $f['cond_value'],
+				'fields'     => [],
+			];
+		}
+		if ( $current['fields'] ) {
+			$steps[] = $current;
+		}
+
+		return $steps;
+	}
+
+	/**
+	 * Är formuläret ett flerstegsformulär? Kräver BÅDE att reglaget är på
+	 * och att fältlistan ger minst två steg. Annars renderas, valideras och
+	 * exponeras formuläret precis som före 1.14.0 – med eventuella stegrader
+	 * som vanliga rubriker.
+	 *
+	 * @param array<int,array<string,mixed>>|null $fields Redan hämtade fält, annars hämtas de.
+	 */
+	public function is_multistep( int $form_id, ?array $fields = null ): bool {
+		if ( ! $this->setting( $form_id, 'xf_multistep' ) ) {
+			return false;
+		}
+
+		$fields ??= $this->get_fields( $form_id );
+
+		return count( $this->split_steps( $form_id, $fields ) ) >= 2;
+	}
+
+	/**
+	 * Stegraderna som rubriker – för formulär där flerstegsläget inte gäller.
+	 * Rubriken är det närmaste en stegrad betyder i ett vanligt formulär, och
+	 * den kan inte bli ett fält som kräver svar.
+	 *
+	 * @param array<int,array<string,mixed>> $fields
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function steps_as_headings( array $fields ): array {
+		foreach ( $fields as $i => $f ) {
+			if ( 'step' === $f['type'] ) {
+				$fields[ $i ]['type'] = 'heading';
+			}
+		}
+		return $fields;
+	}
+
+	/**
+	 * Stegvillkoren per fältnyckel: fälten i ett steg med villkor ärver det,
+	 * utöver sitt eget. Ett överhoppat steg ska varken kräva svar eller
+	 * skicka med något – på servern lika lite som i webbläsaren.
+	 * Tom lista när formuläret inte är ett flerstegsformulär.
+	 *
+	 * @param array<int,array<string,mixed>> $fields
+	 * @return array<string,array{0:string,1:string}> nyckel => [ styrfält, värde ]
+	 */
+	private function step_gates( int $form_id, array $fields ): array {
+		if ( ! $this->is_multistep( $form_id, $fields ) ) {
+			return [];
+		}
+
+		$gates = [];
+		foreach ( $this->split_steps( $form_id, $fields ) as $step ) {
+			if ( '' === $step['cond_field'] ) {
+				continue;
+			}
+			foreach ( $step['fields'] as $f ) {
+				if ( '' !== $f['key'] ) {
+					$gates[ $f['key'] ] = [ $step['cond_field'], $step['cond_value'] ];
+				}
+			}
+		}
+
+		return $gates;
+	}
+
+	/** Är fältets steg öppet? Fält utan stegvillkor är alltid det. */
+	private function gate_open( array $gates, string $key, array $flat ): bool {
+		if ( ! isset( $gates[ $key ] ) ) {
+			return true;
+		}
+		return $this->matches_any( $flat[ $gates[ $key ][0] ] ?? [], $gates[ $key ][1] );
+	}
+
+	/**
+	 * Nästa- eller Tillbaka-knappen.
+	 *
+	 * Nästa-knappen ärver skicka-knappens temaklasser som standard (filtren
+	 * relativt_form_submit_class m.fl.), så att den ser ut som skicka-knappen
+	 * på en sajt som lånar temats knappstil. Tillbaka-knappen gör det inte –
+	 * den är en sekundär knapp. Båda kan styras för sig med
+	 * relativt_form_step_button_class, _text_class och _icon_class, som får
+	 * riktningen ('next' eller 'prev') som tredje argument.
+	 *
+	 * Ikonen väljs i byggaren och kan bytas ut med relativt_form_step_icon,
+	 * på samma sätt som relativt_form_submit_icon.
+	 */
+	private function render_step_button( int $form_id, string $dir ): string {
+		$next     = 'next' === $dir;
+		$text     = (string) $this->setting( $form_id, $next ? 'xf_step_next_text' : 'xf_step_prev_text', $next ? 'Nästa' : 'Tillbaka' );
+		$icon_key = Relativt_Form_Icons::normalize(
+			$this->setting( $form_id, $next ? 'xf_step_next_icon' : 'xf_step_prev_icon', $next ? Relativt_Form_Icons::STANDARD : Relativt_Form_Icons::STANDARD_LEFT )
+		);
+		$icon     = (string) apply_filters( 'relativt_form_step_icon', Relativt_Form_Icons::svg( $icon_key ), $form_id, $dir, $icon_key );
+
+		$inherit = static fn( string $filter ): string => $next ? (string) apply_filters( $filter, '', $form_id ) : '';
+
+		$btn_classes  = trim( 'xf-step-btn xf-' . $dir . ' ' . (string) apply_filters( 'relativt_form_step_button_class', $inherit( 'relativt_form_submit_class' ), $form_id, $dir ) );
+		$text_classes = trim( 'xf-step-btn-text ' . (string) apply_filters( 'relativt_form_step_button_text_class', $inherit( 'relativt_form_submit_text_class' ), $form_id, $dir ) );
+		$icon_classes = trim( 'xf-step-btn-icon ' . (string) apply_filters( 'relativt_form_step_button_icon_class', $inherit( 'relativt_form_submit_icon_class' ), $form_id, $dir ) );
+
+		$icon_html = '' !== $icon
+			? '<span class="' . esc_attr( $icon_classes ) . '" aria-hidden="true">' . wp_kses( $icon, self::svg_kses() ) . '</span>'
+			: '';
+		$text_html = '<span class="' . esc_attr( $text_classes ) . '">' . esc_html( $text ) . '</span>';
+
+		return sprintf(
+			'<button type="button" class="%s" data-xf-%s>%s</button>',
+			esc_attr( $btn_classes ),
+			esc_attr( $dir ),
+			$next ? $text_html . $icon_html : $icon_html . $text_html
+		);
+	}
+
+	/**
+	 * Stegindikatorn och stegen. Bara för flerstegsformulär – ett vanligt
+	 * formulär renderas av samma rader som före 1.14.0.
+	 *
+	 * Stegen ritas alla på servern. Det första är aktivt; de övriga döljs med
+	 * CSS och visas av JS ett i taget. Villkor på ett steg skrivs som
+	 * data-attribut och utvärderas av JS (som hoppar över stegen) och av
+	 * servern (som hoppar över fälten i dem, se step_gates()).
+	 *
+	 * @param array<int,array<string,mixed>> $steps Ur split_steps().
+	 */
+	private function render_steps( int $form_id, array $steps, string $uid, array $presets, array $resolved ): string {
+		$total     = count( $steps );
+		$indicator = (string) $this->setting( $form_id, 'xf_step_indicator', 'bar' );
+		$indicator = isset( self::STEP_INDICATORS[ $indicator ] ) ? $indicator : 'bar';
+
+		/*
+		 * Mallen för "Steg 2 av 4". Ligger i markupen så att JS kan räkna om
+		 * den när ett steg hoppas över, utan en egen översättningskanal.
+		 */
+		$template = (string) apply_filters( 'relativt_form_step_counter', 'Steg {current} av {total}', $form_id );
+		$counter  = strtr( $template, [ '{current}' => '1', '{total}' => (string) $total ] );
+
+		$html  = '<div class="xf-progress xf-progress--' . esc_attr( $indicator ) . '" data-xf-progress>';
+		$html .= '<p class="xf-progress-text' . ( 'none' === $indicator ? ' xf-sr-only' : '' ) . '" data-xf-progress-text data-xf-template="' . esc_attr( $template ) . '" aria-live="polite">' . esc_html( $counter ) . '</p>';
+		if ( 'bar' === $indicator ) {
+			$html .= '<div class="xf-progress-bar" aria-hidden="true"><span class="xf-progress-fill" style="width: ' . esc_attr( (string) round( 100 / $total, 3 ) ) . '%"></span></div>';
+		}
+		$html .= '</div>';
+
+		$html .= '<div class="xf-steps">';
+		foreach ( $steps as $i => $step ) {
+			$title_id = $uid . '-step-' . $i;
+			$attrs    = [
+				'class'        => 'xf-step' . ( 0 === $i ? ' is-active' : '' ),
+				'data-xf-step' => (string) $i,
+				'role'         => 'group',
+				// Fokus flyttas hit vid stegbyte, så att skärmläsaren läser upp rubriken.
+				'tabindex'     => '-1',
+			];
+			if ( '' !== $step['title'] ) {
+				$attrs['aria-labelledby'] = $title_id;
+			} else {
+				$attrs['aria-label'] = strtr( $template, [ '{current}' => (string) ( $i + 1 ), '{total}' => (string) $total ] );
+			}
+			if ( '' !== $step['cond_field'] ) {
+				$attrs['data-xf-step-cond-field'] = $step['cond_field'];
+				$attrs['data-xf-step-cond-value'] = $step['cond_value'];
+			}
+
+			$html .= '<div';
+			foreach ( $attrs as $k => $v ) {
+				$html .= ' ' . $k . '="' . esc_attr( $v ) . '"';
+			}
+			$html .= '>';
+
+			if ( '' !== $step['title'] ) {
+				$html .= '<p class="xf-step-title" id="' . esc_attr( $title_id ) . '">' . esc_html( $step['title'] ) . '</p>';
+			}
+			if ( '' !== $step['help'] ) {
+				$html .= '<p class="xf-step-help">' . esc_html( $step['help'] ) . '</p>';
+			}
+
+			$html .= '<div class="xf-grid">';
+			foreach ( $step['fields'] as $field ) {
+				$html .= $this->render_field( $field, $uid, $presets, $resolved );
+			}
+			$html .= '</div></div>';
+		}
+		$html .= '</div>';
+
+		return $html;
+	}
+
+	/* ---------------------------------------------------------------------
 	 * Shortcode och rendering
 	 * ------------------------------------------------------------------ */
 
@@ -1615,6 +1989,19 @@ final class Relativt_Form {
 		$uid    = 'xf-' . $form_id . '-' . wp_rand( 1000, 9999 );
 
 		/*
+		 * Flerstegsformulär (1.14.0). Allt nedan som rör steg sker BARA när
+		 * $multistep är sant. Ett formulär utan steg renderas av exakt samma
+		 * rader som före 1.14.0 – tests/fixtures/render-1.13.0.json bevakar
+		 * det byte för byte. Därför står PHP-taggarna för stegen i vänsterkanten
+		 * längre ned: en indragen tagg hade lagt till blanktecken i markupen.
+		 */
+		$multistep = $this->is_multistep( $form_id, $fields );
+		$steps     = $multistep ? $this->split_steps( $form_id, $fields ) : [];
+		if ( ! $multistep ) {
+			$fields = $this->steps_as_headings( $fields );
+		}
+
+		/*
 		 * id och name på <form> läses av GA4:s förbättrade mätning som
 		 * form_id och form_name. id:t bygger på post-ID (stabilt när titeln
 		 * ändras); förekommer samma formulär igen på sidan (t.ex. i en modal)
@@ -1646,18 +2033,32 @@ final class Relativt_Form {
 			}
 		}
 
+		$step_attrs = '';
+		if ( $multistep ) {
+			$animation = (string) $this->setting( $form_id, 'xf_step_animation', 'slide' );
+			$animation = isset( self::STEP_ANIMATIONS[ $animation ] ) ? $animation : 'slide';
+			// is-first-step sätts redan här, så att knapparna står rätt innan JS hunnit starta.
+			array_push( $classes, 'xf-multistep', 'xf-anim-' . $animation, 'is-first-step' );
+			$step_attrs = ' data-xf-steps="' . esc_attr( (string) count( $steps ) ) . '"';
+		}
+
 		ob_start();
 		?>
 		<div class="<?php echo esc_attr( implode( ' ', $classes ) ); ?>"
 			data-xf-form="<?php echo esc_attr( (string) $form_id ); ?>"
-			data-xf-rest="<?php echo esc_url( rest_url( self::REST_NS . '/' ) ); ?>">
+			data-xf-rest="<?php echo esc_url( rest_url( self::REST_NS . '/' ) ); ?>"<?php echo $step_attrs; // phpcs:ignore WordPress.Security.EscapeOutput -- escapad ovan. ?>>
 
 			<form class="xf-form" id="<?php echo esc_attr( $dom_id ); ?>" name="<?php echo esc_attr( $dom_name ); ?>" novalidate autocomplete="on">
+<?php if ( $multistep ) : ?>
+				<?php echo $this->render_steps( $form_id, $steps, $uid, $presets, $resolved ); // phpcs:ignore WordPress.Security.EscapeOutput -- byggs av escapade delar. ?>
+
+<?php else : ?>
 				<div class="xf-grid">
 					<?php foreach ( $fields as $field ) : ?>
 						<?php echo $this->render_field( $field, $uid, $presets, $resolved ); // phpcs:ignore ?>
 					<?php endforeach; ?>
 				</div>
+<?php endif; ?>
 
 				<?php if ( $this->setting( $form_id, 'xf_consent_box' ) ) : ?>
 					<div class="xf-field xf-field--full xf-type-consent">
@@ -1677,6 +2078,11 @@ final class Relativt_Form {
 				 * widget som ändå kräver en token vore bara friktion.
 				 * Skriptet köas härifrån, oberoende av always_enqueue: det är
 				 * ett tredjepartsanrop som inte ska ske på sidor utan formulär.
+				 *
+				 * Flerstegsformulär (1.14.0): widgeten ligger i sista steget, dold
+				 * tills besökaren kommer dit. Utan klassen cf-turnstile hoppar
+				 * Cloudflares implicita rendering över den, och JS renderar den
+				 * när sista steget visas – inte i en dold behållare.
 				 */
 				$turnstile = $this->turnstile_state( $form_id );
 				if ( 'active' === $turnstile['state'] ) :
@@ -1685,7 +2091,7 @@ final class Relativt_Form {
 					}
 					?>
 					<div class="xf-field xf-field--full xf-type-turnstile">
-						<div class="xf-turnstile cf-turnstile" data-sitekey="<?php echo esc_attr( $turnstile['site_key'] ); ?>" data-xf-turnstile></div>
+						<div class="xf-turnstile<?php echo $multistep ? '' : ' cf-turnstile'; ?>" data-sitekey="<?php echo esc_attr( $turnstile['site_key'] ); ?>" data-xf-turnstile<?php echo $multistep ? ' data-xf-turnstile-defer' : ''; ?>></div>
 						<p class="xf-error" data-xf-error="turnstile" role="alert"></p>
 					</div>
 				<?php endif; ?>
@@ -1723,6 +2129,15 @@ final class Relativt_Form {
 						$form_id,
 						$icon_key
 					);
+
+					/*
+					 * Flerstegsformulär (1.14.0): Tillbaka och Nästa står före
+					 * skicka-knappen. CSS visar Nästa i alla steg utom det sista
+					 * och skicka-knappen bara i det sista.
+					 */
+					if ( $multistep ) {
+						echo $this->render_step_button( $form_id, 'prev' ) . $this->render_step_button( $form_id, 'next' ); // phpcs:ignore WordPress.Security.EscapeOutput -- byggs av escapade delar.
+					}
 					?>
 					<button type="submit" class="<?php echo esc_attr( $submit_classes ); ?>"
 						data-xf-label="<?php echo esc_attr( $this->setting( $form_id, 'xf_submit_text', 'Skicka' ) ); ?>"
@@ -2016,6 +2431,16 @@ final class Relativt_Form {
 	 * formen värde => etikett.
 	 */
 	private function public_fields( int $form_id ): array {
+		$fields = $this->get_fields( $form_id );
+
+		/*
+		 * 1.14.0: utan flerstegsläge blir stegraderna rubriker även här, så att
+		 * en headless-frontend byggd före 1.14.0 aldrig får se typen 'step'.
+		 */
+		if ( ! $this->is_multistep( $form_id, $fields ) ) {
+			$fields = $this->steps_as_headings( $fields );
+		}
+
 		return array_map(
 			function ( array $f ): array {
 				$f['choices'] = (object) $f['choices'];
@@ -2026,7 +2451,7 @@ final class Relativt_Form {
 				$f['autocomplete'] = $this->autocomplete_for( $f );
 				return $f;
 			},
-			$this->get_fields( $form_id )
+			$fields
 		);
 	}
 
@@ -2052,7 +2477,7 @@ final class Relativt_Form {
 		$active    = 'active' === $turnstile['state'];
 		$redirect  = trim( (string) $this->setting( $form_id, 'xf_redirect', '' ) );
 
-		return [
+		$response = [
 			'id'        => $form_id,
 			'title'     => html_entity_decode( wp_strip_all_tags( (string) get_the_title( $form_id ) ), ENT_QUOTES, 'UTF-8' ),
 			'fields'    => $this->public_fields( $form_id ),
@@ -2076,6 +2501,30 @@ final class Relativt_Form {
 			],
 			'rest'      => rest_url( self::REST_NS . '/' ),
 		];
+
+		/*
+		 * Flerstegsformulär (1.14.0). Nyckeln finns BARA när formuläret är ett,
+		 * så svaret för alla andra formulär är oförändrat. Stegen anges av
+		 * fälten av typen 'step' i fields; här finns det som inte hör till
+		 * något enskilt fält.
+		 */
+		if ( $this->is_multistep( $form_id ) ) {
+			$indicator = (string) $this->setting( $form_id, 'xf_step_indicator', 'bar' );
+			$animation = (string) $this->setting( $form_id, 'xf_step_animation', 'slide' );
+
+			$response['multistep'] = [
+				'first_title' => trim( (string) $this->setting( $form_id, 'xf_step_first_title', '' ) ),
+				'indicator'   => isset( self::STEP_INDICATORS[ $indicator ] ) ? $indicator : 'bar',
+				'animation'   => isset( self::STEP_ANIMATIONS[ $animation ] ) ? $animation : 'slide',
+				'counter'     => (string) apply_filters( 'relativt_form_step_counter', 'Steg {current} av {total}', $form_id ),
+				'next'        => (string) $this->setting( $form_id, 'xf_step_next_text', 'Nästa' ),
+				'prev'        => (string) $this->setting( $form_id, 'xf_step_prev_text', 'Tillbaka' ),
+				'next_icon'   => Relativt_Form_Icons::normalize( $this->setting( $form_id, 'xf_step_next_icon', Relativt_Form_Icons::STANDARD ) ),
+				'prev_icon'   => Relativt_Form_Icons::normalize( $this->setting( $form_id, 'xf_step_prev_icon', Relativt_Form_Icons::STANDARD_LEFT ) ),
+			];
+		}
+
+		return $response;
 	}
 
 	/**
@@ -2451,6 +2900,9 @@ final class Relativt_Form {
 			$flat[ $f['key'] ] = [ $submitted, $f['choices'][ $submitted ] ?? $submitted ];
 		}
 
+		// Flerstegsformulär (1.14.0): fälten i ett överhoppat steg hoppas över.
+		$gates = $this->step_gates( $form_id, $fields );
+
 		foreach ( $fields as $f ) {
 			$key = $f['key'];
 			if ( in_array( $f['type'], self::STATIC_TYPES, true ) || '' === $key ) {
@@ -2462,6 +2914,9 @@ final class Relativt_Form {
 				if ( ! $this->matches_any( $flat[ $f['cond_field'] ] ?? [], $f['cond_value'] ) ) {
 					continue;
 				}
+			}
+			if ( ! $this->gate_open( $gates, $key, $flat ) ) {
+				continue;
 			}
 
 			// Bekräftelser kontrolleras efter alla andra fält och sparas aldrig.
@@ -2567,7 +3022,7 @@ final class Relativt_Form {
 			];
 		}
 
-		$errors += $this->validate_confirms( $fields, $raw, $flat, $errors );
+		$errors += $this->validate_confirms( $fields, $raw, $flat, $errors, $gates );
 
 		return [ 'values' => $values, 'errors' => $errors ];
 	}
@@ -2580,9 +3035,10 @@ final class Relativt_Form {
 	 *
 	 * @param array<int,array<string,mixed>> $fields
 	 * @param array<string,string>           $errors Felen hittills.
+	 * @param array<string,array>            $gates  Stegvillkoren ur step_gates() (1.14.0).
 	 * @return array<string,string> Felen för bekräftelsefälten.
 	 */
-	private function validate_confirms( array $fields, array $raw, array $flat, array $errors ): array {
+	private function validate_confirms( array $fields, array $raw, array $flat, array $errors, array $gates = [] ): array {
 		$msg    = $this->messages();
 		$by_key = array_column( $fields, null, 'key' );
 		$out    = [];
@@ -2599,6 +3055,9 @@ final class Relativt_Form {
 				continue;
 			}
 			if ( '' !== $target['cond_field'] && ! $this->matches_any( $flat[ $target['cond_field'] ] ?? [], $target['cond_value'] ) ) {
+				continue;
+			}
+			if ( ! $this->gate_open( $gates, $f['key'], $flat ) || ! $this->gate_open( $gates, $target['key'], $flat ) ) {
 				continue;
 			}
 
@@ -3203,6 +3662,8 @@ final class Relativt_Form {
 		</style>
 		<style id="relativt-form-icon-picker">
 		<?php echo Relativt_Form_Icons::picker_css( self::ICON_FIELD_KEY ); // phpcs:ignore WordPress.Security.EscapeOutput -- byggs av konstanter i Relativt_Form_Icons, ingen indata. ?>
+		<?php echo Relativt_Form_Icons::picker_css( self::NEXT_ICON_FIELD_KEY ); // phpcs:ignore WordPress.Security.EscapeOutput -- som ovan. ?>
+		<?php echo Relativt_Form_Icons::picker_css( self::PREV_ICON_FIELD_KEY ); // phpcs:ignore WordPress.Security.EscapeOutput -- som ovan. ?>
 		</style>
 		<script>
 		// Ger repeatern ett id som CSS-variablerna ovan kan hänga på.
@@ -3296,6 +3757,91 @@ final class Relativt_Form {
 				: 'Cloudflare Turnstile gick inte att nå. Inskicken släpps igenom utan Turnstile-kontroll tills verifieringen fungerar igen. Kontrollera att servern når challenges.cloudflare.com.' ),
 			esc_html( $when )
 		);
+	}
+
+	/**
+	 * Flerstegsformulär (1.14.0) på formulärets redigeringsskärm. Tre lägen
+	 * som annars bara syns på sajten:
+	 *  - reglaget är på men fältlistan ger färre än två steg, så formuläret
+	 *    visas som ett vanligt formulär;
+	 *  - fältlistan har stegrader men reglaget är av, så raderna blir rubriker;
+	 *  - ett steg styrs av ett fält som besökaren inte hunnit svara på när
+	 *    steget ska visas (fältet ligger i samma eller ett senare steg).
+	 */
+	public function multistep_notice(): void {
+		if ( ! function_exists( 'get_current_screen' ) || ! current_user_can( 'edit_pages' ) ) {
+			return;
+		}
+
+		$screen = get_current_screen();
+		if ( ! $screen || 'post' !== ( $screen->base ?? '' ) || self::CPT_FORM !== ( $screen->post_type ?? '' ) ) {
+			return;
+		}
+
+		$form_id = $this->current_admin_post_id();
+		if ( ! $form_id ) {
+			return;
+		}
+
+		foreach ( $this->multistep_issues( $form_id ) as $issue ) {
+			printf(
+				'<div class="notice notice-%s"><p><strong>Relativt Formulär:</strong> %s</p></div>',
+				esc_attr( $issue['level'] ),
+				esc_html( $issue['text'] )
+			);
+		}
+	}
+
+	/**
+	 * Det multistep_notice() visar, skilt från utskriften så att det går att testa.
+	 *
+	 * @return array<int,array{level:string,text:string}>
+	 */
+	public function multistep_issues( int $form_id ): array {
+		$fields  = $this->get_fields( $form_id );
+		$on      = (bool) $this->setting( $form_id, 'xf_multistep' );
+		$has_row = in_array( 'step', array_column( $fields, 'type' ), true );
+		$issues  = [];
+
+		if ( $on && ! $this->is_multistep( $form_id, $fields ) ) {
+			$issues[] = [
+				'level' => 'warning',
+				'text'  => 'Flerstegsformulär är påslaget, men fältlistan ger inte två steg. Formuläret visas som ett vanligt formulär tills det finns fält både före och efter en rad av typen "Nytt steg".',
+			];
+		}
+
+		if ( ! $on && $has_row ) {
+			$issues[] = [
+				'level' => 'info',
+				'text'  => 'Fältlistan har rader av typen "Nytt steg", men Flerstegsformulär är avstängt under Inställningar → Steg. Raderna visas som rubriker.',
+			];
+		}
+
+		if ( $on && $this->is_multistep( $form_id, $fields ) ) {
+			$step_of = [];
+			foreach ( $this->split_steps( $form_id, $fields ) as $i => $step ) {
+				foreach ( $step['fields'] as $f ) {
+					if ( '' !== $f['key'] ) {
+						$step_of[ $f['key'] ] = $i;
+					}
+				}
+			}
+			foreach ( $this->split_steps( $form_id, $fields ) as $i => $step ) {
+				if ( '' !== $step['cond_field'] && ( $step_of[ $step['cond_field'] ] ?? -1 ) >= $i ) {
+					$issues[] = [
+						'level' => 'warning',
+						'text'  => sprintf(
+							'Steg %d%s styrs av fältet "%s", som ligger i samma eller ett senare steg. Villkoret för ett steg måste bero på ett fält i ett tidigare steg – annars har besökaren inte hunnit svara när steget ska visas.',
+							$i + 1,
+							'' !== $step['title'] ? ' ("' . $step['title'] . '")' : '',
+							$step['cond_field']
+						),
+					];
+				}
+			}
+		}
+
+		return $issues;
 	}
 
 	public function add_meta_boxes(): void {

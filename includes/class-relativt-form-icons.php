@@ -1,6 +1,7 @@
 <?php
 /**
- * Ikonbibliotek för skicka-knappen.
+ * Ikonbibliotek för skicka-knappen och, från 1.14.0, Nästa- och
+ * Tillbaka-knapparna i flerstegsformulär.
  *
  * Ett urval av vanliga ikoner ur Lucide (https://lucide.dev, ISC-licens – se
  * includes/LUCIDE-LICENSE.txt), inbyggda som SVG så att pluginet inte hämtar
@@ -9,10 +10,12 @@
  * aldrig som SVG-kod, så en importerad formulärdefinition inte kan smuggla in
  * markup.
  *
- * Två nycklar är inte ur Lucide:
+ * Tre nycklar är inte ur Lucide:
  *  - "standard" är pilen som knappen alltid haft (Material Symbols). Den är
  *    förvalet, så att befintliga formulär ser exakt likadana ut efter
  *    uppdateringen.
+ *  - "standard-left" är samma pil spegelvänd (1.14.0), förvalet för
+ *    Tillbaka-knappen i flerstegsformulär.
  *  - "none" ritar ingen ikon alls.
  *
  * Lägga till en ikon: kopiera elementen ur SVG-filen på lucide.dev, lägg en
@@ -32,9 +35,18 @@ final class Relativt_Form_Icons {
 
 	public const STANDARD = 'standard';
 	public const NONE     = 'none';
+	/** Standardpilen spegelvänd – förvalet för Tillbaka-knappen i flerstegsformulär (1.14.0). */
+	public const STANDARD_LEFT = 'standard-left';
 
 	/** Pilen som knappen haft sedan start. Samma byte-för-byte som tidigare. */
 	private const STANDARD_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="m531.69-480-184-184L376-692.31 588.31-480 376-267.69 347.69-296l184-184Z"/></svg>';
+
+	/**
+	 * Samma pil åt vänster. Speglad med en transform i stället för en
+	 * omräknad bana, så att de två garanterat är samma form. Transformen
+	 * ligger på <g> – det är där svg_kses() tillåter den.
+	 */
+	private const STANDARD_LEFT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><g transform="matrix(-1 0 0 1 960 0)"><path d="m531.69-480-184-184L376-692.31 588.31-480 376-267.69 347.69-296l184-184Z"/></g></svg>';
 
 	/**
 	 * nyckel => [ etikett, inre SVG-element ]
@@ -42,10 +54,14 @@ final class Relativt_Form_Icons {
 	 */
 	private const ICONS = [
 		'arrow-right' => [ 'Pil höger', '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>' ],
+		'arrow-left' => [ 'Pil vänster', '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>' ],
 		'arrow-up-right' => [ 'Pil snett uppåt', '<path d="M7 7h10v10"/><path d="M7 17 17 7"/>' ],
 		'chevron-right' => [ 'Vinkel höger', '<path d="m9 18 6-6-6-6"/>' ],
+		'chevron-left' => [ 'Vinkel vänster', '<path d="m15 18-6-6 6-6"/>' ],
 		'chevrons-right' => [ 'Dubbel vinkel', '<path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/>' ],
+		'chevrons-left' => [ 'Dubbel vinkel vänster', '<path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/>' ],
 		'circle-arrow-right' => [ 'Pil i cirkel', '<circle cx="12" cy="12" r="10"/><path d="m12 16 4-4-4-4"/><path d="M8 12h8"/>' ],
+		'circle-arrow-left' => [ 'Pil i cirkel, vänster', '<circle cx="12" cy="12" r="10"/><path d="m12 8-4 4 4 4"/><path d="M16 12H8"/>' ],
 		'send' => [ 'Skicka', '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>' ],
 		'send-horizontal' => [ 'Skicka, rakt', '<path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z"/><path d="M6 12h16"/>' ],
 		'mail' => [ 'Brev', '<path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/>' ],
@@ -89,16 +105,16 @@ final class Relativt_Form_Icons {
 			return self::STANDARD;
 		}
 
-		if ( self::NONE === $key || self::STANDARD === $key || isset( self::ICONS[ $key ] ) ) {
+		if ( self::NONE === $key || self::STANDARD === $key || self::STANDARD_LEFT === $key || isset( self::ICONS[ $key ] ) ) {
 			return $key;
 		}
 
 		return self::STANDARD;
 	}
 
-	/** Alla nycklar, för vitlistor och tester. */
+	/** Alla nycklar, för vitlistor och tester. Samma ordning som i väljaren. */
 	public static function keys(): array {
-		return array_merge( [ self::STANDARD, self::NONE ], array_keys( self::ICONS ) );
+		return array_keys( self::choices() );
 	}
 
 	/** nyckel => etikett, i den ordning de visas i väljaren. */
@@ -110,6 +126,10 @@ final class Relativt_Form_Icons {
 
 		foreach ( self::ICONS as $key => $icon ) {
 			$choices[ $key ] = $icon[0];
+			// Den spegelvända standardpilen står bland vänsterpilarna.
+			if ( 'arrow-left' === $key ) {
+				$choices[ self::STANDARD_LEFT ] = 'Standard (pil vänster)';
+			}
 		}
 
 		return $choices;
@@ -125,6 +145,10 @@ final class Relativt_Form_Icons {
 
 		if ( self::STANDARD === $key ) {
 			return self::STANDARD_SVG;
+		}
+
+		if ( self::STANDARD_LEFT === $key ) {
+			return self::STANDARD_LEFT_SVG;
 		}
 
 		return self::lucide( self::ICONS[ $key ][1], 'currentColor', 'aria-hidden="true" focusable="false"' );
@@ -157,8 +181,9 @@ final class Relativt_Form_Icons {
 		$css .= "{$f} input[type=\"radio\"]::before { content: \"\"; display: block; position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: auto; height: auto; margin: 0; border-radius: 0; background: currentColor; line-height: 1; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center; -webkit-mask-size: 24px 24px; mask-size: 24px 24px; }\n";
 
 		$masks = [
-			self::STANDARD => str_replace( 'fill="currentColor"', 'fill="#000"', self::STANDARD_SVG ),
-			self::NONE     => self::lucide( self::PREVIEW['ban'], '#000', '' ),
+			self::STANDARD      => str_replace( 'fill="currentColor"', 'fill="#000"', self::STANDARD_SVG ),
+			self::STANDARD_LEFT => str_replace( 'fill="currentColor"', 'fill="#000"', self::STANDARD_LEFT_SVG ),
+			self::NONE          => self::lucide( self::PREVIEW['ban'], '#000', '' ),
 		];
 		foreach ( self::ICONS as $key => $icon ) {
 			$masks[ $key ] = self::lucide( $icon[1], '#000', '' );

@@ -8,6 +8,7 @@ Byggd för byråarbete: samma motor på flera kundsajter, formulär som kan flyt
 
 - **Formulärbyggare i wp-admin.** Fält läggs till, döps om och sorteras genom att dra. Varje formulär får en shortcode.
 - **Villkorliga fält** som utvärderas *på servern*. Ett fält som inte ska synas renderas dolt direkt i HTML:en — det behöver alltså inte JavaScript för att göra rätt, och en besökare med skript avstängt ser samma formulär som alla andra.
+- **Flerstegsformulär** med validering per steg, villkor på hela steg, stegindikator och animationer – av som standard, se [Flerstegsformulär](#flerstegsformulär).
 - **Mottagarregler.** Skicka till olika adresser beroende på vad besökaren svarat. Regler får skrivas med antingen etiketten eller det tekniska värdet — båda träffar.
 - **Validering** av e-post, telefon och URL, spegelvänd mellan PHP och JavaScript så klienten och servern aldrig är oense. Svenska nummer normaliseras till ett format, internationella släpps igenom. URL:er normaliseras med `https://` om schemat saknas, så länken alltid går att klicka på i mailet. [Bekräftelsefält](#bekräftelsefält) låter besökaren skriva t.ex. e-postadressen två gånger.
 - **Spamskydd** utan CAPTCHA: honungsfälla, HMAC-signerad tidsstämpel med minsta tid, frekvensspärr per IP och länkspärr i textrutor. Valfritt per formulär: [Cloudflare Turnstile](#cloudflare-turnstile).
@@ -84,13 +85,24 @@ Fälttypen **Bekräftelse (upprepa fält)** låter besökaren skriva en uppgift 
 
 ### Ikon i knappen
 
-Under formulärets flik **Texter** väljer du **Ikon i knappen** i ett rutnät med ikoner. **Ingen ikon** ger en knapp med bara text. Urvalet är 35 vanliga ikoner ur [Lucide](https://lucide.dev) – pilar, skicka, brev, bock, telefon, kalender, ladda ner, varukorg m.fl. – inbyggda i pluginet, så sidan hämtar inget från tredje part.
+Under formulärets flik **Texter** väljer du **Ikon i knappen** i ett rutnät med ikoner. **Ingen ikon** ger en knapp med bara text. Urvalet är 39 vanliga ikoner ur [Lucide](https://lucide.dev) – pilar åt båda hållen, skicka, brev, bock, telefon, kalender, ladda ner, varukorg m.fl. – inbyggda i pluginet, så sidan hämtar inget från tredje part.
 
 - **Standard (pil)** är förvalet och är exakt den pil knappen alltid haft. Formulär som aldrig fått ett val ser alltså likadana ut efter uppdateringen.
 - Valet sparas som en nyckel (t.ex. `send`), aldrig som SVG-kod. Det följer med i JSON-exporten och en importfil kan inte smuggla in markup. En nyckel som inte finns längre (gammal export) ger standardpilen.
 - Ikonerna är linjer i knappens textfärg. Storleken styrs av `--xf-icon-size` och linjetjockleken av `--xf-icon-stroke` (standard `2`, Lucides eget). Standardpilen är en fylld form och påverkas inte av tjockleken.
 - Behövs en ikon som inte finns i urvalet: filtret `relativt_form_submit_icon` byter ut SVG:t i kod, se [Filter](#filter). Filtret får det valda SVG:t som utgångsvärde och ikonens nyckel som tredje argument.
 - Lägga till en ikon i urvalet: kopiera elementen ur SVG-filen på lucide.dev och lägg en rad i `ICONS` i `includes/class-relativt-form-icons.php`. Väljaren, renderingen och testerna läser alla därifrån. Lucides licens (ISC, och MIT för de ikoner som kommer från Feather) ligger i `includes/LUCIDE-LICENSE.txt` och följer med i zip-filen.
+
+### Flerstegsformulär
+
+Dela formuläret i steg med **Nästa** och **Tillbaka**: lägg rader av typen **Nytt steg (flerstegsformulär)** i fältlistan där varje nytt steg ska börja, och slå på **Flerstegsformulär** under **Inställningar → Steg**. Av som standard. Formulär som inte slås på är byte för byte oförändrade.
+
+- Varje steg kontrolleras innan besökaren får gå vidare. Tillbaka kontrollerar ingenting. Allt skickas som **ett** inskick i sista steget.
+- Ett villkor på en stegrad hoppar över hela steget. Överhoppade steg räknas inte i indikatorn och deras fält skickas inte med, inte heller på servern.
+- Stegindikator (stapel och text, bara text eller ingen), animation (glid, tona eller ingen, styrd av `--xf-step-duration` m.fl.), knapptexter och ikoner på Nästa och Tillbaka väljs per formulär.
+- Eventet `relativt-form:step` sänds vid varje stegbyte, för spårning av var besökare hoppar av.
+
+Hela genomgången – villkor, validering, egna CSS- och JS-animationer, spårning, styling, headless och begränsningar – finns i **[docs/flerstegsformular.md](docs/flerstegsformular.md)**.
 
 ### Tack-sida i stället för tack-rutan
 
@@ -223,6 +235,9 @@ add_filter( 'relativt_form_submit_icon_class', fn( $c ) => trim( "$c ct-fancy-ic
 | `relativt_form_privacy_erase` | `true` | Sätt `false` för ett inskick som inte får raderas via integritetsverktyget (får inskickets id), se [Personuppgifter](#personuppgifter) |
 | `relativt_form_client_ip` | `REMOTE_ADDR` | Peka ut besökarens riktiga IP bakom proxy/CDN |
 | `relativt_form_stats_channel` | inbyggd klassning | Klassa om ett inskicks kanal på statistiksidan, se [Statistik](#statistik) |
+| `relativt_form_step_button_class` | Nästa: som `relativt_form_submit_class`, Tillbaka: `''` | Klasser på Nästa/Tillbaka i flerstegsformulär. Får `$form_id` och `$dir` (`next`/`prev`). Även `_text_class` och `_icon_class`, se [docs/flerstegsformular.md](docs/flerstegsformular.md) |
+| `relativt_form_step_icon` | ikonen som valts i formuläret | Byt Nästa/Tillbaka-ikonens SVG. Får `$svg`, `$form_id`, `$dir`, `$icon_key` |
+| `relativt_form_step_counter` | `'Steg {current} av {total}'` | Texten i stegindikatorn |
 
 ### Krokar för tillägg (1.9.0)
 
@@ -443,6 +458,8 @@ document.addEventListener('relativt-form:success', function (e) {
 });
 ```
 
+Flerstegsformulär sänder dessutom `relativt-form:step` när ett nytt steg visas (`step`, `total`, `title`, `direction`) och `relativt-form:step-leave` innan ett steg lämnas (med `waitUntil()` för egna animationer). Båda sänds på formulärets rot och bubblar till `document`. Se [docs/flerstegsformular.md](docs/flerstegsformular.md#spårning-var-hoppar-besökarna-av).
+
 ## Headless: rendera formuläret själv
 
 En frontend som inte laddar pluginets CSS och JS – t.ex. Next.js på en annan domän – kan rendera formuläret själv och prata direkt med REST-API:et. Fälten definieras fortfarande på ett ställe, i wp-admin; frontend hämtar definitionen.
@@ -641,15 +658,17 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 750 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik
-npx playwright test         # 310 tester i riktig webbläsare, desktop och mobil
+php tests/server-test.php   # 847 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik, flersteg
+npx playwright test         # 378 tester i riktig webbläsare, desktop och mobil
 ```
 
 Har du redan en Chromium på maskinen som Playwright inte installerat själv, peka ut den med `CHROMIUM_PATH=/sökväg/till/chrome npx playwright test`. Utan variabeln används Playwrights egen.
 
 IDN-testet (`kontakt@räksmörgås.se`) hoppas över om PHP-tillägget `intl` saknas, eftersom motorn hoppar över punycode-översättningen i samma läge. CI installerar `intl`, så den vägen testas där.
 
-Demon som webbläsartesterna körs mot genereras av den riktiga renderaren via reflektion (`php tests/build-demo.php`). Den kan alltså inte glida ifrån koden. Cloudflares Turnstile-skript ersätts där av en stub med samma yta, så testerna inte beror på nätverket. Statistiksidan får en egen demo med påhittade inskick på samma sätt (`php tests/build-stats-demo.php` → `demo-stats.html`). Ikonerna på knappen och ikonväljaren har en egen (`php tests/build-icon-demo.php` → `demo-icons.html`); väljaren där är en modell av ACF:s markup, eftersom ACF Pro inte finns i CI. Bekräftelsefälten likaså (`php tests/build-confirm-demo.php` → `demo-confirm.html`).
+Demon som webbläsartesterna körs mot genereras av den riktiga renderaren via reflektion (`php tests/build-demo.php`). Den kan alltså inte glida ifrån koden. Cloudflares Turnstile-skript ersätts där av en stub med samma yta, så testerna inte beror på nätverket. Statistiksidan får en egen demo med påhittade inskick på samma sätt (`php tests/build-stats-demo.php` → `demo-stats.html`). Ikonerna på knappen och ikonväljaren har en egen (`php tests/build-icon-demo.php` → `demo-icons.html`); väljaren där är en modell av ACF:s markup, eftersom ACF Pro inte finns i CI. Bekräftelsefälten likaså (`php tests/build-confirm-demo.php` → `demo-confirm.html`), och flerstegsformulären (`php tests/build-multistep-demo.php` → `demo-multistep.html`).
+
+**Befintliga formulär får inte ändras av misstag.** `tests/fixtures/render-1.13.0.json` är markupen för ett antal formulär (och en headless-definition) som den såg ut i 1.13.0, genererad av `tests/render-snapshots.php` innan flerstegsstödet byggdes. `server-test.php` renderar samma formulär med dagens kod och kräver att resultatet är byte för byte identiskt. Ändras markupen avsiktligt: generera ett nytt facit och skriv varför i CHANGELOG.
 
 Båda sviterna kör automatiskt vid varje push. Servertesterna körs mot PHP 8.0, 8.2 och 8.4 — det är den matrisen som bevisar `Requires PHP: 8.0`, inte headern i sig.
 

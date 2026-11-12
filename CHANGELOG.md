@@ -3,6 +3,32 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.14.0] – 2026-11-12
+
+Nytt: **flerstegsformulär**. Av som standard. **Formulär som inte slås på är byte för byte oförändrade**, vilket ett nytt facit-test bevakar. How-to: [docs/flerstegsformular.md](docs/flerstegsformular.md).
+
+### Tillagt
+- Fälttypen **Nytt steg (flerstegsformulär)**. Ett nytt steg börjar vid varje sådan rad. Etiketten blir stegets rubrik, hjälptexten en ingress, och ett villkor på raden hoppar över hela steget. Platshållare, Visa etikett, Förvalt värde, Obligatoriskt och Bredd döljs i byggaren för typen, och en förklaring visas.
+- Fliken **Inställningar → Steg** med reglaget **Flerstegsformulär** (av som standard) samt, när det är på: **Rubrik för första steget**, **Stegindikator** (stapel och text / bara text / ingen), **Animation mellan stegen** (glid och tona / tona / ingen), **Text på Nästa- och Tillbaka-knappen** och **Ikon i Nästa- och Tillbaka-knappen** (samma ikonväljare som skicka-knappen).
+- **Validering per steg.** Nästa kontrollerar det aktuella steget med samma regler som servern. Tillbaka kontrollerar ingenting. Enter i ett fält före sista steget betyder Nästa. Ett serverfel i ett tidigare steg byter till det steget och flyttar fokus till fältet.
+- **Överhoppade steg.** Ett steg hoppas över när dess villkor inte är uppfyllt, eller när alla dess fält är dolda av sina egna villkor. Det räknas inte i indikatorn, och dess fält skickas inte med. **Servern** hoppar över samma fält (`step_gates()`), så ett manipulerat inskick kan inte få med dem.
+- **Animationer** med CSS-variablerna `--xf-step-duration`, `--xf-step-distance` och `--xf-step-easing`, egna keyframes via klasserna `is-leaving`/`is-entering`, och JS-eventen `relativt-form:step-leave` (med `waitUntil()` för t.ex. GSAP) och `relativt-form:step` (även för spårning av avhopp). Animationen stängs av vid `prefers-reduced-motion`.
+- Sidan scrollar tillbaka till formuläret vid stegbyte om det scrollat ur bild (`--xf-step-scroll-offset` för fasta menyer).
+- Tillgänglighet: varje steg är en grupp med rubriken som namn, fokus flyttas till det nya steget, och indikatorns text är en `aria-live`-region (även när indikatorn är dold).
+- Ikonerna **Standard (pil vänster)** (standardpilen spegelvänd, förval på Tillbaka), **Pil vänster**, **Vinkel vänster**, **Dubbel vinkel vänster** och **Pil i cirkel, vänster**. De går att välja även för skicka-knappen.
+- Filtren `relativt_form_step_button_class`, `relativt_form_step_button_text_class`, `relativt_form_step_button_icon_class` (Nästa ärver skicka-knappens temaklasser som standard), `relativt_form_step_icon` och `relativt_form_step_counter`.
+- Admin-notiser på formulärets redigeringsskärm: reglaget på utan två steg, stegrader med reglaget av, och ett steg som styrs av ett fält i samma eller ett senare steg.
+- Headless: `GET /form/{id}` får nyckeln `multistep` (texter, ikoner, indikator, animation, räknarens mall) och stegraderna som typen `step`, men **bara** för flerstegsformulär.
+- De nya inställningarna följer med i JSON-exporten och godkänns vid import.
+- `docs/flerstegsformular.md`, som också följer med i zip-filen.
+- Tester: `tests/fixtures/render-1.13.0.json` och `tests/render-snapshots.php` (facit för befintliga formulär), 97 nya server-assertions och 68 nya webbläsartester (`tests/multistep.spec.js` mot `demo-multistep.html`).
+
+### Att veta
+- Med reglaget av visas stegrader som vanliga rubriker, och i `GET /form/{id}` har de typen `heading`. En headless-frontend byggd före 1.14.0 ser alltså aldrig typen `step`. Slår ni på flerstegsläget för ett formulär som en headless-frontend renderar måste frontenden hantera typen.
+- I ett flerstegsformulär renderas Turnstile först i sista steget, utan klassen `cf-turnstile`. Övriga formulär renderar widgeten som förut.
+- Ingenting sparas förrän besökaren skickar i sista steget. Delinskick, "fortsätt senare" och webbläsarens bakåtknapp mellan stegen ingår inte.
+- En formulärexport med stegrader som importeras på en sajt med äldre version tappar stegraderna (okänd fälttyp utan nyckel hoppas över). Uppdatera mottagarsajten först.
+
 ## [1.13.0] – 2026-11-05
 
 Ny fälttyp: **Bekräftelse (upprepa fält)**, för t.ex. *Bekräfta e-post*. **Formulär som inte rörs är oförändrade.**
