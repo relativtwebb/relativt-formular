@@ -104,6 +104,14 @@ Dela formuläret i steg med **Nästa** och **Tillbaka**: lägg rader av typen **
 
 Hela genomgången – villkor, validering, egna CSS- och JS-animationer, spårning, styling, headless och begränsningar – finns i **[docs/flerstegsformular.md](docs/flerstegsformular.md)**.
 
+### Flerspråkiga sajter
+
+Modellen är **ett formulär per språk**: exportera formuläret som JSON, importera det på samma sajt, översätt kopian och lägg dess shortcode på sidan i rätt språk. Formulärets egna texter – etiketter, knappar, tackruta, felmeddelande och tack-sidans URL – skrivs då på formulärets språk.
+
+Texterna som inte hör till något formulär (felmeddelanden, stegräknaren, fallbacks som *Skicka* och sajtens standardvärden) översätts i **Polylang** under Språk → Översättningar, gruppen *Relativt Formulär*, eller med filtret `relativt_form_messages` som får språket som andra argument. Sidans språk följer med REST-anropen, så fel från servern kommer på samma språk som sidan. Utan Polylang och med ett enda språk ändras ingenting.
+
+Hela genomgången finns i **[docs/flersprakiga-sajter.md](docs/flersprakiga-sajter.md)**.
+
 ### Tack-sida i stället för tack-rutan
 
 Fyll i **Tack-sida (URL)** under formulärets flik Texter – t.ex. `/tack/` – så skickas besökaren dit efter lyckat inskick, i stället för att tack-rutan visas. Under **Formulär → Standardvärden** kan en gemensam tack-sida sättas för hela sajten; formulärets eget värde vinner alltid.
@@ -226,7 +234,7 @@ add_filter( 'relativt_form_submit_icon_class', fn( $c ) => trim( "$c ct-fancy-ic
 | `relativt_form_submit_text_class` | `''` | Extra klasser på knapptexten |
 | `relativt_form_submit_icon_class` | `''` | Extra klasser på ikonen |
 | `relativt_form_submit_icon` | ikonen som valts i formuläret | Byt ikonens SVG, eller returnera `''` för ingen ikon. Får `$svg`, `$form_id` och `$icon_key`. Vinner över valet i byggaren |
-| `relativt_form_messages` | svenska texter | Byt besökartexterna (felmeddelanden m.m.). Samma lista driver PHP och JS |
+| `relativt_form_messages` | svenska texter, översatta av Polylang om det finns | Byt besökartexterna (felmeddelanden m.m.). Samma lista driver PHP och JS. Får sedan 1.15.0 även `$lang` (Polylangs språkkod eller WordPress locale) och `$form_id` (`0` för sidans gemensamma texter); registrera med `10, 3` för att ta emot dem. Körs efter Polylang och vinner alltid |
 | `relativt_form_phone_countries` | inbyggd lista | Länderna i landsväljaren: `ISO => [ 'name' => …, 'dial' => … ]`. Ordningen styr rullistan |
 | `relativt_form_phone_default_country` | `'SE'` | Standardland för landsväljare utan eget val. Får `$field` |
 | `relativt_form_max_links` | `3` | Max antal länkar i en textruta innan inskicket avvisas. `0` stänger av |
@@ -289,6 +297,16 @@ add_filter( 'relativt_form_messages', fn( $m ) => array_merge( $m, [
 	'email'    => 'Please check the email address.',
 ] ) );
 ```
+
+På en flerspråkig sajt utan Polylang väljer filtret text efter språket (1.15.0). Ett filter med ett argument, som det ovan, fungerar oförändrat:
+
+```php
+add_filter( 'relativt_form_messages', function ( array $m, string $lang, int $form_id ): array {
+	return 0 === strpos( $lang, 'en' ) ? array_merge( $m, [ 'required' => 'This field is required.' ] ) : $m;
+}, 10, 3 );
+```
+
+Se [docs/flersprakiga-sajter.md](docs/flersprakiga-sajter.md).
 
 **Om `always_enqueue`:** standard är att ladda överallt. Renderas formuläret i en modal som byggs i sidfoten — vilket är fallet i de flesta sidbyggare — hinner en villkorlig laddning inte med, och stilmallen skulle hamna efter sidan ritats. Vet sajten att formuläret bara finns i innehållet går det att stänga av.
 
@@ -471,6 +489,8 @@ En frontend som inte laddar pluginets CSS och JS – t.ex. Next.js på en annan 
 | `GET` | `/wp-json/relativt-form/v1/form/<id>` | Formulärdefinitionen. Bara publicerade formulär, annars `404`. |
 | `GET` | `/wp-json/relativt-form/v1/token?form=<id>` | `{ nonce, ts, sig }` för ett inskick. |
 | `POST` | `/wp-json/relativt-form/v1/submit` | Själva inskicket, JSON. |
+
+Alla tre tar sedan 1.15.0 emot `lang` (`?lang=en` på GET-rutterna, `"lang": "en"` i inskickets kropp): Polylangs språkkod, eller en WordPress-locale på sajter utan Polylang. Då kommer motorns texter – `messages`, fallbacks, stegräknaren, felen från spärrarna – på det språket. Ett okänt värde ignoreras och utan `lang` är svaren som förut. Se [docs/flersprakiga-sajter.md](docs/flersprakiga-sajter.md#headless).
 
 Definitionen innehåller fälten (som byggaren sparat dem, rubriker inräknade; `choices` är alltid ett objekt värde → etikett), knapp-, tack- och samtyckestexter, felmeddelandena efter filtret `relativt_form_messages`, honungsfältets namn, Turnstile-läget och sajtens REST-rot. Mottagare, regler, avsändare, ämnesrad, lagringsval och nycklar följer **aldrig** med – svaret är publikt och kan cachas av vem som helst.
 
@@ -658,8 +678,8 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 847 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik, flersteg
-npx playwright test         # 378 tester i riktig webbläsare, desktop och mobil
+php tests/server-test.php   # 1068 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik, flersteg, språk
+npx playwright test         # 422 tester i riktig webbläsare, desktop och mobil
 ```
 
 Har du redan en Chromium på maskinen som Playwright inte installerat själv, peka ut den med `CHROMIUM_PATH=/sökväg/till/chrome npx playwright test`. Utan variabeln används Playwrights egen.
@@ -669,6 +689,8 @@ IDN-testet (`kontakt@räksmörgås.se`) hoppas över om PHP-tillägget `intl` sa
 Demon som webbläsartesterna körs mot genereras av den riktiga renderaren via reflektion (`php tests/build-demo.php`). Den kan alltså inte glida ifrån koden. Cloudflares Turnstile-skript ersätts där av en stub med samma yta, så testerna inte beror på nätverket. Statistiksidan får en egen demo med påhittade inskick på samma sätt (`php tests/build-stats-demo.php` → `demo-stats.html`). Ikonerna på knappen och ikonväljaren har en egen (`php tests/build-icon-demo.php` → `demo-icons.html`); väljaren där är en modell av ACF:s markup, eftersom ACF Pro inte finns i CI. Bekräftelsefälten likaså (`php tests/build-confirm-demo.php` → `demo-confirm.html`), och flerstegsformulären (`php tests/build-multistep-demo.php` → `demo-multistep.html`).
 
 **Befintliga formulär får inte ändras av misstag.** `tests/fixtures/render-1.13.0.json` är markupen för ett antal formulär (och en headless-definition) som den såg ut i 1.13.0, genererad av `tests/render-snapshots.php` innan flerstegsstödet byggdes. `server-test.php` renderar samma formulär med dagens kod och kräver att resultatet är byte för byte identiskt. Ändras markupen avsiktligt: generera ett nytt facit och skriv varför i CHANGELOG.
+
+**Sajter utan Polylang får inte påverkas av språkstödet.** `tests/fixtures/i18n-1.14.0.json` är allt en besökare kunde få se i 1.14.0 – texterna, konfigurationen till skriptet, markup och svaren från `/form`, `/token` och `/submit`, spärr för spärr – genererat av `tests/i18n-snapshots.php` innan språkstödet byggdes. `server-test.php` kör samma sak med dagens kod, i en ren process utan Polylang, och kräver att allt är identiskt; det enda som får tillkomma är `lang` i konfigurationen. Fallet med Polylang körs mot `tests/polylang-mock.php`, som efterliknar de delar av Polylang språkstödet vilar på. Webbläsartesterna får en svensk och en engelsk sida (`php tests/build-i18n-demo.php` → `demo-i18n-sv.html` och `demo-i18n-en.html`) där serverns svar är inspelade från den riktiga `rest_submit()` och väljs efter det språk skriptet faktiskt skickar.
 
 Båda sviterna kör automatiskt vid varje push. Servertesterna körs mot PHP 8.0, 8.2 och 8.4 — det är den matrisen som bevisar `Requires PHP: 8.0`, inte headern i sig.
 

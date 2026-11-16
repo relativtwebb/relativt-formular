@@ -369,6 +369,17 @@
 		...(typeof CONFIG.messages === 'object' && CONFIG.messages !== null ? CONFIG.messages : {}),
 	};
 
+	/*
+	 * Sidans språk (1.15.0), som PHP skrev det i konfigurationen: Polylangs
+	 * språkkod eller WordPress locale. Det skickas med /token och /submit, så
+	 * att servern svarar på samma språk som sidan – REST-anropet vet annars
+	 * inte vilken språkversion besökaren står på. Servern validerar värdet;
+	 * kontrollen här håller bara skräp borta från adressen. Saknas språket,
+	 * som i en konfiguration från före 1.15.0, skickas ingenting och allt
+	 * fungerar som förut.
+	 */
+	const LANG = typeof CONFIG.lang === 'string' && /^[A-Za-z0-9_-]{1,24}$/.test(CONFIG.lang) ? CONFIG.lang : '';
+
 	/** Speglar länkspärren i validate() – samma tak, samma räkning. 0 = av. */
 	const MAX_LINKS = Number.isFinite(Number(CONFIG.maxLinks)) ? Math.max(0, Math.trunc(Number(CONFIG.maxLinks))) : 3;
 
@@ -1028,7 +1039,8 @@
 		 */
 		fetchToken() {
 			if (this.token) return Promise.resolve(this.token);
-			this.tokenPromise ??= fetch(`${this.rest}token?form=${encodeURIComponent(this.id)}&_=${Date.now()}`, {
+			const lang = LANG ? `&lang=${encodeURIComponent(LANG)}` : '';
+			this.tokenPromise ??= fetch(`${this.rest}token?form=${encodeURIComponent(this.id)}&_=${Date.now()}${lang}`, {
 				credentials: 'same-origin',
 				cache: 'no-store',
 			})
@@ -1092,6 +1104,8 @@
 				sig: this.token?.sig ?? '',
 				// Bara när widgeten finns – nyttolasten är oförändrad för alla andra formulär.
 				...(this.turnstileBox ? { turnstile: this.turnstileToken() } : {}),
+				// Sidans språk (1.15.0), så att serverns fel kommer på rätt språk.
+				...(LANG ? { lang: LANG } : {}),
 			};
 
 			/*

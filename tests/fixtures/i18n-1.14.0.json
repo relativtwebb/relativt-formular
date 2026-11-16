@@ -1,0 +1,766 @@
+{
+    "messages": {
+        "required": "Fyll i detta fält.",
+        "email": "Kontrollera e-postadressen.",
+        "tel": "Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.",
+        "phone_country": "Land och landsnummer",
+        "number": "Ange ett nummer.",
+        "date": "Kontrollera datumet.",
+        "url": "Ange en giltig webbadress, t.ex. https://exempel.se.",
+        "confirm": "Stämmer inte överens. Kontrollera att du skrivit likadant båda gångerna.",
+        "choice": "Ogiltigt val.",
+        "links": "Meddelandet innehåller för många länkar.",
+        "consent": "Du behöver godkänna villkoren.",
+        "toofast": "Det gick lite för snabbt. Vänta en sekund och försök igen.",
+        "nonce": "Sessionen har gått ut. Ladda om sidan och försök igen.",
+        "rate": "Du har skickat flera meddelanden på kort tid. Vänta en stund och försök igen.",
+        "generic": "Något gick fel. Försök igen om en liten stund.",
+        "turnstile": "Säkerhetskontrollen är inte klar. Vänta en sekund och försök igen."
+    },
+    "config": {
+        "utmCookie": "auto",
+        "consentCategories": {
+            "attribution": [
+                "statistics",
+                "marketing"
+            ],
+            "clickIds": [
+                "marketing"
+            ]
+        },
+        "maxLinks": 3,
+        "messages": {
+            "required": "Fyll i detta fält.",
+            "email": "Kontrollera e-postadressen.",
+            "tel": "Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.",
+            "phone_country": "Land och landsnummer",
+            "number": "Ange ett nummer.",
+            "date": "Kontrollera datumet.",
+            "url": "Ange en giltig webbadress, t.ex. https://exempel.se.",
+            "confirm": "Stämmer inte överens. Kontrollera att du skrivit likadant båda gångerna.",
+            "choice": "Ogiltigt val.",
+            "links": "Meddelandet innehåller för många länkar.",
+            "consent": "Du behöver godkänna villkoren.",
+            "toofast": "Det gick lite för snabbt. Vänta en sekund och försök igen.",
+            "nonce": "Sessionen har gått ut. Ladda om sidan och försök igen.",
+            "rate": "Du har skickat flera meddelanden på kort tid. Vänta en stund och försök igen.",
+            "generic": "Något gick fel. Försök igen om en liten stund.",
+            "turnstile": "Säkerhetskontrollen är inte klar. Vänta en sekund och försök igen."
+        }
+    },
+    "render-kontakt": "\t\t<div class=\"relativt-form\"\n\t\t\tdata-xf-form=\"12\"\n\t\t\tdata-xf-rest=\"/__mock__/relativt-form/v1/\">\n\n\t\t\t<form class=\"xf-form\" id=\"relativt-formular-12\" name=\"Kontaktformulär\" novalidate autocomplete=\"on\">\n\t\t\t\t<div class=\"xf-grid\">\n\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-buttons\" data-xf-key=\"jagar\" data-xf-required=\"1\"><span class=\"xf-label\" id=\"xf-12-UID-jagar-label\">Jag är<span class=\"xf-req\" aria-hidden=\"true\">*</span></span><div class=\"xf-buttons\" role=\"radiogroup\" aria-labelledby=\"xf-12-UID-jagar-label\"><input class=\"xf-choice-input\" type=\"radio\" id=\"xf-12-UID-jagar-0\" name=\"fields[jagar]\" value=\"foretag\" required><label class=\"xf-choice-label\" for=\"xf-12-UID-jagar-0\">Företag</label><input class=\"xf-choice-input\" type=\"radio\" id=\"xf-12-UID-jagar-1\" name=\"fields[jagar]\" value=\"kandidat\" checked=\"checked\" required><label class=\"xf-choice-label\" for=\"xf-12-UID-jagar-1\">Kandidat</label></div><p class=\"xf-error\" id=\"xf-12-UID-jagar-error\" data-xf-error=\"jagar\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--half xf-type-text\" data-xf-key=\"namn\" data-xf-required=\"1\"><label class=\"xf-label\" for=\"xf-12-UID-namn\">Namn<span class=\"xf-req\" aria-hidden=\"true\">*</span></label><input class=\"xf-input\" type=\"text\" id=\"xf-12-UID-namn\" name=\"fields[namn]\" value=\"\" placeholder=\"För- och efternamn\" autocomplete=\"name\" required><p class=\"xf-error\" id=\"xf-12-UID-namn-error\" data-xf-error=\"namn\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--half xf-type-text\" data-xf-key=\"foretag\"><label class=\"xf-label\" for=\"xf-12-UID-foretag\">Företag</label><input class=\"xf-input\" type=\"text\" id=\"xf-12-UID-foretag\" name=\"fields[foretag]\" value=\"\" placeholder=\"Företagsnamn\" autocomplete=\"organization\"><p class=\"xf-error\" id=\"xf-12-UID-foretag-error\" data-xf-error=\"foretag\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--half xf-type-email\" data-xf-key=\"epost\" data-xf-required=\"1\"><label class=\"xf-label\" for=\"xf-12-UID-epost\">E-post<span class=\"xf-req\" aria-hidden=\"true\">*</span></label><input class=\"xf-input\" type=\"email\" id=\"xf-12-UID-epost\" name=\"fields[epost]\" value=\"\" placeholder=\"namn@företag.se\" inputmode=\"email\" spellcheck=\"false\" autocomplete=\"email\" required><p class=\"xf-error\" id=\"xf-12-UID-epost-error\" data-xf-error=\"epost\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--half xf-type-tel\" data-xf-key=\"telefon\"><label class=\"xf-label\" for=\"xf-12-UID-telefon\">Telefon</label><input class=\"xf-input\" type=\"tel\" id=\"xf-12-UID-telefon\" name=\"fields[telefon]\" value=\"\" placeholder=\"07X-XXX XX XX\" inputmode=\"tel\" autocomplete=\"tel\"><p class=\"xf-error\" id=\"xf-12-UID-telefon-error\" data-xf-error=\"telefon\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-select\" data-xf-key=\"behov\" data-xf-cond-field=\"jagar\" data-xf-cond-value=\"foretag\" hidden=\"hidden\"><label class=\"xf-label\" for=\"xf-12-UID-behov\">Vad behöver ni hjälp med?</label><div class=\"xf-select-wrap\"><select class=\"xf-input xf-select\" id=\"xf-12-UID-behov\" name=\"fields[behov]\"><option value=\"Rekrytering\" selected=\"selected\">Rekrytering</option><option value=\"Bemanning\">Bemanning</option><option value=\"Interim\">Interim</option><option value=\"Annat\">Annat</option></select><span class=\"xf-select-arrow\" aria-hidden=\"true\"></span></div><p class=\"xf-error\" id=\"xf-12-UID-behov-error\" data-xf-error=\"behov\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-select\" data-xf-key=\"onskemal\" data-xf-cond-field=\"jagar\" data-xf-cond-value=\"kandidat\"><label class=\"xf-label\" for=\"xf-12-UID-onskemal\">Vad gäller det?</label><div class=\"xf-select-wrap\"><select class=\"xf-input xf-select\" id=\"xf-12-UID-onskemal\" name=\"fields[onskemal]\"><option value=\"Söker jobb\" selected=\"selected\">Söker jobb</option><option value=\"Spontanansökan\">Spontanansökan</option><option value=\"Annat\">Annat</option></select><span class=\"xf-select-arrow\" aria-hidden=\"true\"></span></div><p class=\"xf-error\" id=\"xf-12-UID-onskemal-error\" data-xf-error=\"onskemal\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-textarea\" data-xf-key=\"meddelande\"><label class=\"xf-label\" for=\"xf-12-UID-meddelande\">Meddelande</label><textarea class=\"xf-input xf-textarea\" id=\"xf-12-UID-meddelande\" name=\"fields[meddelande]\" rows=\"6\" placeholder=\"Skriv gärna några rader om vad ni söker…\"></textarea><p class=\"xf-help\" id=\"xf-12-UID-meddelande-help\">Berätta gärna kort vad det gäller.</p><p class=\"xf-error\" id=\"xf-12-UID-meddelande-error\" data-xf-error=\"meddelande\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-hidden\" data-xf-key=\"audit\" hidden=\"hidden\"><input type=\"hidden\" name=\"fields[audit]\" value=\"\"></div>\t\t\t\t\t\t\t\t\t</div>\n\n\t\t\t\t\n\t\t\t\t\n\t\t\t\t<div class=\"xf-actions\">\n\t\t\t\t\t\t\t\t\t\t<button type=\"submit\" class=\"xf-submit\"\n\t\t\t\t\t\tdata-xf-label=\"Skicka\"\n\t\t\t\t\t\tdata-xf-sending=\"Skickar…\">\n\t\t\t\t\t\t<span class=\"xf-submit-text\">Skicka</span>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<span class=\"xf-submit-icon\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 -960 960 960\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"m531.69-480-184-184L376-692.31 588.31-480 376-267.69 347.69-296l184-184Z\"/></svg></span>\n\t\t\t\t\t\t\t\t\t\t\t</button>\n\t\t\t\t</div>\n\n\t\t\t\t\t\t\t\t\t<div class=\"xf-consent\"><p>Genom att klicka på Skicka meddelande godkänner jag att mina personuppgifter behandlas i enlighet med Exempel AB:s <a href=\"/integritetspolicy/\">integritetspolicy</a>.</p></div>\n\t\t\t\t\n\t\t\t\t<p class=\"xf-form-error\" role=\"alert\" aria-live=\"polite\"></p>\n\n\t\t\t\t\t\t\t\t<div class=\"xf-hp\" aria-hidden=\"true\">\n\t\t\t\t\t<label>Lämna detta fält tomt\n\t\t\t\t\t\t<input type=\"text\" name=\"xf_website\" tabindex=\"-1\" autocomplete=\"off\">\n\t\t\t\t\t</label>\n\t\t\t\t</div>\n\t\t\t</form>\n\n\t\t\t\t\t\t<div class=\"xf-thanks\" role=\"status\" aria-live=\"polite\" tabindex=\"-1\" hidden>\n\t\t\t\t<p class=\"xf-thanks-title\">Tack för ditt meddelande!</p>\n\t\t\t\t<p class=\"xf-thanks-text\">Vi återkommer till dig så snart vi kan.</p>\n\t\t\t</div>\n\t\t</div>\n\t\t",
+    "render-fallbacks": "\t\t<div class=\"relativt-form\"\n\t\t\tdata-xf-form=\"12\"\n\t\t\tdata-xf-rest=\"/__mock__/relativt-form/v1/\">\n\n\t\t\t<form class=\"xf-form\" id=\"relativt-formular-12\" name=\"Kontaktformulär\" novalidate autocomplete=\"on\">\n\t\t\t\t<div class=\"xf-grid\">\n\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-buttons\" data-xf-key=\"jagar\" data-xf-required=\"1\"><span class=\"xf-label\" id=\"xf-12-UID-jagar-label\">Jag är<span class=\"xf-req\" aria-hidden=\"true\">*</span></span><div class=\"xf-buttons\" role=\"radiogroup\" aria-labelledby=\"xf-12-UID-jagar-label\"><input class=\"xf-choice-input\" type=\"radio\" id=\"xf-12-UID-jagar-0\" name=\"fields[jagar]\" value=\"foretag\" checked=\"checked\" required><label class=\"xf-choice-label\" for=\"xf-12-UID-jagar-0\">Företag</label><input class=\"xf-choice-input\" type=\"radio\" id=\"xf-12-UID-jagar-1\" name=\"fields[jagar]\" value=\"kandidat\" required><label class=\"xf-choice-label\" for=\"xf-12-UID-jagar-1\">Kandidat</label></div><p class=\"xf-error\" id=\"xf-12-UID-jagar-error\" data-xf-error=\"jagar\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--half xf-type-text\" data-xf-key=\"namn\" data-xf-required=\"1\"><label class=\"xf-label\" for=\"xf-12-UID-namn\">Namn<span class=\"xf-req\" aria-hidden=\"true\">*</span></label><input class=\"xf-input\" type=\"text\" id=\"xf-12-UID-namn\" name=\"fields[namn]\" value=\"\" placeholder=\"För- och efternamn\" autocomplete=\"name\" required><p class=\"xf-error\" id=\"xf-12-UID-namn-error\" data-xf-error=\"namn\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--half xf-type-text\" data-xf-key=\"foretag\"><label class=\"xf-label\" for=\"xf-12-UID-foretag\">Företag</label><input class=\"xf-input\" type=\"text\" id=\"xf-12-UID-foretag\" name=\"fields[foretag]\" value=\"\" placeholder=\"Företagsnamn\" autocomplete=\"organization\"><p class=\"xf-error\" id=\"xf-12-UID-foretag-error\" data-xf-error=\"foretag\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--half xf-type-email\" data-xf-key=\"epost\" data-xf-required=\"1\"><label class=\"xf-label\" for=\"xf-12-UID-epost\">E-post<span class=\"xf-req\" aria-hidden=\"true\">*</span></label><input class=\"xf-input\" type=\"email\" id=\"xf-12-UID-epost\" name=\"fields[epost]\" value=\"\" placeholder=\"namn@företag.se\" inputmode=\"email\" spellcheck=\"false\" autocomplete=\"email\" required><p class=\"xf-error\" id=\"xf-12-UID-epost-error\" data-xf-error=\"epost\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--half xf-type-tel\" data-xf-key=\"telefon\"><label class=\"xf-label\" for=\"xf-12-UID-telefon\">Telefon</label><input class=\"xf-input\" type=\"tel\" id=\"xf-12-UID-telefon\" name=\"fields[telefon]\" value=\"\" placeholder=\"07X-XXX XX XX\" inputmode=\"tel\" autocomplete=\"tel\"><p class=\"xf-error\" id=\"xf-12-UID-telefon-error\" data-xf-error=\"telefon\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-select\" data-xf-key=\"behov\" data-xf-cond-field=\"jagar\" data-xf-cond-value=\"foretag\"><label class=\"xf-label\" for=\"xf-12-UID-behov\">Vad behöver ni hjälp med?</label><div class=\"xf-select-wrap\"><select class=\"xf-input xf-select\" id=\"xf-12-UID-behov\" name=\"fields[behov]\"><option value=\"Rekrytering\" selected=\"selected\">Rekrytering</option><option value=\"Bemanning\">Bemanning</option><option value=\"Interim\">Interim</option><option value=\"Annat\">Annat</option></select><span class=\"xf-select-arrow\" aria-hidden=\"true\"></span></div><p class=\"xf-error\" id=\"xf-12-UID-behov-error\" data-xf-error=\"behov\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-select\" data-xf-key=\"onskemal\" data-xf-cond-field=\"jagar\" data-xf-cond-value=\"kandidat\" hidden=\"hidden\"><label class=\"xf-label\" for=\"xf-12-UID-onskemal\">Vad gäller det?</label><div class=\"xf-select-wrap\"><select class=\"xf-input xf-select\" id=\"xf-12-UID-onskemal\" name=\"fields[onskemal]\"><option value=\"Söker jobb\" selected=\"selected\">Söker jobb</option><option value=\"Spontanansökan\">Spontanansökan</option><option value=\"Annat\">Annat</option></select><span class=\"xf-select-arrow\" aria-hidden=\"true\"></span></div><p class=\"xf-error\" id=\"xf-12-UID-onskemal-error\" data-xf-error=\"onskemal\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-textarea\" data-xf-key=\"meddelande\"><label class=\"xf-label\" for=\"xf-12-UID-meddelande\">Meddelande</label><textarea class=\"xf-input xf-textarea\" id=\"xf-12-UID-meddelande\" name=\"fields[meddelande]\" rows=\"6\" placeholder=\"Skriv gärna några rader om vad ni söker…\"></textarea><p class=\"xf-help\" id=\"xf-12-UID-meddelande-help\">Berätta gärna kort vad det gäller.</p><p class=\"xf-error\" id=\"xf-12-UID-meddelande-error\" data-xf-error=\"meddelande\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-hidden\" data-xf-key=\"audit\" hidden=\"hidden\"><input type=\"hidden\" name=\"fields[audit]\" value=\"\"></div>\t\t\t\t\t\t\t\t\t</div>\n\n\t\t\t\t\n\t\t\t\t\n\t\t\t\t<div class=\"xf-actions\">\n\t\t\t\t\t\t\t\t\t\t<button type=\"submit\" class=\"xf-submit\"\n\t\t\t\t\t\tdata-xf-label=\"Skicka\"\n\t\t\t\t\t\tdata-xf-sending=\"Skickar…\">\n\t\t\t\t\t\t<span class=\"xf-submit-text\">Skicka</span>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<span class=\"xf-submit-icon\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 -960 960 960\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"m531.69-480-184-184L376-692.31 588.31-480 376-267.69 347.69-296l184-184Z\"/></svg></span>\n\t\t\t\t\t\t\t\t\t\t\t</button>\n\t\t\t\t</div>\n\n\t\t\t\t\n\t\t\t\t<p class=\"xf-form-error\" role=\"alert\" aria-live=\"polite\"></p>\n\n\t\t\t\t\t\t\t\t<div class=\"xf-hp\" aria-hidden=\"true\">\n\t\t\t\t\t<label>Lämna detta fält tomt\n\t\t\t\t\t\t<input type=\"text\" name=\"xf_website\" tabindex=\"-1\" autocomplete=\"off\">\n\t\t\t\t\t</label>\n\t\t\t\t</div>\n\t\t\t</form>\n\n\t\t\t\t\t\t<div class=\"xf-thanks\" role=\"status\" aria-live=\"polite\" tabindex=\"-1\" hidden>\n\t\t\t\t<p class=\"xf-thanks-title\">Tack!</p>\n\t\t\t\t<p class=\"xf-thanks-text\"></p>\n\t\t\t</div>\n\t\t</div>\n\t\t",
+    "render-standardvarden": "\t\t<div class=\"relativt-form\"\n\t\t\tdata-xf-form=\"12\"\n\t\t\tdata-xf-rest=\"/__mock__/relativt-form/v1/\">\n\n\t\t\t<form class=\"xf-form\" id=\"relativt-formular-12\" name=\"Kontaktformulär\" novalidate autocomplete=\"on\">\n\t\t\t\t<div class=\"xf-grid\">\n\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-buttons\" data-xf-key=\"jagar\" data-xf-required=\"1\"><span class=\"xf-label\" id=\"xf-12-UID-jagar-label\">Jag är<span class=\"xf-req\" aria-hidden=\"true\">*</span></span><div class=\"xf-buttons\" role=\"radiogroup\" aria-labelledby=\"xf-12-UID-jagar-label\"><input class=\"xf-choice-input\" type=\"radio\" id=\"xf-12-UID-jagar-0\" name=\"fields[jagar]\" value=\"foretag\" checked=\"checked\" required><label class=\"xf-choice-label\" for=\"xf-12-UID-jagar-0\">Företag</label><input class=\"xf-choice-input\" type=\"radio\" id=\"xf-12-UID-jagar-1\" name=\"fields[jagar]\" value=\"kandidat\" required><label class=\"xf-choice-label\" for=\"xf-12-UID-jagar-1\">Kandidat</label></div><p class=\"xf-error\" id=\"xf-12-UID-jagar-error\" data-xf-error=\"jagar\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--half xf-type-text\" data-xf-key=\"namn\" data-xf-required=\"1\"><label class=\"xf-label\" for=\"xf-12-UID-namn\">Namn<span class=\"xf-req\" aria-hidden=\"true\">*</span></label><input class=\"xf-input\" type=\"text\" id=\"xf-12-UID-namn\" name=\"fields[namn]\" value=\"\" placeholder=\"För- och efternamn\" autocomplete=\"name\" required><p class=\"xf-error\" id=\"xf-12-UID-namn-error\" data-xf-error=\"namn\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--half xf-type-text\" data-xf-key=\"foretag\"><label class=\"xf-label\" for=\"xf-12-UID-foretag\">Företag</label><input class=\"xf-input\" type=\"text\" id=\"xf-12-UID-foretag\" name=\"fields[foretag]\" value=\"\" placeholder=\"Företagsnamn\" autocomplete=\"organization\"><p class=\"xf-error\" id=\"xf-12-UID-foretag-error\" data-xf-error=\"foretag\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--half xf-type-email\" data-xf-key=\"epost\" data-xf-required=\"1\"><label class=\"xf-label\" for=\"xf-12-UID-epost\">E-post<span class=\"xf-req\" aria-hidden=\"true\">*</span></label><input class=\"xf-input\" type=\"email\" id=\"xf-12-UID-epost\" name=\"fields[epost]\" value=\"\" placeholder=\"namn@företag.se\" inputmode=\"email\" spellcheck=\"false\" autocomplete=\"email\" required><p class=\"xf-error\" id=\"xf-12-UID-epost-error\" data-xf-error=\"epost\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--half xf-type-tel\" data-xf-key=\"telefon\"><label class=\"xf-label\" for=\"xf-12-UID-telefon\">Telefon</label><input class=\"xf-input\" type=\"tel\" id=\"xf-12-UID-telefon\" name=\"fields[telefon]\" value=\"\" placeholder=\"07X-XXX XX XX\" inputmode=\"tel\" autocomplete=\"tel\"><p class=\"xf-error\" id=\"xf-12-UID-telefon-error\" data-xf-error=\"telefon\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-select\" data-xf-key=\"behov\" data-xf-cond-field=\"jagar\" data-xf-cond-value=\"foretag\"><label class=\"xf-label\" for=\"xf-12-UID-behov\">Vad behöver ni hjälp med?</label><div class=\"xf-select-wrap\"><select class=\"xf-input xf-select\" id=\"xf-12-UID-behov\" name=\"fields[behov]\"><option value=\"Rekrytering\" selected=\"selected\">Rekrytering</option><option value=\"Bemanning\">Bemanning</option><option value=\"Interim\">Interim</option><option value=\"Annat\">Annat</option></select><span class=\"xf-select-arrow\" aria-hidden=\"true\"></span></div><p class=\"xf-error\" id=\"xf-12-UID-behov-error\" data-xf-error=\"behov\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-select\" data-xf-key=\"onskemal\" data-xf-cond-field=\"jagar\" data-xf-cond-value=\"kandidat\" hidden=\"hidden\"><label class=\"xf-label\" for=\"xf-12-UID-onskemal\">Vad gäller det?</label><div class=\"xf-select-wrap\"><select class=\"xf-input xf-select\" id=\"xf-12-UID-onskemal\" name=\"fields[onskemal]\"><option value=\"Söker jobb\" selected=\"selected\">Söker jobb</option><option value=\"Spontanansökan\">Spontanansökan</option><option value=\"Annat\">Annat</option></select><span class=\"xf-select-arrow\" aria-hidden=\"true\"></span></div><p class=\"xf-error\" id=\"xf-12-UID-onskemal-error\" data-xf-error=\"onskemal\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-textarea\" data-xf-key=\"meddelande\"><label class=\"xf-label\" for=\"xf-12-UID-meddelande\">Meddelande</label><textarea class=\"xf-input xf-textarea\" id=\"xf-12-UID-meddelande\" name=\"fields[meddelande]\" rows=\"6\" placeholder=\"Skriv gärna några rader om vad ni söker…\"></textarea><p class=\"xf-help\" id=\"xf-12-UID-meddelande-help\">Berätta gärna kort vad det gäller.</p><p class=\"xf-error\" id=\"xf-12-UID-meddelande-error\" data-xf-error=\"meddelande\" role=\"alert\"></p></div>\t\t\t\t\t\t\t\t\t\t\t<div class=\"xf-field xf-field--full xf-type-hidden\" data-xf-key=\"audit\" hidden=\"hidden\"><input type=\"hidden\" name=\"fields[audit]\" value=\"\"></div>\t\t\t\t\t\t\t\t\t</div>\n\n\t\t\t\t\n\t\t\t\t\n\t\t\t\t<div class=\"xf-actions\">\n\t\t\t\t\t\t\t\t\t\t<button type=\"submit\" class=\"xf-submit\"\n\t\t\t\t\t\tdata-xf-label=\"Skicka förfrågan\"\n\t\t\t\t\t\tdata-xf-sending=\"Skickar förfrågan…\">\n\t\t\t\t\t\t<span class=\"xf-submit-text\">Skicka förfrågan</span>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<span class=\"xf-submit-icon\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 -960 960 960\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"m531.69-480-184-184L376-692.31 588.31-480 376-267.69 347.69-296l184-184Z\"/></svg></span>\n\t\t\t\t\t\t\t\t\t\t\t</button>\n\t\t\t\t</div>\n\n\t\t\t\t\t\t\t\t\t<div class=\"xf-consent\"><p>Läs vår <a href=\"/integritetspolicy/\">integritetspolicy</a>.</p></div>\n\t\t\t\t\n\t\t\t\t<p class=\"xf-form-error\" role=\"alert\" aria-live=\"polite\"></p>\n\n\t\t\t\t\t\t\t\t<div class=\"xf-hp\" aria-hidden=\"true\">\n\t\t\t\t\t<label>Lämna detta fält tomt\n\t\t\t\t\t\t<input type=\"text\" name=\"xf_website\" tabindex=\"-1\" autocomplete=\"off\">\n\t\t\t\t\t</label>\n\t\t\t\t</div>\n\t\t\t</form>\n\n\t\t\t\t\t\t<div class=\"xf-thanks\" role=\"status\" aria-live=\"polite\" tabindex=\"-1\" hidden>\n\t\t\t\t<p class=\"xf-thanks-title\">Tack för din förfrågan!</p>\n\t\t\t\t<p class=\"xf-thanks-text\">Vi hör av oss inom en arbetsdag.</p>\n\t\t\t</div>\n\t\t</div>\n\t\t",
+    "render-flersteg": "\t\t<div class=\"relativt-form xf-multistep xf-anim-slide is-first-step\"\n\t\t\tdata-xf-form=\"12\"\n\t\t\tdata-xf-rest=\"/__mock__/relativt-form/v1/\" data-xf-steps=\"2\">\n\n\t\t\t<form class=\"xf-form\" id=\"relativt-formular-12\" name=\"Kontaktformulär\" novalidate autocomplete=\"on\">\n\t\t\t\t<div class=\"xf-progress xf-progress--bar\" data-xf-progress><p class=\"xf-progress-text\" data-xf-progress-text data-xf-template=\"Steg {current} av {total}\" aria-live=\"polite\">Steg 1 av 2</p><div class=\"xf-progress-bar\" aria-hidden=\"true\"><span class=\"xf-progress-fill\" style=\"width: 50%\"></span></div></div><div class=\"xf-steps\"><div class=\"xf-step is-active\" data-xf-step=\"0\" role=\"group\" tabindex=\"-1\" aria-label=\"Steg 1 av 2\"><div class=\"xf-grid\"><div class=\"xf-field xf-field--full xf-type-text\" data-xf-key=\"namn\" data-xf-required=\"1\"><label class=\"xf-label\" for=\"xf-12-UID-namn\">Namn<span class=\"xf-req\" aria-hidden=\"true\">*</span></label><input class=\"xf-input\" type=\"text\" id=\"xf-12-UID-namn\" name=\"fields[namn]\" value=\"\" autocomplete=\"name\" required><p class=\"xf-error\" id=\"xf-12-UID-namn-error\" data-xf-error=\"namn\" role=\"alert\"></p></div></div></div><div class=\"xf-step\" data-xf-step=\"1\" role=\"group\" tabindex=\"-1\" aria-label=\"Steg 2 av 2\"><div class=\"xf-grid\"><div class=\"xf-field xf-field--full xf-type-email\" data-xf-key=\"epost\" data-xf-required=\"1\"><label class=\"xf-label\" for=\"xf-12-UID-epost\">E-post<span class=\"xf-req\" aria-hidden=\"true\">*</span></label><input class=\"xf-input\" type=\"email\" id=\"xf-12-UID-epost\" name=\"fields[epost]\" value=\"\" inputmode=\"email\" spellcheck=\"false\" autocomplete=\"email\" required><p class=\"xf-error\" id=\"xf-12-UID-epost-error\" data-xf-error=\"epost\" role=\"alert\"></p></div><div class=\"xf-field xf-field--full xf-type-tel\" data-xf-key=\"mobil\"><label class=\"xf-label\" for=\"xf-12-UID-mobil\">Mobil</label><div class=\"xf-phone\"><span class=\"xf-phone-cc\"><span class=\"xf-phone-flag\" aria-hidden=\"true\">🇸🇪</span><span class=\"xf-phone-arrow\" aria-hidden=\"true\"></span><select class=\"xf-phone-select\" id=\"xf-12-UID-mobil-cc\" aria-label=\"Land och landsnummer\" data-xf-aux><option value=\"SE\" data-dial=\"46\" data-flag=\"🇸🇪\" selected=\"selected\">Sverige (+46)</option><option value=\"NO\" data-dial=\"47\" data-flag=\"🇳🇴\">Norge (+47)</option><option value=\"DK\" data-dial=\"45\" data-flag=\"🇩🇰\">Danmark (+45)</option><option value=\"FI\" data-dial=\"358\" data-flag=\"🇫🇮\">Finland (+358)</option><option value=\"IS\" data-dial=\"354\" data-flag=\"🇮🇸\">Island (+354)</option><option value=\"AL\" data-dial=\"355\" data-flag=\"🇦🇱\">Albanien (+355)</option><option value=\"AD\" data-dial=\"376\" data-flag=\"🇦🇩\">Andorra (+376)</option><option value=\"AU\" data-dial=\"61\" data-flag=\"🇦🇺\">Australien (+61)</option><option value=\"BE\" data-dial=\"32\" data-flag=\"🇧🇪\">Belgien (+32)</option><option value=\"BA\" data-dial=\"387\" data-flag=\"🇧🇦\">Bosnien och Hercegovina (+387)</option><option value=\"BR\" data-dial=\"55\" data-flag=\"🇧🇷\">Brasilien (+55)</option><option value=\"BG\" data-dial=\"359\" data-flag=\"🇧🇬\">Bulgarien (+359)</option><option value=\"CY\" data-dial=\"357\" data-flag=\"🇨🇾\">Cypern (+357)</option><option value=\"EE\" data-dial=\"372\" data-flag=\"🇪🇪\">Estland (+372)</option><option value=\"FR\" data-dial=\"33\" data-flag=\"🇫🇷\">Frankrike (+33)</option><option value=\"AE\" data-dial=\"971\" data-flag=\"🇦🇪\">Förenade Arabemiraten (+971)</option><option value=\"GR\" data-dial=\"30\" data-flag=\"🇬🇷\">Grekland (+30)</option><option value=\"HK\" data-dial=\"852\" data-flag=\"🇭🇰\">Hongkong (+852)</option><option value=\"IN\" data-dial=\"91\" data-flag=\"🇮🇳\">Indien (+91)</option><option value=\"IE\" data-dial=\"353\" data-flag=\"🇮🇪\">Irland (+353)</option><option value=\"IL\" data-dial=\"972\" data-flag=\"🇮🇱\">Israel (+972)</option><option value=\"IT\" data-dial=\"39\" data-flag=\"🇮🇹\">Italien (+39)</option><option value=\"JP\" data-dial=\"81\" data-flag=\"🇯🇵\">Japan (+81)</option><option value=\"CA\" data-dial=\"1\" data-flag=\"🇨🇦\">Kanada (+1)</option><option value=\"CN\" data-dial=\"86\" data-flag=\"🇨🇳\">Kina (+86)</option><option value=\"HR\" data-dial=\"385\" data-flag=\"🇭🇷\">Kroatien (+385)</option><option value=\"LV\" data-dial=\"371\" data-flag=\"🇱🇻\">Lettland (+371)</option><option value=\"LI\" data-dial=\"423\" data-flag=\"🇱🇮\">Liechtenstein (+423)</option><option value=\"LT\" data-dial=\"370\" data-flag=\"🇱🇹\">Litauen (+370)</option><option value=\"LU\" data-dial=\"352\" data-flag=\"🇱🇺\">Luxemburg (+352)</option><option value=\"MT\" data-dial=\"356\" data-flag=\"🇲🇹\">Malta (+356)</option><option value=\"MX\" data-dial=\"52\" data-flag=\"🇲🇽\">Mexiko (+52)</option><option value=\"ME\" data-dial=\"382\" data-flag=\"🇲🇪\">Montenegro (+382)</option><option value=\"NL\" data-dial=\"31\" data-flag=\"🇳🇱\">Nederländerna (+31)</option><option value=\"MK\" data-dial=\"389\" data-flag=\"🇲🇰\">Nordmakedonien (+389)</option><option value=\"NZ\" data-dial=\"64\" data-flag=\"🇳🇿\">Nya Zeeland (+64)</option><option value=\"PL\" data-dial=\"48\" data-flag=\"🇵🇱\">Polen (+48)</option><option value=\"PT\" data-dial=\"351\" data-flag=\"🇵🇹\">Portugal (+351)</option><option value=\"RO\" data-dial=\"40\" data-flag=\"🇷🇴\">Rumänien (+40)</option><option value=\"CH\" data-dial=\"41\" data-flag=\"🇨🇭\">Schweiz (+41)</option><option value=\"RS\" data-dial=\"381\" data-flag=\"🇷🇸\">Serbien (+381)</option><option value=\"SG\" data-dial=\"65\" data-flag=\"🇸🇬\">Singapore (+65)</option><option value=\"SK\" data-dial=\"421\" data-flag=\"🇸🇰\">Slovakien (+421)</option><option value=\"SI\" data-dial=\"386\" data-flag=\"🇸🇮\">Slovenien (+386)</option><option value=\"ES\" data-dial=\"34\" data-flag=\"🇪🇸\">Spanien (+34)</option><option value=\"GB\" data-dial=\"44\" data-flag=\"🇬🇧\">Storbritannien (+44)</option><option value=\"ZA\" data-dial=\"27\" data-flag=\"🇿🇦\">Sydafrika (+27)</option><option value=\"KR\" data-dial=\"82\" data-flag=\"🇰🇷\">Sydkorea (+82)</option><option value=\"CZ\" data-dial=\"420\" data-flag=\"🇨🇿\">Tjeckien (+420)</option><option value=\"TR\" data-dial=\"90\" data-flag=\"🇹🇷\">Turkiet (+90)</option><option value=\"DE\" data-dial=\"49\" data-flag=\"🇩🇪\">Tyskland (+49)</option><option value=\"UA\" data-dial=\"380\" data-flag=\"🇺🇦\">Ukraina (+380)</option><option value=\"HU\" data-dial=\"36\" data-flag=\"🇭🇺\">Ungern (+36)</option><option value=\"US\" data-dial=\"1\" data-flag=\"🇺🇸\">USA (+1)</option><option value=\"AT\" data-dial=\"43\" data-flag=\"🇦🇹\">Österrike (+43)</option></select></span><input class=\"xf-input xf-phone-input\" type=\"tel\" id=\"xf-12-UID-mobil\" name=\"fields[mobil]\" value=\"+46 \" inputmode=\"tel\" autocomplete=\"tel\"></div><p class=\"xf-error\" id=\"xf-12-UID-mobil-error\" data-xf-error=\"mobil\" role=\"alert\"></p></div></div></div></div>\n\n\t\t\t\t\n\t\t\t\t\n\t\t\t\t<div class=\"xf-actions\">\n\t\t\t\t\t<button type=\"button\" class=\"xf-step-btn xf-prev\" data-xf-prev><span class=\"xf-step-btn-icon\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 -960 960 960\" fill=\"currentColor\" aria-hidden=\"true\"><g transform=\"matrix(-1 0 0 1 960 0)\"><path d=\"m531.69-480-184-184L376-692.31 588.31-480 376-267.69 347.69-296l184-184Z\"/></g></svg></span><span class=\"xf-step-btn-text\">Tillbaka</span></button><button type=\"button\" class=\"xf-step-btn xf-next\" data-xf-next><span class=\"xf-step-btn-text\">Nästa</span><span class=\"xf-step-btn-icon\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 -960 960 960\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"m531.69-480-184-184L376-692.31 588.31-480 376-267.69 347.69-296l184-184Z\"/></svg></span></button>\t\t\t\t\t<button type=\"submit\" class=\"xf-submit\"\n\t\t\t\t\t\tdata-xf-label=\"Skicka\"\n\t\t\t\t\t\tdata-xf-sending=\"Skickar…\">\n\t\t\t\t\t\t<span class=\"xf-submit-text\">Skicka</span>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<span class=\"xf-submit-icon\" aria-hidden=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 -960 960 960\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"m531.69-480-184-184L376-692.31 588.31-480 376-267.69 347.69-296l184-184Z\"/></svg></span>\n\t\t\t\t\t\t\t\t\t\t\t</button>\n\t\t\t\t</div>\n\n\t\t\t\t\n\t\t\t\t<p class=\"xf-form-error\" role=\"alert\" aria-live=\"polite\"></p>\n\n\t\t\t\t\t\t\t\t<div class=\"xf-hp\" aria-hidden=\"true\">\n\t\t\t\t\t<label>Lämna detta fält tomt\n\t\t\t\t\t\t<input type=\"text\" name=\"xf_website\" tabindex=\"-1\" autocomplete=\"off\">\n\t\t\t\t\t</label>\n\t\t\t\t</div>\n\t\t\t</form>\n\n\t\t\t\t\t\t<div class=\"xf-thanks\" role=\"status\" aria-live=\"polite\" tabindex=\"-1\" hidden>\n\t\t\t\t<p class=\"xf-thanks-title\">Tack!</p>\n\t\t\t\t<p class=\"xf-thanks-text\"></p>\n\t\t\t</div>\n\t\t</div>\n\t\t",
+    "rest-form-fallbacks": {
+        "id": 12,
+        "title": "Kontaktformulär",
+        "fields": [
+            {
+                "type": "buttons",
+                "key": "jagar",
+                "label": "Jag är",
+                "show_label": true,
+                "placeholder": "",
+                "help": "",
+                "choices": {
+                    "foretag": "Företag",
+                    "kandidat": "Kandidat"
+                },
+                "default": "foretag",
+                "required": true,
+                "width": "full",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "text",
+                "key": "namn",
+                "label": "Namn",
+                "show_label": true,
+                "placeholder": "För- och efternamn",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": true,
+                "width": "half",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "name",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "text",
+                "key": "foretag",
+                "label": "Företag",
+                "show_label": true,
+                "placeholder": "Företagsnamn",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": false,
+                "width": "half",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "organization",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "email",
+                "key": "epost",
+                "label": "E-post",
+                "show_label": true,
+                "placeholder": "namn@företag.se",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": true,
+                "width": "half",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "email",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "tel",
+                "key": "telefon",
+                "label": "Telefon",
+                "show_label": true,
+                "placeholder": "07X-XXX XX XX",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": false,
+                "width": "half",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "tel",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "select",
+                "key": "behov",
+                "label": "Vad behöver ni hjälp med?",
+                "show_label": true,
+                "placeholder": "",
+                "help": "",
+                "choices": {
+                    "Rekrytering": "Rekrytering",
+                    "Bemanning": "Bemanning",
+                    "Interim": "Interim",
+                    "Annat": "Annat"
+                },
+                "default": "Rekrytering",
+                "required": false,
+                "width": "full",
+                "cond_field": "jagar",
+                "cond_value": "foretag",
+                "autocomplete": "",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "select",
+                "key": "onskemal",
+                "label": "Vad gäller det?",
+                "show_label": true,
+                "placeholder": "",
+                "help": "",
+                "choices": {
+                    "Söker jobb": "Söker jobb",
+                    "Spontanansökan": "Spontanansökan",
+                    "Annat": "Annat"
+                },
+                "default": "Söker jobb",
+                "required": false,
+                "width": "full",
+                "cond_field": "jagar",
+                "cond_value": "kandidat",
+                "autocomplete": "",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "textarea",
+                "key": "meddelande",
+                "label": "Meddelande",
+                "show_label": true,
+                "placeholder": "Skriv gärna några rader om vad ni söker…",
+                "help": "Berätta gärna kort vad det gäller.",
+                "choices": [],
+                "default": "",
+                "required": false,
+                "width": "full",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "hidden",
+                "key": "audit",
+                "label": "Audit",
+                "show_label": true,
+                "placeholder": "",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": false,
+                "width": "full",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            }
+        ],
+        "texts": {
+            "submit": "Skicka",
+            "sending": "Skickar…",
+            "thanks_title": "Tack!",
+            "thanks_text": "",
+            "error": "Något gick fel.",
+            "redirect": "",
+            "consent": "",
+            "consent_box": false
+        },
+        "messages": {
+            "required": "Fyll i detta fält.",
+            "email": "Kontrollera e-postadressen.",
+            "tel": "Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.",
+            "phone_country": "Land och landsnummer",
+            "number": "Ange ett nummer.",
+            "date": "Kontrollera datumet.",
+            "url": "Ange en giltig webbadress, t.ex. https://exempel.se.",
+            "confirm": "Stämmer inte överens. Kontrollera att du skrivit likadant båda gångerna.",
+            "choice": "Ogiltigt val.",
+            "links": "Meddelandet innehåller för många länkar.",
+            "consent": "Du behöver godkänna villkoren.",
+            "toofast": "Det gick lite för snabbt. Vänta en sekund och försök igen.",
+            "nonce": "Sessionen har gått ut. Ladda om sidan och försök igen.",
+            "rate": "Du har skickat flera meddelanden på kort tid. Vänta en stund och försök igen.",
+            "generic": "Något gick fel. Försök igen om en liten stund.",
+            "turnstile": "Säkerhetskontrollen är inte klar. Vänta en sekund och försök igen."
+        },
+        "honeypot": "xf_website",
+        "turnstile": {
+            "enabled": false,
+            "site_key": ""
+        },
+        "rest": "/__mock__/relativt-form/v1/"
+    },
+    "rest-form-standardvarden": {
+        "id": 12,
+        "title": "Kontaktformulär",
+        "fields": [
+            {
+                "type": "buttons",
+                "key": "jagar",
+                "label": "Jag är",
+                "show_label": true,
+                "placeholder": "",
+                "help": "",
+                "choices": {
+                    "foretag": "Företag",
+                    "kandidat": "Kandidat"
+                },
+                "default": "foretag",
+                "required": true,
+                "width": "full",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "text",
+                "key": "namn",
+                "label": "Namn",
+                "show_label": true,
+                "placeholder": "För- och efternamn",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": true,
+                "width": "half",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "name",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "text",
+                "key": "foretag",
+                "label": "Företag",
+                "show_label": true,
+                "placeholder": "Företagsnamn",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": false,
+                "width": "half",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "organization",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "email",
+                "key": "epost",
+                "label": "E-post",
+                "show_label": true,
+                "placeholder": "namn@företag.se",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": true,
+                "width": "half",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "email",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "tel",
+                "key": "telefon",
+                "label": "Telefon",
+                "show_label": true,
+                "placeholder": "07X-XXX XX XX",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": false,
+                "width": "half",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "tel",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "select",
+                "key": "behov",
+                "label": "Vad behöver ni hjälp med?",
+                "show_label": true,
+                "placeholder": "",
+                "help": "",
+                "choices": {
+                    "Rekrytering": "Rekrytering",
+                    "Bemanning": "Bemanning",
+                    "Interim": "Interim",
+                    "Annat": "Annat"
+                },
+                "default": "Rekrytering",
+                "required": false,
+                "width": "full",
+                "cond_field": "jagar",
+                "cond_value": "foretag",
+                "autocomplete": "",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "select",
+                "key": "onskemal",
+                "label": "Vad gäller det?",
+                "show_label": true,
+                "placeholder": "",
+                "help": "",
+                "choices": {
+                    "Söker jobb": "Söker jobb",
+                    "Spontanansökan": "Spontanansökan",
+                    "Annat": "Annat"
+                },
+                "default": "Söker jobb",
+                "required": false,
+                "width": "full",
+                "cond_field": "jagar",
+                "cond_value": "kandidat",
+                "autocomplete": "",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "textarea",
+                "key": "meddelande",
+                "label": "Meddelande",
+                "show_label": true,
+                "placeholder": "Skriv gärna några rader om vad ni söker…",
+                "help": "Berätta gärna kort vad det gäller.",
+                "choices": [],
+                "default": "",
+                "required": false,
+                "width": "full",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "hidden",
+                "key": "audit",
+                "label": "Audit",
+                "show_label": true,
+                "placeholder": "",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": false,
+                "width": "full",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            }
+        ],
+        "texts": {
+            "submit": "Skicka förfrågan",
+            "sending": "Skickar förfrågan…",
+            "thanks_title": "Tack för din förfrågan!",
+            "thanks_text": "Vi hör av oss inom en arbetsdag.",
+            "error": "Det gick inte att skicka. Ring oss i stället.",
+            "redirect": "https://exempel.se/tack/",
+            "consent": "<p>Läs vår <a href=\"/integritetspolicy/\">integritetspolicy</a>.</p>",
+            "consent_box": false
+        },
+        "messages": {
+            "required": "Fyll i detta fält.",
+            "email": "Kontrollera e-postadressen.",
+            "tel": "Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.",
+            "phone_country": "Land och landsnummer",
+            "number": "Ange ett nummer.",
+            "date": "Kontrollera datumet.",
+            "url": "Ange en giltig webbadress, t.ex. https://exempel.se.",
+            "confirm": "Stämmer inte överens. Kontrollera att du skrivit likadant båda gångerna.",
+            "choice": "Ogiltigt val.",
+            "links": "Meddelandet innehåller för många länkar.",
+            "consent": "Du behöver godkänna villkoren.",
+            "toofast": "Det gick lite för snabbt. Vänta en sekund och försök igen.",
+            "nonce": "Sessionen har gått ut. Ladda om sidan och försök igen.",
+            "rate": "Du har skickat flera meddelanden på kort tid. Vänta en stund och försök igen.",
+            "generic": "Något gick fel. Försök igen om en liten stund.",
+            "turnstile": "Säkerhetskontrollen är inte klar. Vänta en sekund och försök igen."
+        },
+        "honeypot": "xf_website",
+        "turnstile": {
+            "enabled": false,
+            "site_key": ""
+        },
+        "rest": "/__mock__/relativt-form/v1/"
+    },
+    "rest-form-flersteg": {
+        "id": 12,
+        "title": "Kontaktformulär",
+        "fields": [
+            {
+                "type": "text",
+                "key": "namn",
+                "label": "Namn",
+                "show_label": true,
+                "placeholder": "",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": true,
+                "width": "full",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "name",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "step",
+                "key": "steg2",
+                "label": "",
+                "show_label": true,
+                "placeholder": "",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": false,
+                "width": "full",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "email",
+                "key": "epost",
+                "label": "E-post",
+                "show_label": true,
+                "placeholder": "",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": true,
+                "width": "full",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "email",
+                "phone_country": false,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            },
+            {
+                "type": "tel",
+                "key": "mobil",
+                "label": "Mobil",
+                "show_label": true,
+                "placeholder": "",
+                "help": "",
+                "choices": [],
+                "default": "",
+                "required": false,
+                "width": "full",
+                "cond_field": "",
+                "cond_value": "",
+                "autocomplete": "tel",
+                "phone_country": true,
+                "phone_default": "",
+                "confirm": "",
+                "confirm_type": ""
+            }
+        ],
+        "texts": {
+            "submit": "Skicka",
+            "sending": "Skickar…",
+            "thanks_title": "Tack!",
+            "thanks_text": "",
+            "error": "Något gick fel.",
+            "redirect": "",
+            "consent": "",
+            "consent_box": false
+        },
+        "messages": {
+            "required": "Fyll i detta fält.",
+            "email": "Kontrollera e-postadressen.",
+            "tel": "Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.",
+            "phone_country": "Land och landsnummer",
+            "number": "Ange ett nummer.",
+            "date": "Kontrollera datumet.",
+            "url": "Ange en giltig webbadress, t.ex. https://exempel.se.",
+            "confirm": "Stämmer inte överens. Kontrollera att du skrivit likadant båda gångerna.",
+            "choice": "Ogiltigt val.",
+            "links": "Meddelandet innehåller för många länkar.",
+            "consent": "Du behöver godkänna villkoren.",
+            "toofast": "Det gick lite för snabbt. Vänta en sekund och försök igen.",
+            "nonce": "Sessionen har gått ut. Ladda om sidan och försök igen.",
+            "rate": "Du har skickat flera meddelanden på kort tid. Vänta en stund och försök igen.",
+            "generic": "Något gick fel. Försök igen om en liten stund.",
+            "turnstile": "Säkerhetskontrollen är inte klar. Vänta en sekund och försök igen."
+        },
+        "honeypot": "xf_website",
+        "turnstile": {
+            "enabled": false,
+            "site_key": ""
+        },
+        "rest": "/__mock__/relativt-form/v1/",
+        "multistep": {
+            "first_title": "",
+            "indicator": "bar",
+            "animation": "slide",
+            "counter": "Steg {current} av {total}",
+            "next": "Nästa",
+            "prev": "Tillbaka",
+            "next_icon": "standard",
+            "prev_icon": "standard-left"
+        }
+    },
+    "rest-form-okant": {
+        "wp_error": "xf_no_form",
+        "message": "Okänt formulär.",
+        "data": {
+            "status": 404
+        }
+    },
+    "rest-token": {
+        "status": 200,
+        "keys": [
+            "nonce",
+            "ts",
+            "sig"
+        ],
+        "headers": {
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, private",
+            "Pragma": "no-cache",
+            "Expires": "Wed, 11 Jan 1984 05:00:00 GMT",
+            "X-LiteSpeed-Cache-Control": "no-cache"
+        }
+    },
+    "rest-token-okant": {
+        "wp_error": "xf_no_form",
+        "message": "Okänt formulär.",
+        "data": {
+            "status": 404
+        }
+    },
+    "submit-ok": {
+        "status": 200,
+        "data": {
+            "ok": true,
+            "title": "Tack för ditt meddelande!",
+            "text": "Vi återkommer till dig så snart vi kan."
+        }
+    },
+    "submit-okant": {
+        "status": 404,
+        "data": {
+            "ok": false,
+            "message": "Okänt formulär."
+        }
+    },
+    "submit-nonce": {
+        "status": 403,
+        "data": {
+            "ok": false,
+            "message": "Sessionen har gått ut. Ladda om sidan och försök igen.",
+            "code": "nonce"
+        }
+    },
+    "submit-sig": {
+        "status": 400,
+        "data": {
+            "ok": false,
+            "message": "Ogiltig begäran.",
+            "code": "sig"
+        }
+    },
+    "submit-toofast": {
+        "status": 425,
+        "data": {
+            "ok": false,
+            "message": "Det gick lite för snabbt. Vänta en sekund och försök igen.",
+            "code": "toofast",
+            "retry_after": "N"
+        }
+    },
+    "submit-fel": {
+        "status": 422,
+        "data": {
+            "ok": false,
+            "errors": {
+                "namn": "Fyll i detta fält.",
+                "epost": "Kontrollera e-postadressen.",
+                "telefon": "Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.",
+                "meddelande": "Meddelandet innehåller för många länkar."
+            }
+        }
+    },
+    "submit-honung": {
+        "status": 200,
+        "data": {
+            "ok": true,
+            "title": "Tack för ditt meddelande!",
+            "text": "Vi återkommer till dig så snart vi kan."
+        }
+    },
+    "submit-rate": {
+        "status": 429,
+        "data": {
+            "ok": false,
+            "message": "Du har skickat flera meddelanden på kort tid. Vänta en stund och försök igen.",
+            "code": "rate"
+        }
+    },
+    "submit-samtycke": {
+        "status": 422,
+        "data": {
+            "ok": false,
+            "errors": {
+                "xf_consent": "Du behöver godkänna villkoren."
+            }
+        }
+    },
+    "submit-turnstile": {
+        "status": 403,
+        "data": {
+            "ok": false,
+            "message": "Säkerhetskontrollen är inte klar. Vänta en sekund och försök igen.",
+            "code": "turnstile"
+        }
+    },
+    "submit-ok-fallbacks": {
+        "status": 200,
+        "data": {
+            "ok": true,
+            "title": "Tack!",
+            "text": ""
+        }
+    },
+    "submit-ok-standardvarden": {
+        "status": 200,
+        "data": {
+            "ok": true,
+            "title": "Tack för din förfrågan!",
+            "text": "Vi hör av oss inom en arbetsdag.",
+            "redirect": "https://exempel.se/tack/"
+        }
+    },
+    "submit-bekraftelse": {
+        "status": 422,
+        "data": {
+            "ok": false,
+            "errors": {
+                "epost2": "Stämmer inte överens. Kontrollera att du skrivit likadant båda gångerna."
+            }
+        }
+    }
+}

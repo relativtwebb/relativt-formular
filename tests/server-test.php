@@ -16,7 +16,7 @@ $ref    = new ReflectionClass( $engine );
 /** Kör en privat/skyddad metod. */
 function call( object $object, string $method, array $args = [] ) {
 	$m = ( new ReflectionClass( $object ) )->getMethod( $method );
-	$m->setAccessible( true );
+	xf_accessible( $m );
 	return $m->invokeArgs( $object, $args );
 }
 
@@ -363,7 +363,7 @@ $GLOBALS['__form'] = xf_test_form();
 echo "\nRendering\n";
 
 $render = $ref->getMethod( 'render_form' );
-$render->setAccessible( true );
+xf_accessible( $render );
 $html = $render->invoke( $engine, 12, [ 'jagar' => 'kandidat' ], '' );
 
 check( 'shortcode-attributet förväljer rätt radio', str_contains( $html, 'value="kandidat" checked="checked"' ) );
@@ -594,7 +594,7 @@ check( 'varje ikon har en etikett', 0 === count( array_filter( Relativt_Form_Ico
  * att något test märker det.
  */
 $kses = new ReflectionMethod( Relativt_Form::class, 'svg_kses' );
-$kses->setAccessible( true );
+xf_accessible( $kses );
 $allowed = $kses->invoke( null );
 
 $bad = [];
@@ -637,7 +637,7 @@ $GLOBALS['__form']['xf_submit_icon'] = 'rocket';
 check( 'ikonvalet följer med i exporten', 'rocket' === ( Relativt_Form_Portability::instance()->build_payload( 12 )['settings']['xf_submit_icon'] ?? '' ) );
 $GLOBALS['__form'] = xf_test_form();
 $clean_icon = new ReflectionMethod( Relativt_Form_Portability::class, 'clean' );
-$clean_icon->setAccessible( true );
+xf_accessible( $clean_icon );
 check( 'och en riggad importfil kan inte smuggla in markup', ! str_contains( (string) $clean_icon->invoke( Relativt_Form_Portability::instance(), '<svg onload=alert(1)>', 'key' ), '<' ) );
 check( 'ikonfilen och licensen följer med i zip-filen', str_contains( (string) file_get_contents( __DIR__ . '/../build/build.php' ), "'includes/class-relativt-form-icons.php'" ) && str_contains( (string) file_get_contents( __DIR__ . '/../build/build.php' ), "'includes/LUCIDE-LICENSE.txt'" ) );
 check( 'Lucides licens finns i repot', str_contains( (string) file_get_contents( __DIR__ . '/../includes/LUCIDE-LICENSE.txt' ), 'ISC License' ) );
@@ -700,7 +700,7 @@ echo "\nCSV-exporten\n";
  * kunden öppnar filen i Excel. Cellen är besökardata och ska läsas som text.
  */
 $guard = new ReflectionMethod( Relativt_Form::class, 'csv_guard' );
-$guard->setAccessible( true );
+xf_accessible( $guard );
 
 check( 'formelceller ofarliggörs', $guard->invoke( null, '=HYPERLINK("https://ond.se")' ) === "'" . '=HYPERLINK("https://ond.se")' );
 check( 'plus, minus och snabel-a likaså', $guard->invoke( null, '+46701234567' ) === "'+46701234567" && $guard->invoke( null, '-1' ) === "'-1" && $guard->invoke( null, '@evil' ) === "'@evil" );
@@ -994,7 +994,7 @@ check( 'inga inskick läcker med i exporten', ! str_contains( strtolower( wp_jso
 
 // Vitlistan: en riggad fil ska inte kunna skriva vad som helst.
 $clean = new ReflectionMethod( Relativt_Form_Portability::class, 'clean' );
-$clean->setAccessible( true );
+xf_accessible( $clean );
 
 check( 'okänd fälttyp faller tillbaka på text', $clean->invoke( $port, 'javascript', 'type' ) === 'text' );
 check( 'känd fälttyp släpps igenom', $clean->invoke( $port, 'textarea', 'type' ) === 'textarea' );
@@ -1006,7 +1006,7 @@ check( 'kvarhållning kan inte bli negativ', $clean->invoke( $port, -50, 'int' )
 check( 'skript stryps ur samtyckestexten', ! str_contains( (string) $clean->invoke( $port, '<p>Hej</p><script>fetch(1)</script>', 'html' ), '<script' ) );
 
 $rows = new ReflectionMethod( Relativt_Form_Portability::class, 'clean_rows' );
-$rows->setAccessible( true );
+xf_accessible( $rows );
 $smuggled = $rows->invoke( $port, [ [ 'label' => 'Namn', 'type' => 'text', 'skadlig_kolumn' => 'x' ] ], [ 'label' => 'text', 'type' => 'type' ] );
 
 check( 'okända kolumner kastas vid import', ! array_key_exists( 'skadlig_kolumn', $smuggled[0] ) );
@@ -1209,7 +1209,7 @@ $GLOBALS['__options'] = [];
 echo "\nTurnstile: rendering\n";
 
 $render = $ref->getMethod( 'render_form' );
-$render->setAccessible( true );
+xf_accessible( $render );
 
 $GLOBALS['__assets'] = [];
 $plain = $render->invoke( $engine, 12, [], '' );
@@ -1418,7 +1418,7 @@ check( 'och följer med i zip-filen', str_contains( (string) file_get_contents( 
 echo "\nStatistik: läsning av metafält\n";
 
 $read_meta = new ReflectionMethod( Relativt_Form_Stats::class, 'read_meta' );
-$read_meta->setAccessible( true );
+xf_accessible( $read_meta );
 $arr_meta  = [ 'utm' => [ 'utm_source' => 'google' ], 'referrer' => 'https://exempel.se/' ];
 check( 'en serialiserad array läses som array', $arr_meta === $read_meta->invoke( null, serialize( $arr_meta ) ) );
 check( 'tom sträng ger tom sträng, inget fel', '' === $read_meta->invoke( null, '' ) );
@@ -2139,7 +2139,7 @@ $reset190();
 echo "\nTelefonfält med landsväljare (1.12.0)\n";
 
 $render_form_method = new ReflectionMethod( $engine, 'render_form' );
-$render_form_method->setAccessible( true );
+xf_accessible( $render_form_method );
 $render_phone = static function ( array $field, array $presets = [] ) use ( $engine, $render_form_method ): string {
 	$GLOBALS['__form']['xf_fields'] = [ array_merge( [ 'type' => 'tel', 'key' => 'mobil', 'label' => 'Mobil' ], $field ) ];
 	Relativt_Form::flush_fields_cache();
@@ -2225,7 +2225,7 @@ Relativt_Form::flush_fields_cache();
 $exported = Relativt_Form_Portability::instance()->build_payload( 12 )['settings']['xf_fields'][0] ?? [];
 check( 'landsväljaren och förvalt land följer med i exporten', 1 === (int) ( $exported['phone_country'] ?? 0 ) && 'NO' === ( $exported['phone_default'] ?? '' ) );
 $clean_cc = new ReflectionMethod( Relativt_Form_Portability::class, 'clean' );
-$clean_cc->setAccessible( true );
+xf_accessible( $clean_cc );
 $port_cc = Relativt_Form_Portability::instance();
 check( 'import: ett känt land godkänns', 'NO' === $clean_cc->invoke( $port_cc, 'no', 'country' ) );
 check( 'import: ett okänt land eller markup blir tomt', '' === $clean_cc->invoke( $port_cc, '"><script>', 'country' ) && '' === $clean_cc->invoke( $port_cc, [ 'NO' ], 'country' ) );
@@ -2782,6 +2782,496 @@ check( 'ikonvalet saneras som nyckel vid import', 'send' === $clean->invoke( $po
 
 $GLOBALS['__form'] = xf_test_form();
 Relativt_Form::flush_fields_cache();
+
+echo "\nFlerspråkiga sajter (1.15.0): utan Polylang\n";
+
+/*
+ * Kravet: en sajt utan Polylang ska bete sig exakt som i 1.14.0 – samma
+ * markup, samma texter, samma REST-svar. Facit genererades av
+ * tests/i18n-snapshots.php mot 1.14.0-koden, innan språkstödet fanns.
+ * Det enda som får skilja är nyckeln lang i konfigurationen till skriptet.
+ */
+require_once __DIR__ . '/i18n-snapshots.php';
+$xf_i18n_facit = json_decode( (string) file_get_contents( __DIR__ . '/fixtures/i18n-1.14.0.json' ), true );
+
+/**
+ * Jämför utdata med facit, nyckel för nyckel.
+ *
+ * $strict_config: konfigurationen ska vara facit plus lang och ingenting
+ * annat. Det går bara att kräva i en ren process – längre upp i den här
+ * filen har testerna av samtyckesverktygen definierat konstanter som lägger
+ * till egna nycklar för resten av körningen.
+ */
+function xf_i18n_compare( array $facit, array $now, string $suffix, bool $strict_config ): void {
+	check( "samma uppsättning utdata som i facit{$suffix}", array_keys( $now ) === array_keys( $facit ) );
+	foreach ( $facit as $name => $expected ) {
+		$actual = $now[ $name ] ?? null;
+		if ( 'config' === $name ) {
+			$extra = array_keys( array_diff_key( (array) $actual, $expected ) );
+			check( "config: nycklarna från 1.14.0 är oförändrade{$suffix}", array_intersect_key( (array) $actual, $expected ) === $expected );
+			check( "config: sidans språk har tillkommit{$suffix}", 'sv_SE' === ( $actual['lang'] ?? null ) );
+			if ( $strict_config ) {
+				check( "config: lang är den enda nya nyckeln{$suffix}", [ 'lang' ] === $extra, implode( ', ', $extra ) );
+			}
+			continue;
+		}
+		check( "{$name}: identisk med 1.14.0{$suffix}", $actual === $expected );
+	}
+}
+
+check( 'facit finns och täcker texter, markup och REST-svar', is_array( $xf_i18n_facit ) && count( $xf_i18n_facit ) >= 24 );
+check( 'Polylang finns inte i processen än', ! function_exists( 'pll__' ) && ! Relativt_Form_I18n::has_polylang() );
+
+/*
+ * I en ren process, som på en sajt: bara pluginet, inget annat laddat.
+ *
+ * display_errors=stderr: skriptets utdata är JSON, och en enda varning på
+ * stdout gör den oläslig. Så föll alla jämförelser nedan på PHP 8.5, där
+ * setAccessible() varnar – koden var rätt, det var testet som inte gick
+ * att läsa. Varningar syns fortfarande i terminalen, och skulle utdata
+ * ändå inte gå att tolka säger testet varför.
+ */
+$xf_clean_raw = (string) shell_exec( escapeshellarg( PHP_BINARY ) . ' -d display_errors=stderr ' . escapeshellarg( __DIR__ . '/i18n-snapshots.php' ) );
+$xf_clean     = json_decode( $xf_clean_raw, true );
+check( 'facit-skriptet går att köra för sig', is_array( $xf_clean ), 'utdata är inte JSON, börjar med: ' . substr( trim( $xf_clean_raw ), 0, 160 ) );
+xf_i18n_compare( (array) $xf_i18n_facit, (array) $xf_clean, ' (ren process)', true );
+
+// Och här, efter allt som testerna ovan lämnat efter sig.
+xf_i18n_compare( (array) $xf_i18n_facit, xf_i18n_snapshots(), '', false );
+
+/** Nollställer allt ett inskick lämnar efter sig, och språkloggen. */
+function xf_i18n_reset( ?array $form = null, array $options = [] ): void {
+	$GLOBALS['__form']         = $form ?? xf_test_form();
+	$GLOBALS['__options']      = $options;
+	$GLOBALS['__transients']   = [];
+	$GLOBALS['__mail']         = [];
+	$GLOBALS['__posts']        = [];
+	$GLOBALS['__locale_log']   = [];
+	$GLOBALS['__locale_stack'] = [];
+	$_SERVER['REMOTE_ADDR']    = '203.0.113.50';
+	remove_all_filters( 'relativt_form_messages' );
+	remove_all_filters( 'relativt_form_values' );
+	remove_all_filters( 'relativt_form_mail_body' );
+	remove_all_filters( 'relativt_form_errors' );
+	remove_all_filters( 'relativt_form_submitted' );
+	remove_all_filters( 'relativt_form_step_counter' );
+	Relativt_Form::flush_fields_cache();
+	Relativt_Form_I18n::raw_settings( true );
+}
+function xf_i18n_submit( array $extra = [] ) {
+	return Relativt_Form::instance()->rest_submit( new WP_REST_Request( xf_submit_body( $extra ) ) );
+}
+
+// Språkparametern valideras. Utan Polylang måste den se ut som en locale.
+foreach ( [ 'sv_SE', 'en_GB', 'sv', 'de_DE_formal', 'pt_PT_ao90', 'es_419', 'ary' ] as $xf_ok ) {
+	check( "språkuppgiften {$xf_ok} godtas", $xf_ok === Relativt_Form_I18n::validate( $xf_ok ) );
+}
+$xf_bad = [
+	'tom sträng'          => '',
+	'bindestreck'         => 'sv-SE',
+	'versaler först'      => 'SV_se',
+	'sökväg'              => '../../wp-config',
+	'markup'              => '<script>',
+	'citattecken'         => 'sv_SE"',
+	'radbrytning'         => "sv_SE\nX",
+	'för långt'           => 'sv_SE_' . str_repeat( 'a', 30 ),
+	'siffra'              => 12,
+	'lista'               => [ 'sv_SE' ],
+	'null'                => null,
+	'sant'                => true,
+];
+foreach ( $xf_bad as $xf_why => $xf_value ) {
+	check( "språkuppgift avvisas: {$xf_why}", '' === Relativt_Form_I18n::validate( $xf_value ) );
+}
+check( 'blanktecken runt värdet tas bort', 'sv_SE' === Relativt_Form_I18n::validate( ' sv_SE ' ) );
+
+// Ogiltigt eller saknat värde: samma svar som i dag, och ingen växling.
+xf_i18n_reset();
+$xf_plain = xf_i18n_submit( [ 'nonce' => 'fel' ] );
+foreach ( [ 'okänt format' => 'sv-SE', 'skräp' => '"><script>', 'lista' => [ 'en_GB' ], 'tomt' => '' ] as $xf_why => $xf_value ) {
+	$GLOBALS['__locale_log'] = [];
+	$res = xf_i18n_submit( [ 'nonce' => 'fel', 'lang' => $xf_value ] );
+	check( "lang ({$xf_why}) ignoreras: samma svar som utan", $res->data === $xf_plain->data && $res->status === $xf_plain->status );
+	check( "lang ({$xf_why}) växlar inget språk", [] === $GLOBALS['__locale_log'] && 0 === Relativt_Form_I18n::depth() );
+}
+
+// Sajtens eget språk: giltigt, men ingen växling behövs.
+$GLOBALS['__locale_log'] = [];
+$res = xf_i18n_submit( [ 'nonce' => 'fel', 'lang' => 'sv_SE' ] );
+check( 'sajtens eget språk ger samma svar och ingen växling', $res->data === $xf_plain->data && [] === $GLOBALS['__locale_log'] );
+
+// Ett språk som inte är installerat: WordPress vägrar växla, svaret är som förut.
+$res = xf_i18n_submit( [ 'nonce' => 'fel', 'lang' => 'fi' ] );
+check( 'ett språk utan språkfiler ger samma svar', $res->data === $xf_plain->data && [] === $GLOBALS['__locale_log'] && 'sv_SE' === get_locale() );
+
+// Ett installerat språk: växla före texterna, återställ efteråt.
+$GLOBALS['__locale_log'] = [];
+$res = xf_i18n_submit( [ 'nonce' => 'fel', 'lang' => 'en_GB' ] );
+check( 'ett installerat språk växlas och återställs', [ 'switch:en_GB', 'restore:sv_SE' ] === $GLOBALS['__locale_log'], implode( ',', $GLOBALS['__locale_log'] ) );
+check( 'språket är återställt efter anropet', 'sv_SE' === get_locale() && 0 === Relativt_Form_I18n::depth() );
+check( 'utan översättningar är texten densamma', $res->data === $xf_plain->data );
+
+// Filtret får språk och formulär-id.
+xf_i18n_reset();
+$xf_seen = [];
+add_filter( 'relativt_form_messages', static function ( $m, $lang, $form_id ) use ( &$xf_seen ) {
+	$xf_seen[] = [ $lang, $form_id, func_num_args() ];
+	return 'en_GB' === $lang ? array_merge( $m, [ 'nonce' => 'The session has expired.', 'required' => 'This field is required.' ] ) : $m;
+}, 10, 3 );
+$xf_config = xf_read_config();
+check( 'filtret får språket och 0 som formulär-id för sidans gemensamma texter', [ 'sv_SE', 0, 3 ] === ( $xf_seen[0] ?? null ) );
+check( 'konfigurationen bär sidans språk', 'sv_SE' === ( $xf_config['lang'] ?? '' ) );
+$xf_seen = [];
+$res     = xf_i18n_submit( [ 'nonce' => 'fel', 'lang' => 'en_GB' ] );
+check( 'filtret får språket ur anropet och formulärets id', [ 'en_GB', 12, 3 ] === ( $xf_seen[0] ?? null ), json_encode( $xf_seen[0] ?? null ) );
+check( 'ett filter kan översätta efter språk utan Polylang', 'The session has expired.' === ( $res->data['message'] ?? '' ) );
+$res = xf_i18n_submit( [ 'nonce' => 'fel' ] );
+check( 'samma filter utan lang: svenska som förut', $xf_plain->data === $res->data );
+$res = xf_i18n_submit( [ 'lang' => 'en_GB', 'fields' => [ 'jagar' => 'foretag' ] ] );
+check( 'valideringsfelen följer språket', 'This field is required.' === ( $res->data['errors']['namn'] ?? '' ) );
+$xf_seen = [];
+$engine->rest_form( new WP_REST_Request( [ 'id' => 12, 'lang' => 'en_GB' ] ) );
+check( 'headless-definitionen tar emot ?lang= och ger filtret formulärets id', [ 'en_GB', 12, 3 ] === ( $xf_seen[0] ?? null ) );
+
+// Ett filter skrivet före 1.15.0, med ett argument, fungerar oförändrat.
+xf_i18n_reset();
+$xf_argc = null;
+add_filter( 'relativt_form_messages', static function ( $m ) use ( &$xf_argc ) {
+	$xf_argc = func_num_args();
+	return array_merge( $m, [ 'required' => 'Obligatoriskt.' ] );
+} );
+check( 'ett filter med ett argument byter fortfarande ut texten', 'Obligatoriskt.' === $engine->messages()['required'] && 'Obligatoriskt.' === $engine->messages( 12 )['required'] );
+check( 'och får exakt ett argument', 1 === $xf_argc );
+$res = xf_i18n_submit( [ 'lang' => 'en_GB', 'fields' => [ 'jagar' => 'foretag' ] ] );
+check( 'även i ett anrop med språk', 'Obligatoriskt.' === ( $res->data['errors']['namn'] ?? '' ) );
+
+// Kastar något mitt i anropet återställs språket ändå.
+xf_i18n_reset();
+add_filter( 'relativt_form_messages', static function ( $m ) { throw new RuntimeException( 'trasigt filter' ); } );
+$xf_thrown = false;
+try {
+	xf_i18n_submit( [ 'lang' => 'en_GB' ] );
+} catch ( RuntimeException $e ) {
+	$xf_thrown = true;
+}
+check( 'ett undantag i ett filter återställer ändå språket', $xf_thrown && 'sv_SE' === get_locale() && 0 === Relativt_Form_I18n::depth() );
+
+// Lagring och notismail sker på sajtens språk – mailet går till mottagaren.
+xf_i18n_reset();
+$xf_phase = [];
+add_filter( 'relativt_form_messages', static function ( $m ) use ( &$xf_phase ) { $xf_phase['texter'] = get_locale(); return $m; } );
+add_filter( 'relativt_form_errors', static function ( $e ) use ( &$xf_phase ) { $xf_phase['fel'] = get_locale(); return $e; } );
+add_filter( 'relativt_form_values', static function ( $v ) use ( &$xf_phase ) { $xf_phase['varden'] = get_locale(); return $v; } );
+add_filter( 'relativt_form_mail_body', static function ( $h ) use ( &$xf_phase ) { $xf_phase['mail'] = get_locale(); return $h; } );
+add_action( 'relativt_form_submitted', static function () use ( &$xf_phase ) { $xf_phase['efter'] = get_locale(); } );
+$res = xf_i18n_submit( [ 'lang' => 'en_GB' ] );
+check( 'inskicket går igenom med språk', 200 === $res->status && true === ( $res->data['ok'] ?? false ) && 1 === count( $GLOBALS['__mail'] ) );
+check( 'texter och valideringsfel tas fram på sidans språk', 'en_GB' === ( $xf_phase['texter'] ?? '' ) && 'en_GB' === ( $xf_phase['fel'] ?? '' ) );
+check( 'lagring, mail och efterkrokar körs på sajtens språk', 'sv_SE' === ( $xf_phase['varden'] ?? '' ) && 'sv_SE' === ( $xf_phase['mail'] ?? '' ) && 'sv_SE' === ( $xf_phase['efter'] ?? '' ), json_encode( $xf_phase ) );
+
+// /token: språket följer med, svaret och no-cache-headerna är desamma.
+xf_i18n_reset();
+$xf_token_plain = $engine->rest_token( new WP_REST_Request( [ 'form' => 12 ] ) );
+$xf_token_lang  = $engine->rest_token( new WP_REST_Request( [ 'form' => 12, 'lang' => 'en_GB' ] ) );
+check( '/token med lang svarar med samma nycklar', array_keys( $xf_token_lang->data ) === array_keys( $xf_token_plain->data ) );
+check( '/token med lang behåller no-cache-headerna från 1.12.2', $xf_token_lang->get_headers() === Relativt_Form::NO_CACHE_HEADERS && $xf_token_plain->get_headers() === Relativt_Form::NO_CACHE_HEADERS );
+check( '/token med lang för ett okänt formulär svarar 404 som förut', 'Okänt formulär.' === $engine->rest_token( new WP_REST_Request( [ 'form' => 999, 'lang' => 'en_GB' ] ) )->message && 'sv_SE' === get_locale() );
+
+// Skriptet skickar språket i båda anropen.
+$xf_js = (string) file_get_contents( __DIR__ . '/../assets/js/relativt-formular.js' );
+check( 'skriptet läser språket ur konfigurationen', str_contains( $xf_js, 'CONFIG.lang' ) );
+check( 'och skickar det med /token och /submit', str_contains( $xf_js, '&lang=${encodeURIComponent(LANG)}' ) && str_contains( $xf_js, '{ lang: LANG }' ) );
+
+// Utan Polylang registreras ingenting, och inget går sönder.
+Relativt_Form_I18n::register_strings();
+check( 'registreringen hängs på init', in_array( 'register_strings', array_map( static fn( $e ) => is_array( $e['callback'] ) ? $e['callback'][1] : '', array_filter( $GLOBALS['__hooks'], static fn( $e ) => 'init' === $e['hook'] ) ), true ) );
+check( 't() är en ren genomsläppning utan Polylang', 'Skicka' === Relativt_Form_I18n::t( 'Skicka' ) && '' === Relativt_Form_I18n::t( '' ) );
+
+// wpml-config.xml pekar på de riktiga nycklarna.
+$xf_xml      = simplexml_load_file( __DIR__ . '/../wpml-config.xml' );
+$xf_option   = $xf_xml ? $xf_xml->xpath( 'admin-texts/key' ) : [];
+$xf_xml_keys = [];
+foreach ( $xf_option[0]->key ?? [] as $xf_node ) {
+	$xf_xml_keys[] = (string) $xf_node['name'];
+}
+$xf_setting_fields = ( new ReflectionClassConstant( Relativt_Form_Settings::class, 'FIELDS' ) )->getValue();
+check( 'wpml-config.xml är giltig XML med ett alternativ', false !== $xf_xml && 1 === count( $xf_option ) );
+check( 'alternativet heter som i inställningsklassen', Relativt_Form_Settings::OPTION === (string) ( $xf_option[0]['name'] ?? '' ) );
+check( 'nycklarna är desamma som registreras i Polylang', array_keys( Relativt_Form_I18n::SETTINGS_KEYS ) === $xf_xml_keys );
+check( 'alla nycklarna finns bland standardvärdena', [] === array_diff( $xf_xml_keys, array_keys( $xf_setting_fields ) ) );
+check( 'mottagare, avsändare och ämnesrad är inte översättningsbara', [] === array_intersect( [ 'xf_to', 'xf_from_name', 'xf_from_email', 'xf_subject' ], $xf_xml_keys ) );
+$xf_build = (string) file_get_contents( __DIR__ . '/../build/build.php' );
+check( 'språkfilen, wpml-config.xml och how-to:n följer med i zip-filen', str_contains( $xf_build, "'includes/class-relativt-form-i18n.php'" ) && str_contains( $xf_build, "'wpml-config.xml'" ) && str_contains( $xf_build, "'docs/flersprakiga-sajter.md'" ) );
+
+// Versionen står på tre ställen, och release.yml kräver att de stämmer överens.
+preg_match( '/^\s*\*\s*Version:\s*(\S+)/m', (string) file_get_contents( __DIR__ . '/../relativt-formular.php' ), $xf_header );
+preg_match( '/^Stable tag:\s*(\S+)/m', (string) file_get_contents( __DIR__ . '/../readme.txt' ), $xf_stable );
+check( 'Version-headern, konstanten och Stable tag är alla 1.15.0', '1.15.0' === ( $xf_header[1] ?? '' ) && '1.15.0' === RELATIVT_FORM_VERSION && '1.15.0' === ( $xf_stable[1] ?? '' ) );
+
+echo "\nFlerspråkiga sajter (1.15.0): med Polylang\n";
+
+/*
+ * Härifrån finns Polylangs funktioner i processen (se polylang-mock.php för
+ * vad mocken efterliknar och var i Polylangs källkod det är läst).
+ */
+xf_i18n_reset();
+require_once __DIR__ . '/polylang-mock.php';
+
+check( 'Polylang upptäcks', Relativt_Form_I18n::has_polylang() );
+
+// Polylang aktivt, men inget översatt och inget språk i anropen: allt som förut.
+xf_pll_rest();
+xf_i18n_compare( (array) $xf_i18n_facit, xf_i18n_snapshots(), ' (Polylang aktivt, inget översatt)', false );
+
+// Valideringen sker mot sajtens språk.
+xf_i18n_reset();
+check( 'sajtens språkkoder godtas', 'en' === Relativt_Form_I18n::validate( 'en' ) && 'sv' === Relativt_Form_I18n::validate( 'sv' ) );
+foreach ( [ 'en_GB' => 'locale i stället för kod', 'de' => 'okänt språk', 'EN' => 'fel skiftläge', 'en ' . "\n" . 'x' => 'radbrytning' ] as $xf_value => $xf_why ) {
+	check( "med Polylang avvisas: {$xf_why}", '' === Relativt_Form_I18n::validate( $xf_value ) );
+}
+
+// Registreringen.
+$xf_registered = static fn(): array => array_column( $GLOBALS['__pll']['registered'], null, 'string' );
+$GLOBALS['__pll']['admin'] = false;
+Relativt_Form_I18n::register_strings();
+check( 'utanför wp-admin registreras ingenting', [] === $GLOBALS['__pll']['registered'] );
+$GLOBALS['__pll']['admin'] = true;
+Relativt_Form_I18n::register_strings();
+$xf_reg = $xf_registered();
+$xf_missing = array_diff( array_values( Relativt_Form::message_defaults() ), array_keys( $xf_reg ) );
+check( 'alla texter i messages() registreras', [] === $xf_missing, implode( ' | ', $xf_missing ) );
+check( 'stegräknarens mall registreras', isset( $xf_reg['Steg {current} av {total}'] ) );
+foreach ( [ 'Skicka', 'Skickar…', 'Tack!', 'Något gick fel.', 'Nästa', 'Tillbaka', 'Okänt formulär.', 'Ogiltig begäran.' ] as $xf_text ) {
+	check( "fallbacken \"{$xf_text}\" registreras", isset( $xf_reg[ $xf_text ] ) );
+}
+check( 'allt hamnar i gruppen Relativt Formulär', [ 'Relativt Formulär' ] === array_values( array_unique( array_column( $xf_reg, 'context' ) ) ) );
+check( 'utan sparade standardvärden registreras inga sådana', count( $xf_reg ) === count( Relativt_Form::message_defaults() ) + 1 + count( Relativt_Form_I18n::FALLBACKS ) );
+
+$xf_site = [
+	'relativt_form_defaults' => [
+		'xf_to'           => 'info@exempel.se',
+		'xf_from_name'    => 'Exempel AB',
+		'xf_subject'      => 'Nytt meddelande',
+		'xf_submit_text'  => 'Skicka förfrågan',
+		'xf_sending_text' => 'Skickar förfrågan…',
+		'xf_thanks_title' => 'Tack för din förfrågan!',
+		'xf_thanks_text'  => 'Vi hör av oss inom en arbetsdag.',
+		'xf_redirect'     => 'https://exempel.se/tack/',
+		'xf_error_text'   => 'Det gick inte att skicka. Ring oss i stället.',
+		'xf_consent'      => '<p>Läs vår <a href="/integritetspolicy/">integritetspolicy</a>.</p>',
+	],
+];
+$GLOBALS['__pll']['registered'] = [];
+xf_i18n_reset( null, $xf_site );
+Relativt_Form_I18n::register_strings();
+$xf_reg = $xf_registered();
+check( 'sajtens besökartexter registreras', isset( $xf_reg['Skicka förfrågan'], $xf_reg['Tack för din förfrågan!'], $xf_reg['https://exempel.se/tack/'] ) );
+check( 'tacktext, felmeddelande och samtyckestext är flerradiga', true === ( $xf_reg['Vi hör av oss inom en arbetsdag.']['multiline'] ?? null ) && true === ( $xf_reg['<p>Läs vår <a href="/integritetspolicy/">integritetspolicy</a>.</p>']['multiline'] ?? null ) && false === ( $xf_reg['Skicka förfrågan']['multiline'] ?? null ) );
+check( 'mottagare, avsändare och ämnesrad registreras inte', ! isset( $xf_reg['info@exempel.se'] ) && ! isset( $xf_reg['Exempel AB'] ) && ! isset( $xf_reg['Nytt meddelande'] ) );
+
+// Översättningarna som testerna nedan använder.
+$GLOBALS['__pll']['translations']['en'] = [
+	'Fyll i detta fält.'                                   => 'This field is required.',
+	'Kontrollera e-postadressen.'                          => 'Please check the email address.',
+	'Du behöver godkänna villkoren.'                       => 'You need to accept the terms.',
+	'Sessionen har gått ut. Ladda om sidan och försök igen.' => 'The session has expired. Reload the page and try again.',
+	'Det gick lite för snabbt. Vänta en sekund och försök igen.' => 'That was a little too fast. Wait a second and try again.',
+	'Du har skickat flera meddelanden på kort tid. Vänta en stund och försök igen.' => 'You have sent several messages in a short time. Please wait a while and try again.',
+	'Land och landsnummer'                                 => 'Country and dialling code',
+	'Steg {current} av {total}'                            => 'Step {current} of {total}',
+	'Skicka'                                               => 'Send',
+	'Skickar…'                                             => 'Sending…',
+	'Tack!'                                                => 'Thank you!',
+	'Något gick fel.'                                      => 'Something went wrong.',
+	'Nästa'                                                => 'Next',
+	'Tillbaka'                                             => 'Back',
+	'Okänt formulär.'                                      => 'Unknown form.',
+	'Ogiltig begäran.'                                     => 'Invalid request.',
+	'Skicka förfrågan'                                     => 'Send enquiry',
+	'Tack för din förfrågan!'                              => 'Thanks for your enquiry!',
+	'Vi hör av oss inom en arbetsdag.'                     => 'We will get back to you within one working day.',
+	'https://exempel.se/tack/'                             => 'https://exempel.se/en/thank-you/',
+	'Det gick inte att skicka. Ring oss i stället.'        => 'We could not send your message. Please call us instead.',
+];
+
+/** Formuläret utan egna texter – då syns fallbacks och standardvärden. */
+function xf_i18n_bare( array $over = [] ): array {
+	$form = xf_test_form();
+	foreach ( [ 'xf_submit_text', 'xf_sending_text', 'xf_thanks_title', 'xf_thanks_text', 'xf_error_text', 'xf_consent' ] as $key ) {
+		unset( $form[ $key ] );
+	}
+	return array_merge( $form, $over );
+}
+$xf_render = static fn(): string => (string) call( Relativt_Form::instance(), 'render_form', [ 12, [], '' ] );
+
+// En engelsk sida på framsidan.
+xf_i18n_reset( xf_i18n_bare() );
+xf_pll_frontend( 'en' );
+check( 'aktuellt språk är Polylangs språkkod', 'en' === Relativt_Form_I18n::current() );
+check( 'messages() översätts av Polylang', 'This field is required.' === $engine->messages()['required'] );
+check( 'en text utan översättning behåller svenskan', 'Kontrollera datumet.' === $engine->messages()['date'] );
+$xf_config = xf_read_config();
+check( 'konfigurationen bär språkkoden och de översatta texterna', 'en' === ( $xf_config['lang'] ?? '' ) && 'This field is required.' === ( $xf_config['messages']['required'] ?? '' ) );
+$xf_html = $xf_render();
+check( 'knappens fallback översätts', str_contains( $xf_html, 'data-xf-label="Send"' ) && str_contains( $xf_html, 'data-xf-sending="Sending…"' ) && str_contains( $xf_html, '<span class="xf-submit-text">Send</span>' ) );
+check( 'tackrubrikens fallback översätts', str_contains( $xf_html, '<p class="xf-thanks-title">Thank you!</p>' ) );
+
+xf_i18n_reset( xf_i18n_bare(), $xf_site );
+$xf_html = $xf_render();
+check( 'sajtens standardvärden översätts', str_contains( $xf_html, 'data-xf-label="Send enquiry"' ) && str_contains( $xf_html, '<p class="xf-thanks-title">Thanks for your enquiry!</p>' ) && str_contains( $xf_html, 'We will get back to you within one working day.' ) );
+check( 'en standardtext utan översättning behåller originalet', str_contains( $xf_html, 'data-xf-sending="Skickar förfrågan…"' ) );
+
+// Formulärets egna texter rörs aldrig – ett formulär per språk är modellen.
+xf_i18n_reset( xf_i18n_bare( [ 'xf_submit_text' => 'Skicka', 'xf_thanks_title' => 'Tack!' ] ) );
+$xf_html = $xf_render();
+check( 'formulärets egna texter översätts inte', str_contains( $xf_html, 'data-xf-label="Skicka"' ) && str_contains( $xf_html, '<p class="xf-thanks-title">Tack!</p>' ) );
+
+// Stegräknaren och stegknapparna.
+xf_i18n_reset( xf_ms_form() );
+$xf_html = $xf_render();
+check( 'stegräknaren översätts, i texten och i mallen till JS', str_contains( $xf_html, 'data-xf-template="Step {current} of {total}"' ) && str_contains( $xf_html, '>Step 1 of 3</p>' ) );
+check( 'Nästa och Tillbaka översätts', str_contains( $xf_html, '>Next</span>' ) && str_contains( $xf_html, '>Back</span>' ) );
+check( 'landsväljarens etikett kommer ur de översatta texterna', 'Country and dialling code' === $engine->messages()['phone_country'] );
+
+// Ordningen: Polylang först, filtret sist – filtret vinner.
+$xf_input = null;
+add_filter( 'relativt_form_messages', static function ( $m, $lang ) use ( &$xf_input ) {
+	$xf_input = [ $m['required'], $lang ];
+	return array_merge( $m, [ 'required' => 'Required (filter).' ] );
+}, 10, 2 );
+check( 'filtret får Polylangs översättning som utgångsvärde, och språkkoden', [ 'This field is required.', 'en' ] === ( $engine->messages() ? $xf_input : null ) );
+check( 'och filtret vinner över Polylang', 'Required (filter).' === $engine->messages()['required'] );
+add_filter( 'relativt_form_step_counter', static fn( $t ) => '[' . $t . ']' );
+check( 'stegräknarens filter körs också efter Polylang', str_contains( $xf_render(), 'data-xf-template="[Step {current} of {total}]"' ) );
+
+// En svensk sida: ingenting översätts.
+xf_i18n_reset( xf_i18n_bare() );
+xf_pll_frontend( 'sv' );
+check( 'en svensk sida får svenska texter', 'Fyll i detta fält.' === $engine->messages()['required'] && 'sv' === ( xf_read_config()['lang'] ?? '' ) && str_contains( $xf_render(), 'data-xf-label="Skicka"' ) );
+
+// REST: Polylang har INTE satt språket (äldre Polylang). Motorn växlar själv.
+xf_i18n_reset();
+xf_pll_rest();
+$res = xf_i18n_submit( [ 'nonce' => 'fel', 'lang' => 'en' ] );
+check( '/submit med lang=en: spärrens fel på engelska', 'The session has expired. Reload the page and try again.' === ( $res->data['message'] ?? '' ) && 'nonce' === ( $res->data['code'] ?? '' ) );
+check( 'WordPress språk växlades till språkets locale och återställdes', [ 'switch:en_GB', 'restore:sv_SE' ] === $GLOBALS['__locale_log'] );
+check( 'Polylangs katalog laddades efter språkkod', in_array( 'en', PLL()->loads, true ) );
+check( 'efteråt: inget aktuellt språk, ingen katalog, ingen pågående växling', null === PLL()->curlang && ! isset( $GLOBALS['l10n']['pll_string'] ) && 0 === Relativt_Form_I18n::depth() && 'sv_SE' === get_locale() );
+
+xf_i18n_reset();
+xf_pll_rest();
+$xf_fast = time();
+$res     = xf_i18n_submit( [ 'lang' => 'en', 'ts' => $xf_fast, 'sig' => call( $engine, 'sign', [ '12|' . $xf_fast ] ) ] );
+check( 'toofast på engelska', 'That was a little too fast. Wait a second and try again.' === ( $res->data['message'] ?? '' ) && 425 === $res->status );
+for ( $i = 0; $i < 5; $i++ ) {
+	xf_i18n_submit( [ 'lang' => 'en' ] );
+}
+$res = xf_i18n_submit( [ 'lang' => 'en' ] );
+check( 'rate på engelska', 429 === $res->status && 'You have sent several messages in a short time. Please wait a while and try again.' === ( $res->data['message'] ?? '' ) );
+$GLOBALS['__transients'] = [];
+$res = xf_i18n_submit( [ 'lang' => 'en', 'fields' => [ 'jagar' => 'foretag', 'epost' => 'inte-en-adress' ] ] );
+check( 'valideringsfelen på engelska', 'This field is required.' === ( $res->data['errors']['namn'] ?? '' ) && 'Please check the email address.' === ( $res->data['errors']['epost'] ?? '' ) );
+check( 'okänt formulär och ogiltig signatur på engelska', 'Unknown form.' === ( xf_i18n_submit( [ 'lang' => 'en', 'form' => 999 ] )->data['message'] ?? '' ) && 'Invalid request.' === ( xf_i18n_submit( [ 'lang' => 'en', 'sig' => 'fejkad' ] )->data['message'] ?? '' ) );
+
+xf_i18n_reset( array_merge( xf_test_form(), [ 'xf_consent_box' => 1 ] ) );
+xf_pll_rest();
+check( 'samtyckesfelet på engelska', 'You need to accept the terms.' === ( xf_i18n_submit( [ 'lang' => 'en' ] )->data['errors']['xf_consent'] ?? '' ) );
+
+// Samma flöde på svenska, och utan språk.
+xf_i18n_reset();
+xf_pll_rest();
+$xf_sv   = xf_i18n_submit( [ 'nonce' => 'fel', 'lang' => 'sv' ] );
+$xf_none = xf_i18n_submit( [ 'nonce' => 'fel' ] );
+check( '/submit med lang=sv: svenska', 'Sessionen har gått ut. Ladda om sidan och försök igen.' === ( $xf_sv->data['message'] ?? '' ) );
+check( '/submit utan lang: samma svar som i dag', $xf_none->data === $xf_plain->data );
+foreach ( [ 'de' => 'okänt språk', 'en_GB' => 'locale i stället för kod', '<b>' => 'skräp' ] as $xf_value => $xf_why ) {
+	$GLOBALS['__locale_log'] = [];
+	PLL()->loads             = [];
+	$res                     = xf_i18n_submit( [ 'nonce' => 'fel', 'lang' => $xf_value ] );
+	check( "lang ({$xf_why}) ignoreras: svaret är som utan lang", $res->data === $xf_plain->data );
+	check( "lang ({$xf_why}) rör varken WordPress språk eller Polylang", [] === $GLOBALS['__locale_log'] && [] === PLL()->loads && null === PLL()->curlang );
+}
+
+// REST: Polylang HAR satt språket från samma parameter (3.3+).
+xf_i18n_reset();
+xf_pll_rest( 'en' );
+$res = xf_i18n_submit( [ 'nonce' => 'fel', 'lang' => 'en' ] );
+check( 'när Polylang redan satt språket: engelska', 'The session has expired. Reload the page and try again.' === ( $res->data['message'] ?? '' ) );
+check( 'och Polylangs eget språk står kvar efter anropet', 'en' === pll_current_language() && 'en' === ( $GLOBALS['l10n']['pll_string']->slug ?? '' ) && 'sv_SE' === get_locale() );
+
+// Lyckat inskick: tacktexterna på engelska, mailet på sajtens språk.
+xf_i18n_reset( xf_i18n_bare(), $xf_site );
+xf_pll_rest();
+$xf_phase = [];
+add_filter( 'relativt_form_mail_body', static function ( $h ) use ( &$xf_phase ) { $xf_phase = [ get_locale(), pll_current_language(), pll__( 'Skicka' ) ]; return $h; } );
+$res = xf_i18n_submit( [ 'lang' => 'en' ] );
+check( 'tackrutans texter ur standardvärdena översätts', 'Thanks for your enquiry!' === ( $res->data['title'] ?? '' ) && 'We will get back to you within one working day.' === ( $res->data['text'] ?? '' ) );
+check( 'tack-sidans adress översätts', 'https://exempel.se/en/thank-you/' === ( $res->data['redirect'] ?? '' ) );
+check( 'notismailet byggs på sajtens språk', [ 'sv_SE', false, 'Skicka' ] === $xf_phase, json_encode( $xf_phase ) );
+$res = xf_i18n_submit( [ 'lang' => 'sv' ] );
+check( 'samma inskick på svenska: svensk tack-sida', 'Tack för din förfrågan!' === ( $res->data['title'] ?? '' ) && 'https://exempel.se/tack/' === ( $res->data['redirect'] ?? '' ) );
+
+xf_i18n_reset( xf_i18n_bare() );
+xf_pll_rest();
+$res = xf_i18n_submit( [ 'lang' => 'en', 'xf_website' => 'spam' ] );
+check( 'honungsfällans fejkade svar följer också språket', 'Thank you!' === ( $res->data['title'] ?? '' ) && 0 === count( $GLOBALS['__mail'] ) );
+
+// Varken lagring eller mail: felmeddelandet togs fram medan språket gällde.
+xf_i18n_reset( xf_i18n_bare( [ 'xf_store' => 0, 'xf_to' => 'inte-en-adress', 'xf_rules' => [] ] ) );
+xf_pll_rest();
+$res = xf_i18n_submit( [ 'lang' => 'en' ] );
+check( 'felet när inskicket inte kan tas emot är på engelska', 500 === $res->status && 'mail' === ( $res->data['code'] ?? '' ) && 'Something went wrong.' === ( $res->data['message'] ?? '' ), json_encode( $res->data, JSON_UNESCAPED_UNICODE ) );
+$res = xf_i18n_submit();
+check( 'och på svenska utan lang', 500 === $res->status && 'Något gick fel.' === ( $res->data['message'] ?? '' ) );
+
+// Två språk som delar locale: språkkoden avgör, inte locale.
+xf_i18n_reset();
+$GLOBALS['__pll']['languages']          = [ 'sv' => 'sv_SE', 'en' => 'en_GB', 'ie' => 'en_GB' ];
+$GLOBALS['__pll']['translations']['ie'] = [ 'Sessionen har gått ut. Ladda om sidan och försök igen.' => 'Your session has timed out.' ];
+xf_pll_rest();
+$res = xf_i18n_submit( [ 'nonce' => 'fel', 'lang' => 'ie' ] );
+check( 'språk med delad locale: rätt språks översättning', 'Your session has timed out.' === ( $res->data['message'] ?? '' ) );
+$GLOBALS['__pll']['languages'] = [ 'sv' => 'sv_SE', 'en' => 'en_GB' ];
+
+// Ett språk vars språkfiler saknas i WordPress: Polylangs texter kommer ändå.
+xf_i18n_reset();
+$GLOBALS['__pll']['languages']          = [ 'sv' => 'sv_SE', 'en' => 'en_GB', 'fi' => 'fi' ];
+$GLOBALS['__pll']['translations']['fi'] = [ 'Sessionen har gått ut. Ladda om sidan och försök igen.' => 'Istunto on vanhentunut.' ];
+xf_pll_rest();
+$res = xf_i18n_submit( [ 'nonce' => 'fel', 'lang' => 'fi' ] );
+check( 'utan språkfiler i WordPress översätts Polylangs texter ändå', 'Istunto on vanhentunut.' === ( $res->data['message'] ?? '' ) && [] === $GLOBALS['__locale_log'] );
+check( 'och allt är återställt', null === PLL()->curlang && ! isset( $GLOBALS['l10n']['pll_string'] ) );
+$GLOBALS['__pll']['languages'] = [ 'sv' => 'sv_SE', 'en' => 'en_GB' ];
+
+// /form och /token.
+xf_i18n_reset( xf_ms_form( [ 'xf_submit_text' => null, 'xf_thanks_title' => null ] ) );
+xf_pll_rest();
+$xf_def = $engine->rest_form( new WP_REST_Request( [ 'id' => 12, 'lang' => 'en' ] ) );
+check( '/form?lang=en: texter, meddelanden och stegräknare på engelska', 'Send' === $xf_def['texts']['submit'] && 'This field is required.' === $xf_def['messages']['required'] && 'Step {current} of {total}' === $xf_def['multistep']['counter'] && 'Next' === $xf_def['multistep']['next'] );
+$xf_def = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+check( '/form utan lang: svenska som förut', 'Skicka' === $xf_def['texts']['submit'] && 'Fyll i detta fält.' === $xf_def['messages']['required'] && 'Steg {current} av {total}' === $xf_def['multistep']['counter'] );
+check( '/form för ett okänt formulär på engelska', 'Unknown form.' === $engine->rest_form( new WP_REST_Request( [ 'id' => 999, 'lang' => 'en' ] ) )->message );
+$xf_token = $engine->rest_token( new WP_REST_Request( [ 'form' => 12, 'lang' => 'en' ] ) );
+check( '/token?lang=en: samma svar och samma no-cache-headers', [ 'nonce', 'ts', 'sig' ] === array_keys( $xf_token->data ) && $xf_token->get_headers() === Relativt_Form::NO_CACHE_HEADERS );
+check( '/token för ett okänt formulär på engelska, annars svenska', 'Unknown form.' === $engine->rest_token( new WP_REST_Request( [ 'form' => 999, 'lang' => 'en' ] ) )->message && 'Okänt formulär.' === $engine->rest_token( new WP_REST_Request( [ 'form' => 999 ] ) )->message );
+check( 'efter alla anrop: ingen pågående växling', 0 === Relativt_Form_I18n::depth() && 'sv_SE' === get_locale() && null === PLL()->curlang );
+
+// Nästlade växlingar återställs i rätt ordning.
+xf_pll_rest();
+Relativt_Form_I18n::switch_to( 'en' );
+Relativt_Form_I18n::switch_to( 'sv' );
+$xf_inner = [ Relativt_Form_I18n::current(), pll__( 'Skicka' ) ];
+Relativt_Form_I18n::restore();
+$xf_outer = [ Relativt_Form_I18n::current(), pll__( 'Skicka' ), get_locale() ];
+Relativt_Form_I18n::restore();
+check( 'nästlade växlingar återställs i ordning', [ 'sv', 'Skicka' ] === $xf_inner && [ 'en', 'Send', 'en_GB' ] === $xf_outer && null === PLL()->curlang && 'sv_SE' === get_locale() && 'Skicka' === pll__( 'Skicka' ) );
+Relativt_Form_I18n::restore();
+check( 'ett extra restore() gör ingenting', 0 === Relativt_Form_I18n::depth() );
+
+// Lämna processen som den var.
+xf_pll_rest();
+$GLOBALS['__pll']['translations'] = [];
+xf_i18n_reset();
 
 echo "\n" . str_repeat( '─', 50 ) . "\n";
 printf( "%d godkända, %d underkända\n\n", $passed, $failed );

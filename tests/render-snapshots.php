@@ -24,7 +24,7 @@ if ( ! function_exists( 'xf_test_form' ) ) {
 function xf_render_snapshots(): array {
 	$engine = Relativt_Form::instance();
 	$render = new ReflectionMethod( $engine, 'render_form' );
-	$render->setAccessible( true );
+	xf_accessible( $render );
 
 	$saved_form    = $GLOBALS['__form'];
 	$saved_options = $GLOBALS['__options'];
@@ -36,7 +36,7 @@ function xf_render_snapshots(): array {
 		Relativt_Form::flush_fields_cache();
 		// Nollställ löpnumren så att varje ögonblicksbild är oberoende av ordningen.
 		$count = new ReflectionProperty( Relativt_Form::class, 'render_count' );
-		$count->setAccessible( true );
+		xf_accessible( $count );
 		$count->setValue( null, [] );
 		/*
 		 * wp_rand() i riggen räknar upp per anrop, så uid:t beror på hur många

@@ -11,6 +11,19 @@ define( 'ABSPATH', __DIR__ );
 define( 'HOUR_IN_SECONDS', 3600 );
 define( 'DAY_IN_SECONDS', 86400 );
 
+/*
+ * Öppnar en privat metod eller egenskap för testerna. Före PHP 8.1 krävs
+ * setAccessible(); från 8.1 gör anropet ingenting, och från 8.5 ger det en
+ * Deprecated-varning per anrop. Därför anropas det bara där det behövs –
+ * pluginet stöder PHP 8.0, så det går inte att bara ta bort.
+ */
+function xf_accessible( $reflector ) {
+	if ( PHP_VERSION_ID < 80100 ) {
+		$reflector->setAccessible( true );
+	}
+	return $reflector;
+}
+
 // --- No-ops -----------------------------------------------------------------
 foreach ( [ 'add_shortcode', 'add_meta_box', 'wp_schedule_event', 'nocache_headers' ] as $fn ) {
 	if ( ! function_exists( $fn ) ) {
@@ -27,7 +40,7 @@ $GLOBALS['__hooks']      = [];
 $GLOBALS['__post_types'] = [];
 
 function add_action( $hook, $callback, $priority = 10, $args = 1 ) {
-	$GLOBALS['__hooks'][] = [ 'hook' => $hook, 'callback' => $callback, 'priority' => $priority ];
+	$GLOBALS['__hooks'][] = [ 'hook' => $hook, 'callback' => $callback, 'priority' => $priority, 'args' => (int) $args ];
 	return true;
 }
 function add_filter( $hook, $callback, $priority = 10, $args = 1 ) {
@@ -449,11 +462,17 @@ function wp_clear_scheduled_hook( $hook ) { return true; }
  * inte testas – en filterkrok som inte anropas ser exakt likadan ut som en
  * som fungerar, ända tills någon försöker använda den.
  */
+/*
+ * 1.15.0: callbacken får – som i WordPress – bara så många argument som den
+ * bad om i add_filter() (accepted_args, standard 1). Tidigare fick varje
+ * callback alla argument, och då gick det inte att visa att ett filter
+ * registrerat före 1.15.0, med ett argument, fortfarande får exakt ett.
+ */
 function apply_filters( $hook, $value ) {
 	$args = array_slice( func_get_args(), 2 );
 	foreach ( $GLOBALS['__hooks'] as $entry ) {
 		if ( $entry['hook'] === $hook && is_callable( $entry['callback'] ) ) {
-			$value = call_user_func_array( $entry['callback'], array_merge( [ $value ], $args ) );
+			$value = call_user_func_array( $entry['callback'], array_slice( array_merge( [ $value ], $args ), 0, max( 0, $entry['args'] ?? 1 ) ) );
 		}
 	}
 	return $value;
@@ -466,7 +485,7 @@ function apply_filters( $hook, $value ) {
 function do_action( $hook, ...$args ) {
 	foreach ( $GLOBALS['__hooks'] as $entry ) {
 		if ( $entry['hook'] === $hook && is_callable( $entry['callback'] ) ) {
-			call_user_func_array( $entry['callback'], $args );
+			call_user_func_array( $entry['callback'], array_slice( $args, 0, max( 0, $entry['args'] ?? 1 ) ) );
 		}
 	}
 }
@@ -479,6 +498,42 @@ $GLOBALS['__saved_meta'] = [];
 function update_post_meta( $id, $key, $value ) {
 	$GLOBALS['__saved_meta'][ (int) $id ][ $key ] = $value;
 	return true;
+}
+
+// --- Språk (1.15.0) -----------------------------------------------------------
+/*
+ * WordPress språkväxling i miniatyr. $GLOBALS['__locale'] är sajtens språk,
+ * $GLOBALS['__installed_locales'] de språk som har språkfiler – precis som i
+ * WordPress vägrar switch_to_locale() ett språk som inte är installerat.
+ * Varje växling spelas in i $GLOBALS['__locale_log'], så att testerna kan
+ * bevisa att språket återställs efter varje anrop.
+ */
+$GLOBALS['__locale']            = 'sv_SE';
+$GLOBALS['__installed_locales'] = [ 'sv_SE', 'en_GB', 'en_US' ];
+$GLOBALS['__locale_stack']      = [];
+$GLOBALS['__locale_log']        = [];
+function get_locale() {
+	return $GLOBALS['__locale_stack'] ? end( $GLOBALS['__locale_stack'] ) : $GLOBALS['__locale'];
+}
+function determine_locale() { return get_locale(); }
+function switch_to_locale( $locale ) {
+	// Som WP_Locale_Switcher: samma språk som redan gäller är ingen växling.
+	if ( get_locale() === $locale || ! in_array( $locale, $GLOBALS['__installed_locales'], true ) ) {
+		return false;
+	}
+	$GLOBALS['__locale_stack'][] = $locale;
+	$GLOBALS['__locale_log'][]   = 'switch:' . $locale;
+	do_action( 'change_locale', $locale );
+	return true;
+}
+function restore_previous_locale() {
+	if ( ! $GLOBALS['__locale_stack'] ) {
+		return false;
+	}
+	array_pop( $GLOBALS['__locale_stack'] );
+	$GLOBALS['__locale_log'][] = 'restore:' . get_locale();
+	do_action( 'change_locale', get_locale() );
+	return get_locale();
 }
 
 function remove_all_filters( $hook ) {

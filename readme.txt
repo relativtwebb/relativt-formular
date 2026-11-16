@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.14.0
+Stable tag: 1.15.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -23,6 +23,11 @@ Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
 == Upgrade Notice ==
 
+= 1.15.0 =
+Flerspråkiga sajter: töm sidcachen efter uppdateringen, så att sidorna får
+med sitt språk till formulärets skript. Sajter med ett språk behöver inte
+göra något.
+
 = 1.8.0 =
 Klick-id (gclid, fbclid) följer bara med inskick när besökaren samtyckt till
 marknadsföring. IP-adressen sparas inte längre som standard i nya formulär.
@@ -32,6 +37,14 @@ Utan samtyckesverktyg skrivs kampanjkakan inte längre. Se CHANGELOG för hur
 det gamla beteendet behålls.
 
 == Changelog ==
+
+= 1.15.0 =
+Stöd för flerspråkiga sajter. Sidans språk följer med REST-anropen, så fel
+från servern kommer på samma språk som sidan. Med Polylang översätts
+felmeddelanden, stegräknaren, fallbacks och sajtens standardtexter under
+Språk → Översättningar. Filtret relativt_form_messages får språk och
+formulär-id. Sajter utan Polylang är oförändrade. Se
+docs/flersprakiga-sajter.md.
 
 = 1.14.0 =
 Flerstegsformulär: dela formuläret i steg med Nästa och Tillbaka, validering

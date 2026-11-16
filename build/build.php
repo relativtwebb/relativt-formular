@@ -23,7 +23,11 @@ const SHIP = [
 	'README.md',
 	'CHANGELOG.md',
 	'docs/flerstegsformular.md',
+	'docs/flersprakiga-sajter.md',
+	// Måste ligga i pluginets rot: det är där flerspråkstilläggen letar.
+	'wpml-config.xml',
 	'includes/class-relativt-form.php',
+	'includes/class-relativt-form-i18n.php',
 	'includes/class-relativt-form-icons.php',
 	'includes/LUCIDE-LICENSE.txt',
 	'includes/class-relativt-form-portability.php',

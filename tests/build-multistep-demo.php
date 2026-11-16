@@ -23,7 +23,7 @@ require __DIR__ . '/harness.php';
 $engine     = Relativt_Form::instance();
 $reflection = new ReflectionClass( $engine );
 $render     = $reflection->getMethod( 'render_form' );
-$render->setAccessible( true );
+xf_accessible( $render );
 
 $base = xf_test_form();
 
