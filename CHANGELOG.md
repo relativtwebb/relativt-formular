@@ -3,6 +3,38 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.15.0] – 2026-11-16
+
+Nytt: **stöd för flerspråkiga sajter**, med eller utan Polylang. **Sajter med ett språk och utan Polylang beter sig som i 1.14.0** – samma markup, samma texter och samma REST-svar, vilket ett nytt facit-test bevakar. How-to: [docs/flersprakiga-sajter.md](docs/flersprakiga-sajter.md).
+
+Modellen är som förut ett formulär per språk (JSON-export och import). Det nya gäller texterna som inte hör till något formulär, och att fel från servern nu kommer på sidans språk.
+
+### Tillagt
+- **Sidans språk följer med REST-anropen.** `relativtFormConfig` får nyckeln `lang` (Polylangs språkkod om Polylang finns, annars `determine_locale()`), och skriptet skickar den med både `/token` och `/submit`. Servern växlar till språket innan texterna tas fram och återställer det efteråt, även om något kastar. Fel från spärrarna (`toofast`, `rate`, `nonce`, Turnstile), valideringsfelen och tacktexterna kommer därmed på samma språk som sidan. Tidigare kom de på sajtens standardspråk.
+- **Språkuppgiften valideras.** Med Polylang måste den vara en av sajtens språkkoder (`pll_languages_list()`), utan Polylang måste den se ut som en WordPress-locale. Ett ogiltigt eller saknat värde ignoreras, och anropet beter sig då som i 1.14.0.
+- **Lagring och notismail sker på sajtens eget språk.** WordPress språk återställs innan inskicket sparas och mailas, eftersom mailet går till mottagaren.
+- **Översättning utan kod i Polylang.** Alla texter i `messages()`, stegräknarens mall och motorns fallbacks (*Skicka*, *Skickar…*, *Tack!*, *Något gick fel.*, *Nästa*, *Tillbaka*, *Okänt formulär.*, *Ogiltig begäran.*) registreras i gruppen **Relativt Formulär** under Språk → Översättningar och skrivs ut via `pll__()`, med den svenska texten som fallback. Det gäller även de av sajtens standardvärden som är besökartext: knapptexterna, tackrubrik, tacktext, tack-sidans URL, felmeddelande och samtyckestext.
+- **`wpml-config.xml`** i pluginets rot, som pekar ut samma nycklar i alternativet `relativt_form_defaults`. Polylang läser filen och flyttar med översättningen när en standardtext ändras.
+- **Filtret `relativt_form_messages` får `$lang` och `$form_id`** som andra och tredje argument: `apply_filters( 'relativt_form_messages', $messages, $lang, $form_id )`. `$form_id` är `0` för texterna i skriptets konfiguration, som delas av alla formulär på sidan. **Callbacks med ett argument fungerar oförändrade.**
+- **Tydlig ordning:** originaltexten → Polylangs översättning → filtret. Filtret körs sist och vinner alltid. Detsamma gäller `relativt_form_step_counter`.
+- Headless: `GET /form/{id}` tar emot `?lang=` och svarar då med `messages`, fallbacks och stegräknarens mall på det språket.
+- `Relativt_Form::message_defaults()` (originaltexterna före översättning och filter) och klassen `Relativt_Form_I18n` i `includes/class-relativt-form-i18n.php`.
+- `docs/flersprakiga-sajter.md`, som också följer med i zip-filen.
+- Tester: `tests/fixtures/i18n-1.14.0.json` och `tests/i18n-snapshots.php` (facit för sajter utan Polylang), `tests/polylang-mock.php`, 221 nya server-assertions och 44 nya webbläsartester (`tests/i18n.spec.js` mot `demo-i18n-sv.html` och `demo-i18n-en.html`).
+
+### Ändrat
+- `rest_submit()` tar fram svaret vid lyckat inskick och felmeddelandet för ett misslyckat *före* lagring och mail i stället för efter. Det är en följd av att språket återställs däremellan. Ordningen på filtren och svaren är oförändrade.
+- Testriggen: `apply_filters()` och `do_action()` ger nu, som WordPress, en callback bara så många argument som den registrerats för.
+
+### Att veta
+- **Formulärets egna texter översätts aldrig av Polylang.** Översättningarna gäller bara det formuläret lämnar tomt – fallbacks och standardvärden. Formulären är fortfarande inte översättningsbara inlägg; varje språk har sitt eget formulär.
+- **Ange tack-sida per formulär** på flerspråkiga sajter, så att besökaren hamnar på tack-sidan i rätt språk.
+- **Töm sidcachen efter uppdateringen** på flerspråkiga sajter. En cachad sida saknar `lang` i konfigurationen och får fel på standardspråket som förut, tills den byggs om.
+- Parametern heter `lang` eftersom Polylang (3.3+) själv läser en parameter med det namnet i REST-anrop och sätter aktuellt språk från den. Motorn gör dessutom växlingen själv, så att den också fungerar med äldre versioner och när två språk delar locale. Vilka delar av Polylang som används, och varför, står överst i `includes/class-relativt-form-i18n.php`. Provkört mot Polylang 3.9.2 på WordPress 6.8.
+- `/token` får en parameter till men är lika lite cachebart som förut: den unika `_`-parametern, `cache: 'no-store'` och no-cache-headerna från 1.12.2 är kvar.
+- Landsnamnen i telefonfältets landsväljare, notismailets fasta texter och wp-admin är fortfarande på svenska. Landsnamnen kan bytas med `relativt_form_phone_countries`.
+- Ingen ändring av hur formulär lagras och inga migreringar.
+
 ## [1.14.0] – 2026-11-12
 
 Nytt: **flerstegsformulär**. Av som standard. **Formulär som inte slås på är byte för byte oförändrade**, vilket ett nytt facit-test bevakar. How-to: [docs/flerstegsformular.md](docs/flerstegsformular.md).

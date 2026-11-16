@@ -361,6 +361,17 @@ final class Relativt_Form {
 			'messages'          => $this->messages(),
 		];
 
+		/*
+		 * Sidans språk (1.15.0). JS skickar det med /token och /submit, så
+		 * att ett fel från servern kommer på samma språk som sidan – REST-
+		 * anropet vet annars inte vilken språkversion besökaren står på.
+		 * Med Polylang är det språkkoden (sv, en), annars WordPress locale.
+		 */
+		$lang = Relativt_Form_I18n::current();
+		if ( '' !== $lang ) {
+			$config['lang'] = $lang;
+		}
+
 		if ( defined( 'RCC_VERSION' ) ) {
 			$config['rccCookie'] = function_exists( 'rcc_cookie_name' )
 				? (string) rcc_cookie_name()
@@ -500,15 +511,13 @@ final class Relativt_Form {
 	}
 
 	/**
-	 * Alla besökartexter som motorn kan behöva säga, på ett ställe. Samma
-	 * lista skickas till JS via relativtFormConfig, så klient och server
-	 * använder ordagrant samma formuleringar. Filtret relativt_form_messages
-	 * låter en sajt byta ut dem – t.ex. till engelska – utan språkfiler.
+	 * Motorns besökartexter på originalspråket, före översättning och filter.
+	 * Det är de här texterna som registreras för översättning (1.15.0).
 	 *
 	 * @return array<string,string>
 	 */
-	public function messages(): array {
-		$defaults = [
+	public static function message_defaults(): array {
+		return [
 			'required' => 'Fyll i detta fält.',
 			'email'    => 'Kontrollera e-postadressen.',
 			'tel'      => 'Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.',
@@ -526,18 +535,75 @@ final class Relativt_Form {
 			'generic'  => 'Något gick fel. Försök igen om en liten stund.',
 			'turnstile' => 'Säkerhetskontrollen är inte klar. Vänta en sekund och försök igen.',
 		];
+	}
 
-		$filtered = apply_filters( 'relativt_form_messages', $defaults );
+	/**
+	 * Alla besökartexter som motorn kan behöva säga, på ett ställe. Samma
+	 * lista skickas till JS via relativtFormConfig, så klient och server
+	 * använder ordagrant samma formuleringar.
+	 *
+	 * Ordningen (1.15.0): originaltexten → översättningen i Polylang, om
+	 * Polylang finns → filtret relativt_form_messages. Filtret körs sist och
+	 * vinner därför alltid. Det får språket och formulärets id som andra och
+	 * tredje argument; en callback som bara tar emot listan fungerar som
+	 * förut.
+	 *
+	 * @param int $form_id Formuläret texterna gäller, eller 0 för texterna
+	 *                     som delas av alla formulär på sidan (skriptets
+	 *                     konfiguration).
+	 * @return array<string,string>
+	 */
+	public function messages( int $form_id = 0 ): array {
+		$defaults   = self::message_defaults();
+		$translated = array_map( [ 'Relativt_Form_I18n', 't' ], $defaults );
+
+		/**
+		 * Byt ut motorns besökartexter.
+		 *
+		 * @param array<string,string> $messages Texterna, översatta av Polylang om det finns.
+		 * @param string               $lang     Aktuellt språk: Polylangs språkkod (sv, en)
+		 *                                       eller WordPress locale (sv_SE). 1.15.0.
+		 * @param int                  $form_id  Formulärets id, 0 för sidans gemensamma texter. 1.15.0.
+		 */
+		$filtered = apply_filters( 'relativt_form_messages', $translated, Relativt_Form_I18n::current(), $form_id );
 
 		// Bara kända nycklar, och alltid strängar – ett halvtrasigt filter ska
 		// inte kunna tysta ett felmeddelande.
-		$out = $defaults;
+		$out = $translated;
 		foreach ( is_array( $filtered ) ? $filtered : [] as $key => $text ) {
 			if ( isset( $defaults[ $key ] ) && is_string( $text ) && '' !== $text ) {
 				$out[ $key ] = $text;
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * Mallen för "Steg 2 av 4": originalet → Polylang → filtret
+	 * relativt_form_step_counter, som alltså vinner.
+	 */
+	private function step_counter( int $form_id ): string {
+		return (string) apply_filters( 'relativt_form_step_counter', Relativt_Form_I18n::t( Relativt_Form_I18n::STEP_COUNTER ), $form_id );
+	}
+
+	/**
+	 * Kör $callback på det språk ett REST-anrop bad om och återställer sedan
+	 * språket – även om $callback kastar. Ett ogiltigt eller saknat värde
+	 * växlar ingenting, och anropet beter sig då som före 1.15.0.
+	 *
+	 * @param mixed $raw Språkuppgiften som den kom i anropet.
+	 * @return mixed Det $callback returnerar.
+	 */
+	private function in_language( $raw, callable $callback ) {
+		$switched = Relativt_Form_I18n::switch_to( Relativt_Form_I18n::validate( $raw ) );
+
+		try {
+			return $callback();
+		} finally {
+			if ( $switched ) {
+				Relativt_Form_I18n::restore();
+			}
+		}
 	}
 
 	/* ---------------------------------------------------------------------
@@ -1679,7 +1745,8 @@ final class Relativt_Form {
 		if ( class_exists( 'Relativt_Form_Settings', false ) ) {
 			$default = Relativt_Form_Settings::get( $name );
 			if ( '' !== $default ) {
-				return $default;
+				// 1.15.0: sajtens standardtexter kan översättas. Formulärets eget värde ovan rörs aldrig.
+				return Relativt_Form_I18n::setting( $name, $default );
 			}
 		}
 
@@ -1831,7 +1898,7 @@ final class Relativt_Form {
 	 */
 	private function render_step_button( int $form_id, string $dir ): string {
 		$next     = 'next' === $dir;
-		$text     = (string) $this->setting( $form_id, $next ? 'xf_step_next_text' : 'xf_step_prev_text', $next ? 'Nästa' : 'Tillbaka' );
+		$text     = (string) $this->setting( $form_id, $next ? 'xf_step_next_text' : 'xf_step_prev_text', Relativt_Form_I18n::t( $next ? 'Nästa' : 'Tillbaka' ) );
 		$icon_key = Relativt_Form_Icons::normalize(
 			$this->setting( $form_id, $next ? 'xf_step_next_icon' : 'xf_step_prev_icon', $next ? Relativt_Form_Icons::STANDARD : Relativt_Form_Icons::STANDARD_LEFT )
 		);
@@ -1876,7 +1943,7 @@ final class Relativt_Form {
 		 * Mallen för "Steg 2 av 4". Ligger i markupen så att JS kan räkna om
 		 * den när ett steg hoppas över, utan en egen översättningskanal.
 		 */
-		$template = (string) apply_filters( 'relativt_form_step_counter', 'Steg {current} av {total}', $form_id );
+		$template = $this->step_counter( $form_id );
 		$counter  = strtr( $template, [ '{current}' => '1', '{total}' => (string) $total ] );
 
 		$html  = '<div class="xf-progress xf-progress--' . esc_attr( $indicator ) . '" data-xf-progress>';
@@ -2140,9 +2207,9 @@ final class Relativt_Form {
 					}
 					?>
 					<button type="submit" class="<?php echo esc_attr( $submit_classes ); ?>"
-						data-xf-label="<?php echo esc_attr( $this->setting( $form_id, 'xf_submit_text', 'Skicka' ) ); ?>"
-						data-xf-sending="<?php echo esc_attr( $this->setting( $form_id, 'xf_sending_text', 'Skickar…' ) ); ?>">
-						<span class="<?php echo esc_attr( $text_classes ); ?>"><?php echo esc_html( $this->setting( $form_id, 'xf_submit_text', 'Skicka' ) ); ?></span>
+						data-xf-label="<?php echo esc_attr( $this->setting( $form_id, 'xf_submit_text', Relativt_Form_I18n::t( 'Skicka' ) ) ); ?>"
+						data-xf-sending="<?php echo esc_attr( $this->setting( $form_id, 'xf_sending_text', Relativt_Form_I18n::t( 'Skickar…' ) ) ); ?>">
+						<span class="<?php echo esc_attr( $text_classes ); ?>"><?php echo esc_html( $this->setting( $form_id, 'xf_submit_text', Relativt_Form_I18n::t( 'Skicka' ) ) ); ?></span>
 						<?php if ( '' !== $icon ) : ?>
 							<span class="<?php echo esc_attr( $icon_classes ); ?>" aria-hidden="true"><?php echo wp_kses( $icon, self::svg_kses() ); ?></span>
 						<?php endif; ?>
@@ -2165,7 +2232,7 @@ final class Relativt_Form {
 
 			<?php // tabindex="-1" så att JS kan flytta fokus hit vid tack-läget – utan det är focus() en tyst no-op på en div. ?>
 			<div class="xf-thanks" role="status" aria-live="polite" tabindex="-1" hidden>
-				<p class="xf-thanks-title"><?php echo esc_html( $this->setting( $form_id, 'xf_thanks_title', 'Tack!' ) ); ?></p>
+				<p class="xf-thanks-title"><?php echo esc_html( $this->setting( $form_id, 'xf_thanks_title', Relativt_Form_I18n::t( 'Tack!' ) ) ); ?></p>
 				<p class="xf-thanks-text"><?php echo esc_html( $this->setting( $form_id, 'xf_thanks_text', '' ) ); ?></p>
 			</div>
 		</div>
@@ -2468,9 +2535,17 @@ final class Relativt_Form {
 	 * att visas.
 	 */
 	public function rest_form( WP_REST_Request $request ) {
-		$form_id = (int) $request->get_param( 'id' );
+		// 1.15.0: ?lang= ger definitionen på det språket. Utan den som förut.
+		return $this->in_language(
+			$request->get_param( 'lang' ),
+			fn() => $this->form_definition( (int) $request->get_param( 'id' ) )
+		);
+	}
+
+	/** Själva definitionen – se rest_form(). */
+	private function form_definition( int $form_id ) {
 		if ( ! $this->is_published_form( $form_id ) ) {
-			return new WP_Error( 'xf_no_form', 'Okänt formulär.', [ 'status' => 404 ] );
+			return new WP_Error( 'xf_no_form', Relativt_Form_I18n::t( 'Okänt formulär.' ), [ 'status' => 404 ] );
 		}
 
 		$turnstile = $this->turnstile_state( $form_id );
@@ -2483,17 +2558,17 @@ final class Relativt_Form {
 			'fields'    => $this->public_fields( $form_id ),
 			// Samma kedja och samma fallbacks som renderaren och success_payload().
 			'texts'     => [
-				'submit'       => (string) $this->setting( $form_id, 'xf_submit_text', 'Skicka' ),
-				'sending'      => (string) $this->setting( $form_id, 'xf_sending_text', 'Skickar…' ),
-				'thanks_title' => (string) $this->setting( $form_id, 'xf_thanks_title', 'Tack!' ),
+				'submit'       => (string) $this->setting( $form_id, 'xf_submit_text', Relativt_Form_I18n::t( 'Skicka' ) ),
+				'sending'      => (string) $this->setting( $form_id, 'xf_sending_text', Relativt_Form_I18n::t( 'Skickar…' ) ),
+				'thanks_title' => (string) $this->setting( $form_id, 'xf_thanks_title', Relativt_Form_I18n::t( 'Tack!' ) ),
 				'thanks_text'  => (string) $this->setting( $form_id, 'xf_thanks_text', '' ),
-				'error'        => (string) $this->setting( $form_id, 'xf_error_text', 'Något gick fel.' ),
+				'error'        => (string) $this->setting( $form_id, 'xf_error_text', Relativt_Form_I18n::t( 'Något gick fel.' ) ),
 				'redirect'     => '' !== $redirect ? esc_url_raw( $redirect ) : '',
 				'consent'      => wp_kses_post( (string) $this->setting( $form_id, 'xf_consent', '' ) ),
 				'consent_box'  => (bool) $this->setting( $form_id, 'xf_consent_box' ),
 			],
 			// Efter filtret – samma texter som serverns 422-svar.
-			'messages'  => $this->messages(),
+			'messages'  => $this->messages( $form_id ),
 			'honeypot'  => 'xf_website',
 			'turnstile' => [
 				'enabled'  => $active,
@@ -2516,9 +2591,9 @@ final class Relativt_Form {
 				'first_title' => trim( (string) $this->setting( $form_id, 'xf_step_first_title', '' ) ),
 				'indicator'   => isset( self::STEP_INDICATORS[ $indicator ] ) ? $indicator : 'bar',
 				'animation'   => isset( self::STEP_ANIMATIONS[ $animation ] ) ? $animation : 'slide',
-				'counter'     => (string) apply_filters( 'relativt_form_step_counter', 'Steg {current} av {total}', $form_id ),
-				'next'        => (string) $this->setting( $form_id, 'xf_step_next_text', 'Nästa' ),
-				'prev'        => (string) $this->setting( $form_id, 'xf_step_prev_text', 'Tillbaka' ),
+				'counter'     => $this->step_counter( $form_id ),
+				'next'        => (string) $this->setting( $form_id, 'xf_step_next_text', Relativt_Form_I18n::t( 'Nästa' ) ),
+				'prev'        => (string) $this->setting( $form_id, 'xf_step_prev_text', Relativt_Form_I18n::t( 'Tillbaka' ) ),
 				'next_icon'   => Relativt_Form_Icons::normalize( $this->setting( $form_id, 'xf_step_next_icon', Relativt_Form_Icons::STANDARD ) ),
 				'prev_icon'   => Relativt_Form_Icons::normalize( $this->setting( $form_id, 'xf_step_prev_icon', Relativt_Form_Icons::STANDARD_LEFT ) ),
 			];
@@ -2534,7 +2609,11 @@ final class Relativt_Form {
 	public function rest_token( WP_REST_Request $request ) {
 		$form_id = (int) $request->get_param( 'form' );
 		if ( ! $this->is_published_form( $form_id ) ) {
-			return new WP_Error( 'xf_no_form', 'Okänt formulär.', [ 'status' => 404 ] );
+			// 1.15.0: det enda token-svaret med text i. Språket följer med anropet.
+			return $this->in_language(
+				$request->get_param( 'lang' ),
+				static fn() => new WP_Error( 'xf_no_form', Relativt_Form_I18n::t( 'Okänt formulär.' ), [ 'status' => 404 ] )
+			);
 		}
 
 		/*
@@ -2565,11 +2644,81 @@ final class Relativt_Form {
 
 	public function rest_submit( WP_REST_Request $request ) {
 		$body    = $request->get_json_params() ?: $request->get_params();
+		$body    = is_array( $body ) ? $body : [];
 		$form_id = (int) ( $body['form'] ?? 0 );
-		$msg     = $this->messages();
+
+		/*
+		 * 1.15.0: allt besökaren kan få se – spärrarnas fel, valideringsfelen,
+		 * tacktexterna – tas fram på sidans språk, som JS skickar med i lang.
+		 * Därefter återställs språket, så att lagringen och notismailet sker
+		 * på sajtens eget språk precis som förut: mailet går till mottagaren,
+		 * inte till besökaren.
+		 */
+		$checked = $this->in_language( $body['lang'] ?? '', fn() => $this->check_submit( $form_id, $body ) );
+
+		if ( $checked instanceof WP_REST_Response ) {
+			return $checked;
+		}
+
+		/**
+		 * Lägg till eller ändra värden innan inskicket sparas och mailas (1.9.0).
+		 *
+		 * Ett tillägg kan här lägga till rader som inte är formulärfält, t.ex.
+		 * en varukorg från `extra`. Varje rad har samma form som motorns egna:
+		 * `key`, `label`, `type`, `raw`, `value`. Raderna följer sedan med i
+		 * mailet, i det sparade inskicket, i CSV-exporten och i
+		 * integritetsexporten. Utan lyssnare ändras ingenting.
+		 *
+		 * @param array<int,array<string,mixed>> $values  Validerade värden.
+		 * @param int                            $form_id Formulärets id.
+		 * @param array                          $body    Hela inskicket, inklusive `extra`.
+		 */
+		$values = (array) apply_filters( 'relativt_form_values', $checked['values'], $form_id, $body );
+		$meta   = $this->collect_meta( $form_id, $body );
+
+		$entry_id = $this->setting( $form_id, 'xf_store', true )
+			? $this->store_entry( $form_id, $values, $meta )
+			: 0;
+
+		$sent = $this->send_mail( $form_id, $values, $meta );
+
+		if ( $entry_id ) {
+			update_post_meta( $entry_id, '_xf_mail_ok', $sent ? '1' : '0' );
+		}
+
+		if ( ! $sent && ! $entry_id ) {
+			return $this->fail( $checked['error'], 500, [ 'code' => 'mail' ] );
+		}
+
+		/**
+		 * Efter ett lyckat inskick: sparat, mailat eller båda (1.9.0).
+		 *
+		 * @param int   $form_id  Formulärets id.
+		 * @param array $values   Värdena som sparades och mailades.
+		 * @param array $meta     Metadata (sida, kanal, UTM …).
+		 * @param int   $entry_id Det sparade inskickets id, 0 om lagring är av.
+		 * @param bool  $sent     Om mailet gick iväg.
+		 */
+		do_action( 'relativt_form_submitted', $form_id, $values, $meta, (int) $entry_id, (bool) $sent );
+
+		return new WP_REST_Response( $checked['success'], 200 );
+	}
+
+	/**
+	 * Spärrarna och valideringen – allt i ett inskick som kan svara besökaren
+	 * med text. Körs på sidans språk (se rest_submit()).
+	 *
+	 * @return WP_REST_Response|array{values:array,success:array,error:string}
+	 *         Ett färdigt svar om inskicket stoppas, annars de validerade
+	 *         värdena tillsammans med texterna som behövs efter att språket
+	 *         återställts: svaret vid lyckat inskick och felet om varken
+	 *         lagring eller mail går igenom.
+	 */
+	private function check_submit( int $form_id, array $body ) {
+		$msg = $this->messages( $form_id );
 
 		if ( ! $this->is_published_form( $form_id ) ) {
-			return $this->fail( 'Okänt formulär.', 404 );
+			return $this->fail( Relativt_Form_I18n::t( 'Okänt formulär.' ), 404 );
 		}
 
 		// 1. Honungsfälla.
@@ -2587,7 +2736,7 @@ final class Relativt_Form {
 		$ts  = (int) ( $body['ts'] ?? 0 );
 		$sig = (string) ( $body['sig'] ?? '' );
 		if ( ! hash_equals( $this->sign( $form_id . '|' . $ts ), $sig ) ) {
-			return $this->fail( 'Ogiltig begäran.', 400, [ 'code' => 'sig' ] );
+			return $this->fail( Relativt_Form_I18n::t( 'Ogiltig begäran.' ), 400, [ 'code' => 'sig' ] );
 		}
 
 		/*
@@ -2658,48 +2807,11 @@ final class Relativt_Form {
 			return new WP_REST_Response( [ 'ok' => false, 'errors' => [ 'xf_consent' => $msg['consent'] ] ], 422 );
 		}
 
-		/**
-		 * Lägg till eller ändra värden innan inskicket sparas och mailas (1.9.0).
-		 *
-		 * Ett tillägg kan här lägga till rader som inte är formulärfält, t.ex.
-		 * en varukorg från `extra`. Varje rad har samma form som motorns egna:
-		 * `key`, `label`, `type`, `raw`, `value`. Raderna följer sedan med i
-		 * mailet, i det sparade inskicket, i CSV-exporten och i
-		 * integritetsexporten. Utan lyssnare ändras ingenting.
-		 *
-		 * @param array<int,array<string,mixed>> $values  Validerade värden.
-		 * @param int                            $form_id Formulärets id.
-		 * @param array                          $body    Hela inskicket, inklusive `extra`.
-		 */
-		$values = (array) apply_filters( 'relativt_form_values', $result['values'], $form_id, $body );
-		$meta   = $this->collect_meta( $form_id, $body );
-
-		$entry_id = $this->setting( $form_id, 'xf_store', true )
-			? $this->store_entry( $form_id, $values, $meta )
-			: 0;
-
-		$sent = $this->send_mail( $form_id, $values, $meta );
-
-		if ( $entry_id ) {
-			update_post_meta( $entry_id, '_xf_mail_ok', $sent ? '1' : '0' );
-		}
-
-		if ( ! $sent && ! $entry_id ) {
-			return $this->fail( (string) $this->setting( $form_id, 'xf_error_text', 'Något gick fel.' ), 500, [ 'code' => 'mail' ] );
-		}
-
-		/**
-		 * Efter ett lyckat inskick: sparat, mailat eller båda (1.9.0).
-		 *
-		 * @param int   $form_id  Formulärets id.
-		 * @param array $values   Värdena som sparades och mailades.
-		 * @param array $meta     Metadata (sida, kanal, UTM …).
-		 * @param int   $entry_id Det sparade inskickets id, 0 om lagring är av.
-		 * @param bool  $sent     Om mailet gick iväg.
-		 */
-		do_action( 'relativt_form_submitted', $form_id, $values, $meta, (int) $entry_id, (bool) $sent );
-
-		return new WP_REST_Response( $this->success_payload( $form_id ), 200 );
+		return [
+			'values'  => $result['values'],
+			'success' => $this->success_payload( $form_id ),
+			'error'   => (string) $this->setting( $form_id, 'xf_error_text', Relativt_Form_I18n::t( 'Något gick fel.' ) ),
+		];
 	}
 
 	/**
@@ -2709,7 +2821,7 @@ final class Relativt_Form {
 	private function success_payload( int $form_id ): array {
 		$payload = [
 			'ok'    => true,
-			'title' => (string) $this->setting( $form_id, 'xf_thanks_title', 'Tack!' ),
+			'title' => (string) $this->setting( $form_id, 'xf_thanks_title', Relativt_Form_I18n::t( 'Tack!' ) ),
 			'text'  => (string) $this->setting( $form_id, 'xf_thanks_text', '' ),
 		];
 
@@ -2881,7 +2993,7 @@ final class Relativt_Form {
 	 */
 	public function validate( int $form_id, array $raw ): array {
 		$fields  = $this->get_fields( $form_id );
-		$msg     = $this->messages();
+		$msg     = $this->messages( $form_id );
 		$flat    = [];
 		$errors  = [];
 		$values  = [];
@@ -3022,7 +3134,7 @@ final class Relativt_Form {
 			];
 		}
 
-		$errors += $this->validate_confirms( $fields, $raw, $flat, $errors, $gates );
+		$errors += $this->validate_confirms( $fields, $raw, $flat, $errors, $gates, $form_id );
 
 		return [ 'values' => $values, 'errors' => $errors ];
 	}
@@ -3036,10 +3148,11 @@ final class Relativt_Form {
 	 * @param array<int,array<string,mixed>> $fields
 	 * @param array<string,string>           $errors Felen hittills.
 	 * @param array<string,array>            $gates  Stegvillkoren ur step_gates() (1.14.0).
+	 * @param int                            $form_id Formulärets id, till relativt_form_messages (1.15.0).
 	 * @return array<string,string> Felen för bekräftelsefälten.
 	 */
-	private function validate_confirms( array $fields, array $raw, array $flat, array $errors, array $gates = [] ): array {
-		$msg    = $this->messages();
+	private function validate_confirms( array $fields, array $raw, array $flat, array $errors, array $gates = [], int $form_id = 0 ): array {
+		$msg    = $this->messages( $form_id );
 		$by_key = array_column( $fields, null, 'key' );
 		$out    = [];
 

@@ -27,7 +27,7 @@ $GLOBALS['__hooks']      = [];
 $GLOBALS['__post_types'] = [];
 
 function add_action( $hook, $callback, $priority = 10, $args = 1 ) {
-	$GLOBALS['__hooks'][] = [ 'hook' => $hook, 'callback' => $callback, 'priority' => $priority ];
+	$GLOBALS['__hooks'][] = [ 'hook' => $hook, 'callback' => $callback, 'priority' => $priority, 'args' => (int) $args ];
 	return true;
 }
 function add_filter( $hook, $callback, $priority = 10, $args = 1 ) {
@@ -449,11 +449,17 @@ function wp_clear_scheduled_hook( $hook ) { return true; }
  * inte testas – en filterkrok som inte anropas ser exakt likadan ut som en
  * som fungerar, ända tills någon försöker använda den.
  */
+/*
+ * 1.15.0: callbacken får – som i WordPress – bara så många argument som den
+ * bad om i add_filter() (accepted_args, standard 1). Tidigare fick varje
+ * callback alla argument, och då gick det inte att visa att ett filter
+ * registrerat före 1.15.0, med ett argument, fortfarande får exakt ett.
+ */
 function apply_filters( $hook, $value ) {
 	$args = array_slice( func_get_args(), 2 );
 	foreach ( $GLOBALS['__hooks'] as $entry ) {
 		if ( $entry['hook'] === $hook && is_callable( $entry['callback'] ) ) {
-			$value = call_user_func_array( $entry['callback'], array_merge( [ $value ], $args ) );
+			$value = call_user_func_array( $entry['callback'], array_slice( array_merge( [ $value ], $args ), 0, max( 0, $entry['args'] ?? 1 ) ) );
 		}
 	}
 	return $value;
@@ -466,7 +472,7 @@ function apply_filters( $hook, $value ) {
 function do_action( $hook, ...$args ) {
 	foreach ( $GLOBALS['__hooks'] as $entry ) {
 		if ( $entry['hook'] === $hook && is_callable( $entry['callback'] ) ) {
-			call_user_func_array( $entry['callback'], $args );
+			call_user_func_array( $entry['callback'], array_slice( $args, 0, max( 0, $entry['args'] ?? 1 ) ) );
 		}
 	}
 }
@@ -498,7 +504,8 @@ function get_locale() {
 }
 function determine_locale() { return get_locale(); }
 function switch_to_locale( $locale ) {
-	if ( ! in_array( $locale, $GLOBALS['__installed_locales'], true ) ) {
+	// Som WP_Locale_Switcher: samma språk som redan gäller är ingen växling.
+	if ( get_locale() === $locale || ! in_array( $locale, $GLOBALS['__installed_locales'], true ) ) {
 		return false;
 	}
 	$GLOBALS['__locale_stack'][] = $locale;

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+	Språkkonfiguration för flerspråkstillägg som läser wpml-config.xml
+	(Polylang gör det, WPML också).
+
+	admin-texts pekar ut de av sajtens standardvärden (Formulär →
+	Standardvärden, alternativet relativt_form_defaults) som är text besökaren
+	ser. De blir översättningsbara i tilläggets strängöversättning, och
+	alternativet översätts till aktuellt språk när det läses.
+
+	Mottagare, avsändare och ämnesrad (xf_to, xf_from_name, xf_from_email,
+	xf_subject) hör till notismailet och är medvetet inte med.
+
+	Listan ska vara densamma som Relativt_Form_I18n::SETTINGS_KEYS – ett test
+	i tests/server-test.php håller dem lika.
+-->
+<wpml-config>
+	<admin-texts>
+		<key name="relativt_form_defaults">
+			<key name="xf_submit_text" />
+			<key name="xf_sending_text" />
+			<key name="xf_thanks_title" />
+			<key name="xf_thanks_text" />
+			<key name="xf_redirect" />
+			<key name="xf_error_text" />
+			<key name="xf_consent" />
+		</key>
+	</admin-texts>
+</wpml-config>
