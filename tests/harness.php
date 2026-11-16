@@ -481,6 +481,41 @@ function update_post_meta( $id, $key, $value ) {
 	return true;
 }
 
+// --- Språk (1.15.0) -----------------------------------------------------------
+/*
+ * WordPress språkväxling i miniatyr. $GLOBALS['__locale'] är sajtens språk,
+ * $GLOBALS['__installed_locales'] de språk som har språkfiler – precis som i
+ * WordPress vägrar switch_to_locale() ett språk som inte är installerat.
+ * Varje växling spelas in i $GLOBALS['__locale_log'], så att testerna kan
+ * bevisa att språket återställs efter varje anrop.
+ */
+$GLOBALS['__locale']            = 'sv_SE';
+$GLOBALS['__installed_locales'] = [ 'sv_SE', 'en_GB', 'en_US' ];
+$GLOBALS['__locale_stack']      = [];
+$GLOBALS['__locale_log']        = [];
+function get_locale() {
+	return $GLOBALS['__locale_stack'] ? end( $GLOBALS['__locale_stack'] ) : $GLOBALS['__locale'];
+}
+function determine_locale() { return get_locale(); }
+function switch_to_locale( $locale ) {
+	if ( ! in_array( $locale, $GLOBALS['__installed_locales'], true ) ) {
+		return false;
+	}
+	$GLOBALS['__locale_stack'][] = $locale;
+	$GLOBALS['__locale_log'][]   = 'switch:' . $locale;
+	do_action( 'change_locale', $locale );
+	return true;
+}
+function restore_previous_locale() {
+	if ( ! $GLOBALS['__locale_stack'] ) {
+		return false;
+	}
+	array_pop( $GLOBALS['__locale_stack'] );
+	$GLOBALS['__locale_log'][] = 'restore:' . get_locale();
+	do_action( 'change_locale', get_locale() );
+	return get_locale();
+}
+
 function remove_all_filters( $hook ) {
 	$GLOBALS['__hooks'] = array_values( array_filter(
 		$GLOBALS['__hooks'],
