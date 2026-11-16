@@ -26,9 +26,9 @@ if ( ! function_exists( 'xf_test_form' ) ) {
 function xf_i18n_snapshots(): array {
 	$engine = Relativt_Form::instance();
 	$render = new ReflectionMethod( $engine, 'render_form' );
-	$render->setAccessible( true );
+	xf_accessible( $render );
 	$sign = new ReflectionMethod( $engine, 'sign' );
-	$sign->setAccessible( true );
+	xf_accessible( $sign );
 
 	$saved = [
 		'form'       => $GLOBALS['__form'],
@@ -48,7 +48,7 @@ function xf_i18n_snapshots(): array {
 		$GLOBALS['__transients'] = [];
 		Relativt_Form::flush_fields_cache();
 		$count = new ReflectionProperty( Relativt_Form::class, 'render_count' );
-		$count->setAccessible( true );
+		xf_accessible( $count );
 		$count->setValue( null, [] );
 	};
 	$markup = static function ( array $presets = [] ) use ( $engine, $render ): string {

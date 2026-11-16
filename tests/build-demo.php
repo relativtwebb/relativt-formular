@@ -39,7 +39,7 @@ $engine = Relativt_Form::instance();
 
 $reflection = new ReflectionClass( $engine );
 $render     = $reflection->getMethod( 'render_form' );
-$render->setAccessible( true );
+xf_accessible( $render );
 
 /** Kontaktsidan: förvalt Företag + dolt fält satt via "shortcoden". Modalen: förvalt Kandidat. */
 $page_form  = $render->invoke( $engine, 12, [ 'jagar' => 'foretag', 'audit' => 'Webb' ], '' );

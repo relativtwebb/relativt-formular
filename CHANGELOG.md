@@ -25,6 +25,7 @@ Modellen är som förut ett formulär per språk (JSON-export och import). Det n
 ### Ändrat
 - `rest_submit()` tar fram svaret vid lyckat inskick och felmeddelandet för ett misslyckat *före* lagring och mail i stället för efter. Det är en följd av att språket återställs däremellan. Ordningen på filtren och svaren är oförändrade.
 - Testriggen: `apply_filters()` och `do_action()` ger nu, som WordPress, en callback bara så många argument som den registrerats för.
+- Testerna går rent på PHP 8.5: `setAccessible()` anropas bara före 8.1, där det behövs, och facit-skriptet som körs i en egen process skriver varningar till stderr i stället för in i sin JSON.
 
 ### Att veta
 - **Formulärets egna texter översätts aldrig av Polylang.** Översättningarna gäller bara det formuläret lämnar tomt – fallbacks och standardvärden. Formulären är fortfarande inte översättningsbara inlägg; varje språk har sitt eget formulär.

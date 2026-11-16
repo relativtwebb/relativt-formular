@@ -31,7 +31,7 @@ Relativt_Form::flush_fields_cache();
 $engine     = Relativt_Form::instance();
 $reflection = new ReflectionClass( $engine );
 $render     = $reflection->getMethod( 'render_form' );
-$render->setAccessible( true );
+xf_accessible( $render );
 $form = $render->invoke( $engine, 12, [], '' );
 
 $css = file_get_contents( __DIR__ . '/../assets/css/relativt-formular.css' );

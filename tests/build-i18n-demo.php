@@ -76,9 +76,9 @@ $steps = array_merge( $base, [
 
 $engine = Relativt_Form::instance();
 $render = new ReflectionMethod( $engine, 'render_form' );
-$render->setAccessible( true );
+xf_accessible( $render );
 $sign = new ReflectionMethod( $engine, 'sign' );
-$sign->setAccessible( true );
+xf_accessible( $sign );
 
 $use = static function ( array $form ) use ( $options ): void {
 	$GLOBALS['__form']       = $form;
@@ -136,7 +136,7 @@ foreach ( [ 'sv', 'en' ] as $lang ) {
 	xf_pll_frontend( $lang );
 
 	$count = new ReflectionProperty( Relativt_Form::class, 'render_count' );
-	$count->setAccessible( true );
+	xf_accessible( $count );
 	$count->setValue( null, [] );
 
 	$use( $simple );

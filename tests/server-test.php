@@ -16,7 +16,7 @@ $ref    = new ReflectionClass( $engine );
 /** Kör en privat/skyddad metod. */
 function call( object $object, string $method, array $args = [] ) {
 	$m = ( new ReflectionClass( $object ) )->getMethod( $method );
-	$m->setAccessible( true );
+	xf_accessible( $m );
 	return $m->invokeArgs( $object, $args );
 }
 
@@ -363,7 +363,7 @@ $GLOBALS['__form'] = xf_test_form();
 echo "\nRendering\n";
 
 $render = $ref->getMethod( 'render_form' );
-$render->setAccessible( true );
+xf_accessible( $render );
 $html = $render->invoke( $engine, 12, [ 'jagar' => 'kandidat' ], '' );
 
 check( 'shortcode-attributet förväljer rätt radio', str_contains( $html, 'value="kandidat" checked="checked"' ) );
@@ -594,7 +594,7 @@ check( 'varje ikon har en etikett', 0 === count( array_filter( Relativt_Form_Ico
  * att något test märker det.
  */
 $kses = new ReflectionMethod( Relativt_Form::class, 'svg_kses' );
-$kses->setAccessible( true );
+xf_accessible( $kses );
 $allowed = $kses->invoke( null );
 
 $bad = [];
@@ -637,7 +637,7 @@ $GLOBALS['__form']['xf_submit_icon'] = 'rocket';
 check( 'ikonvalet följer med i exporten', 'rocket' === ( Relativt_Form_Portability::instance()->build_payload( 12 )['settings']['xf_submit_icon'] ?? '' ) );
 $GLOBALS['__form'] = xf_test_form();
 $clean_icon = new ReflectionMethod( Relativt_Form_Portability::class, 'clean' );
-$clean_icon->setAccessible( true );
+xf_accessible( $clean_icon );
 check( 'och en riggad importfil kan inte smuggla in markup', ! str_contains( (string) $clean_icon->invoke( Relativt_Form_Portability::instance(), '<svg onload=alert(1)>', 'key' ), '<' ) );
 check( 'ikonfilen och licensen följer med i zip-filen', str_contains( (string) file_get_contents( __DIR__ . '/../build/build.php' ), "'includes/class-relativt-form-icons.php'" ) && str_contains( (string) file_get_contents( __DIR__ . '/../build/build.php' ), "'includes/LUCIDE-LICENSE.txt'" ) );
 check( 'Lucides licens finns i repot', str_contains( (string) file_get_contents( __DIR__ . '/../includes/LUCIDE-LICENSE.txt' ), 'ISC License' ) );
@@ -700,7 +700,7 @@ echo "\nCSV-exporten\n";
  * kunden öppnar filen i Excel. Cellen är besökardata och ska läsas som text.
  */
 $guard = new ReflectionMethod( Relativt_Form::class, 'csv_guard' );
-$guard->setAccessible( true );
+xf_accessible( $guard );
 
 check( 'formelceller ofarliggörs', $guard->invoke( null, '=HYPERLINK("https://ond.se")' ) === "'" . '=HYPERLINK("https://ond.se")' );
 check( 'plus, minus och snabel-a likaså', $guard->invoke( null, '+46701234567' ) === "'+46701234567" && $guard->invoke( null, '-1' ) === "'-1" && $guard->invoke( null, '@evil' ) === "'@evil" );
@@ -994,7 +994,7 @@ check( 'inga inskick läcker med i exporten', ! str_contains( strtolower( wp_jso
 
 // Vitlistan: en riggad fil ska inte kunna skriva vad som helst.
 $clean = new ReflectionMethod( Relativt_Form_Portability::class, 'clean' );
-$clean->setAccessible( true );
+xf_accessible( $clean );
 
 check( 'okänd fälttyp faller tillbaka på text', $clean->invoke( $port, 'javascript', 'type' ) === 'text' );
 check( 'känd fälttyp släpps igenom', $clean->invoke( $port, 'textarea', 'type' ) === 'textarea' );
@@ -1006,7 +1006,7 @@ check( 'kvarhållning kan inte bli negativ', $clean->invoke( $port, -50, 'int' )
 check( 'skript stryps ur samtyckestexten', ! str_contains( (string) $clean->invoke( $port, '<p>Hej</p><script>fetch(1)</script>', 'html' ), '<script' ) );
 
 $rows = new ReflectionMethod( Relativt_Form_Portability::class, 'clean_rows' );
-$rows->setAccessible( true );
+xf_accessible( $rows );
 $smuggled = $rows->invoke( $port, [ [ 'label' => 'Namn', 'type' => 'text', 'skadlig_kolumn' => 'x' ] ], [ 'label' => 'text', 'type' => 'type' ] );
 
 check( 'okända kolumner kastas vid import', ! array_key_exists( 'skadlig_kolumn', $smuggled[0] ) );
@@ -1209,7 +1209,7 @@ $GLOBALS['__options'] = [];
 echo "\nTurnstile: rendering\n";
 
 $render = $ref->getMethod( 'render_form' );
-$render->setAccessible( true );
+xf_accessible( $render );
 
 $GLOBALS['__assets'] = [];
 $plain = $render->invoke( $engine, 12, [], '' );
@@ -1418,7 +1418,7 @@ check( 'och följer med i zip-filen', str_contains( (string) file_get_contents( 
 echo "\nStatistik: läsning av metafält\n";
 
 $read_meta = new ReflectionMethod( Relativt_Form_Stats::class, 'read_meta' );
-$read_meta->setAccessible( true );
+xf_accessible( $read_meta );
 $arr_meta  = [ 'utm' => [ 'utm_source' => 'google' ], 'referrer' => 'https://exempel.se/' ];
 check( 'en serialiserad array läses som array', $arr_meta === $read_meta->invoke( null, serialize( $arr_meta ) ) );
 check( 'tom sträng ger tom sträng, inget fel', '' === $read_meta->invoke( null, '' ) );
@@ -2139,7 +2139,7 @@ $reset190();
 echo "\nTelefonfält med landsväljare (1.12.0)\n";
 
 $render_form_method = new ReflectionMethod( $engine, 'render_form' );
-$render_form_method->setAccessible( true );
+xf_accessible( $render_form_method );
 $render_phone = static function ( array $field, array $presets = [] ) use ( $engine, $render_form_method ): string {
 	$GLOBALS['__form']['xf_fields'] = [ array_merge( [ 'type' => 'tel', 'key' => 'mobil', 'label' => 'Mobil' ], $field ) ];
 	Relativt_Form::flush_fields_cache();
@@ -2225,7 +2225,7 @@ Relativt_Form::flush_fields_cache();
 $exported = Relativt_Form_Portability::instance()->build_payload( 12 )['settings']['xf_fields'][0] ?? [];
 check( 'landsväljaren och förvalt land följer med i exporten', 1 === (int) ( $exported['phone_country'] ?? 0 ) && 'NO' === ( $exported['phone_default'] ?? '' ) );
 $clean_cc = new ReflectionMethod( Relativt_Form_Portability::class, 'clean' );
-$clean_cc->setAccessible( true );
+xf_accessible( $clean_cc );
 $port_cc = Relativt_Form_Portability::instance();
 check( 'import: ett känt land godkänns', 'NO' === $clean_cc->invoke( $port_cc, 'no', 'country' ) );
 check( 'import: ett okänt land eller markup blir tomt', '' === $clean_cc->invoke( $port_cc, '"><script>', 'country' ) && '' === $clean_cc->invoke( $port_cc, [ 'NO' ], 'country' ) );
@@ -2822,9 +2822,18 @@ function xf_i18n_compare( array $facit, array $now, string $suffix, bool $strict
 check( 'facit finns och täcker texter, markup och REST-svar', is_array( $xf_i18n_facit ) && count( $xf_i18n_facit ) >= 24 );
 check( 'Polylang finns inte i processen än', ! function_exists( 'pll__' ) && ! Relativt_Form_I18n::has_polylang() );
 
-// I en ren process, som på en sajt: bara pluginet, inget annat laddat.
-$xf_clean = json_decode( (string) shell_exec( escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __DIR__ . '/i18n-snapshots.php' ) ), true );
-check( 'facit-skriptet går att köra för sig', is_array( $xf_clean ) );
+/*
+ * I en ren process, som på en sajt: bara pluginet, inget annat laddat.
+ *
+ * display_errors=stderr: skriptets utdata är JSON, och en enda varning på
+ * stdout gör den oläslig. Så föll alla jämförelser nedan på PHP 8.5, där
+ * setAccessible() varnar – koden var rätt, det var testet som inte gick
+ * att läsa. Varningar syns fortfarande i terminalen, och skulle utdata
+ * ändå inte gå att tolka säger testet varför.
+ */
+$xf_clean_raw = (string) shell_exec( escapeshellarg( PHP_BINARY ) . ' -d display_errors=stderr ' . escapeshellarg( __DIR__ . '/i18n-snapshots.php' ) );
+$xf_clean     = json_decode( $xf_clean_raw, true );
+check( 'facit-skriptet går att köra för sig', is_array( $xf_clean ), 'utdata är inte JSON, börjar med: ' . substr( trim( $xf_clean_raw ), 0, 160 ) );
 xf_i18n_compare( (array) $xf_i18n_facit, (array) $xf_clean, ' (ren process)', true );
 
 // Och här, efter allt som testerna ovan lämnat efter sig.

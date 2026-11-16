@@ -11,6 +11,19 @@ define( 'ABSPATH', __DIR__ );
 define( 'HOUR_IN_SECONDS', 3600 );
 define( 'DAY_IN_SECONDS', 86400 );
 
+/*
+ * Öppnar en privat metod eller egenskap för testerna. Före PHP 8.1 krävs
+ * setAccessible(); från 8.1 gör anropet ingenting, och från 8.5 ger det en
+ * Deprecated-varning per anrop. Därför anropas det bara där det behövs –
+ * pluginet stöder PHP 8.0, så det går inte att bara ta bort.
+ */
+function xf_accessible( $reflector ) {
+	if ( PHP_VERSION_ID < 80100 ) {
+		$reflector->setAccessible( true );
+	}
+	return $reflector;
+}
+
 // --- No-ops -----------------------------------------------------------------
 foreach ( [ 'add_shortcode', 'add_meta_box', 'wp_schedule_event', 'nocache_headers' ] as $fn ) {
 	if ( ! function_exists( $fn ) ) {
