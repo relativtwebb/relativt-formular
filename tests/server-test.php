@@ -3273,6 +3273,41 @@ xf_pll_rest();
 $GLOBALS['__pll']['translations'] = [];
 xf_i18n_reset();
 
+/* =============================================================================
+ * Regression mot 1.15.0 (1.16.0)
+ *
+ * Befintliga formulär får inte påverkas av en uppdatering: samma markup,
+ * samma konfiguration till skriptet, samma REST-svar, samma mejl, samma
+ * sparade inskick och samma CSV-rad. Facit genererades av
+ * tests/regression-snapshots.php mot 1.15.0-koden. Båda körningarna sker i
+ * egna processer, som på en sajt där bara pluginet är laddat – längre upp
+ * har testerna definierat konstanter och laddat Polylang-mocken.
+ * ========================================================================== */
+echo "\nRegression mot 1.15.0\n";
+
+$xf_reg_facit = json_decode( (string) file_get_contents( __DIR__ . '/fixtures/regression-1.15.0.json' ), true );
+check( 'facit finns och täcker båda processerna', is_array( $xf_reg_facit ) && isset( $xf_reg_facit['utan-polylang'], $xf_reg_facit['polylang'] ) && count( $xf_reg_facit['utan-polylang'] ) >= 30 );
+
+foreach ( [ 'utan-polylang' => '', 'polylang' => ' polylang' ] as $xf_reg_part => $xf_reg_arg ) {
+	$xf_reg_raw = (string) shell_exec( escapeshellarg( PHP_BINARY ) . ' -d display_errors=stderr ' . escapeshellarg( __DIR__ . '/regression-snapshots.php' ) . $xf_reg_arg );
+	$xf_reg_now = json_decode( $xf_reg_raw, true );
+	check( "regressionsskriptet går att köra ({$xf_reg_part})", is_array( $xf_reg_now ), 'utdata är inte JSON, börjar med: ' . substr( trim( $xf_reg_raw ), 0, 160 ) );
+	$xf_reg_now = is_array( $xf_reg_now ) ? $xf_reg_now : [];
+
+	check( "samma uppsättning fall som i facit ({$xf_reg_part})", array_keys( $xf_reg_now ) === array_keys( (array) $xf_reg_facit[ $xf_reg_part ] ) );
+	foreach ( (array) $xf_reg_facit[ $xf_reg_part ] as $xf_reg_name => $xf_reg_expected ) {
+		$xf_reg_actual = $xf_reg_now[ $xf_reg_name ] ?? null;
+		// Varje del för sig, så att en avvikelse pekar ut vad som ändrats.
+		if ( is_array( $xf_reg_expected ) && isset( $xf_reg_expected['svar'] ) ) {
+			foreach ( [ 'svar', 'mejl', 'inskick', 'csv' ] as $xf_reg_part_key ) {
+				check( "{$xf_reg_name} – {$xf_reg_part_key}: identisk med 1.15.0", ( $xf_reg_actual[ $xf_reg_part_key ] ?? null ) === $xf_reg_expected[ $xf_reg_part_key ] );
+			}
+			continue;
+		}
+		check( "{$xf_reg_name}: identisk med 1.15.0", $xf_reg_actual === $xf_reg_expected );
+	}
+}
+
 echo "\n" . str_repeat( '─', 50 ) . "\n";
 printf( "%d godkända, %d underkända\n\n", $passed, $failed );
 exit( $failed > 0 ? 1 : 0 );
