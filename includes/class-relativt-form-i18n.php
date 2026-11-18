@@ -398,6 +398,11 @@ final class Relativt_Form_I18n {
 			$out[] = [ self::SETTINGS_KEYS[ $key ][0], $text, self::SETTINGS_KEYS[ $key ][1] ];
 		}
 
+		// 1.16.0: texter som bara servern använder. Sist, så att raderna ovan står kvar i samma ordning.
+		foreach ( Relativt_Form::server_message_defaults() as $key => $text ) {
+			$out[] = [ 'Meddelande: ' . $key, $text, false ];
+		}
+
 		return $out;
 	}
 

@@ -316,7 +316,20 @@ $GLOBALS['__post_status'] = [];
 function get_post_status( $id ) {
 	return $GLOBALS['__post_status'][ (int) $id ] ?? ( 12 === (int) $id ? 'publish' : false );
 }
-function get_the_title( $id ) { return 'Kontaktformulär'; }
+// 1.16.0: sidkontexten läser titeln på kurssidan, inte bara formulärets.
+$GLOBALS['__titles'] = [];
+function get_the_title( $id ) { return $GLOBALS['__titles'][ (int) $id ] ?? 'Kontaktformulär'; }
+
+/*
+ * Sidkontext (1.16.0). $GLOBALS['__queried'] är den enskilda post sidan visar
+ * (0 = ingen, t.ex. ett arkiv), $GLOBALS['__public_posts'] de poster vem som
+ * helst kan se. Allt annat – utkast, privata, borttagna – är inte publikt.
+ */
+$GLOBALS['__queried']      = 0;
+$GLOBALS['__public_posts'] = [];
+function is_singular( $post_types = '' ) { return $GLOBALS['__queried'] > 0; }
+function get_queried_object_id() { return (int) $GLOBALS['__queried']; }
+function is_post_publicly_viewable( $post = null ) { return ! empty( $GLOBALS['__public_posts'][ (int) $post ] ); }
 /*
  * Tomt som standard. Statistiktesterna sätter $GLOBALS['__get_posts'] till en
  * funktion som svarar på frågan, så att batchläsningen kan provas.

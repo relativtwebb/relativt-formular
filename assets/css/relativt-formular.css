@@ -485,6 +485,31 @@
 	cursor: pointer;
 }
 
+/* -----------------------------------------------------------------------------
+   Spärrade alternativ (1.16.0)
+
+   Ett alternativ som sajtens kod har spärrat via filtret
+   relativt_form_field_choices, t.ex. ett fullbokat tillfälle. Det syns men
+   går inte att välja. Reglerna träffar bara spärrade alternativ, så inget
+   befintligt formulär ändrar utseende. --xf-disabled-opacity (standard 0.45)
+   styr hur blekt alternativet blir.
+   -------------------------------------------------------------------------- */
+
+.relativt-form .xf-choice-label.is-disabled,
+.relativt-form .xf-check.is-disabled {
+	opacity: var(--xf-disabled-opacity, 0.45);
+	cursor: not-allowed;
+}
+
+.relativt-form .xf-buttons .xf-choice-label.is-disabled:hover {
+	background: var(--xf-field-bg);
+}
+
+.relativt-form .xf-choice-input:disabled,
+.relativt-form .xf-check-input:disabled {
+	cursor: not-allowed;
+}
+
 /* Oxygen-anpassning: globala temastilar som ritar en egen bock med ::after
    hamnar annars någon pixel för högt i 18-pixelsrutan. Gör ingenting på
    sajter utan sådan temastil – webbläsare renderar inte ::after på orörda

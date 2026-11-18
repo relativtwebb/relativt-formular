@@ -60,6 +60,8 @@ function xf_regression_snapshots( bool $polylang = false ): array {
 	xf_accessible( $render );
 	$sign = new ReflectionMethod( $engine, 'sign' );
 	xf_accessible( $sign );
+	$privacy = new ReflectionMethod( $engine, 'privacy_data' );
+	xf_accessible( $privacy );
 
 	$saved = [
 		'form'       => $GLOBALS['__form'],
@@ -122,7 +124,7 @@ function xf_regression_snapshots( bool $polylang = false ): array {
 	};
 
 	/** Hela kedjan för ett inskick: svaret, mejlet, det sparade och CSV-raden. */
-	$submit = static function ( array $fields, array $extra = [] ) use ( $engine, $sign, $reply, $normalize ): array {
+	$submit = static function ( array $fields, array $extra = [] ) use ( $engine, $sign, $privacy, $reply, $normalize ): array {
 		$GLOBALS['__transients']   = [];
 		$GLOBALS['__mail']         = [];
 		$GLOBALS['__posts']        = [];
@@ -144,6 +146,18 @@ function xf_regression_snapshots( bool $polylang = false ): array {
 		$entry = $GLOBALS['__saved_meta'] ? array_key_first( $GLOBALS['__saved_meta'] ) : null;
 		$saved = null !== $entry ? $GLOBALS['__saved_meta'][ $entry ] : [];
 
+		// Det redaktören ser i wp-admin och det integritetsexporten lämnar ut.
+		$view = null;
+		$data = null;
+		if ( null !== $entry ) {
+			$GLOBALS['__postmeta'][ $entry ] = $saved;
+			ob_start();
+			$engine->render_entry_box( (object) [ 'ID' => $entry ] );
+			$view = (string) ob_get_clean();
+			$data = $privacy->invoke( $engine, $entry );
+			unset( $GLOBALS['__postmeta'][ $entry ] );
+		}
+
 		return $normalize( [
 			'svar'    => $reply( $res ),
 			'mejl'    => $GLOBALS['__mail'],
@@ -152,6 +166,8 @@ function xf_regression_snapshots( bool $polylang = false ): array {
 				'meta' => $saved,
 			],
 			'csv'     => null !== $entry ? xf_regression_csv( [ $entry => $saved ] ) : null,
+			'vy'      => $view,
+			'integritet' => $data,
 		] );
 	};
 
@@ -167,6 +183,10 @@ function xf_regression_snapshots( bool $polylang = false ): array {
 	$out['kontakt/rest-form']      = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
 	$token                         = $engine->rest_token( new WP_REST_Request( [ 'form' => 12 ] ) );
 	$out['kontakt/rest-token']     = [ 'status' => $token->status, 'keys' => array_keys( (array) $token->data ), 'headers' => $token->get_headers() ];
+	// JSON-exporten av formulärdefinitionen. Versionen och tidpunkten skiljer sig per definition.
+	$export = Relativt_Form_Portability::instance()->build_payload( 12 );
+	unset( $export['_plugin_version'], $export['_exported'] );
+	$out['kontakt/json-export']    = $export;
 	$out['kontakt/foretag']        = $submit( [ 'jagar' => 'foretag', 'namn' => 'Anna Andersson', 'foretag' => 'Exempel AB', 'epost' => 'anna@exempel.se', 'telefon' => '070-123 45 67', 'behov' => 'Bemanning', 'meddelande' => "Hej!\nVi behöver hjälp.", 'audit' => 'Webb' ] );
 	// Mottagarregeln (jagar = Kandidat) och villkoret som visar onskemal i stället för behov.
 	$out['kontakt/kandidat']       = $submit( [ 'jagar' => 'kandidat', 'namn' => 'Bo Berg', 'epost' => 'bo@exempel.se', 'onskemal' => 'Spontanansökan', 'behov' => 'Bemanning' ] );

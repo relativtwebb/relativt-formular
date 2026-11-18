@@ -86,6 +86,15 @@ final class Relativt_Form {
 	private const CHOICE_TYPES = [ 'select', 'buttons', 'radio', 'checkboxes' ];
 
 	/**
+	 * Sidkontext (1.16.0). Namnet på det dolda fält som bär post-ID:t och dess
+	 * signatur i inskicket. Det ligger bland fälten i stället för i en egen
+	 * nyckel, eftersom JS före 1.16.0 redan skickar med alla fält som har
+	 * data-xf-key: ny markup fungerar därmed även med gammal, cachad JS.
+	 * Fältnyckeln är reserverad.
+	 */
+	public const POST_FIELD = '_xf_post';
+
+	/**
 	 * Fälttyper som kan följas på statistiksidan. Bara fält med ett begränsat
 	 * antal värden som formulärbyggaren själv bestämt (plus dolda fält, som
 	 * sätts via shortcode eller URL) – aldrig fritext som namn eller e-post.
@@ -538,6 +547,21 @@ final class Relativt_Form {
 	}
 
 	/**
+	 * Besökartexter som bara servern använder (1.16.0). De går genom samma
+	 * översättning och samma filter som texterna ovan, men skickas inte med i
+	 * skriptets konfiguration eller i GET /form: JS visar dem bara som de
+	 * kommer i serverns 422-svar. Därför är konfigurationen – och därmed
+	 * sidans markup – oförändrad för alla befintliga formulär.
+	 *
+	 * @return array<string,string>
+	 */
+	public static function server_message_defaults(): array {
+		return [
+			'choice_disabled' => 'Alternativet går inte längre att välja.',
+		];
+	}
+
+	/**
 	 * Alla besökartexter som motorn kan behöva säga, på ett ställe. Samma
 	 * lista skickas till JS via relativtFormConfig, så klient och server
 	 * använder ordagrant samma formuleringar.
@@ -554,7 +578,18 @@ final class Relativt_Form {
 	 * @return array<string,string>
 	 */
 	public function messages( int $form_id = 0 ): array {
-		$defaults   = self::message_defaults();
+		return array_diff_key( $this->all_messages( $form_id ), self::server_message_defaults() );
+	}
+
+	/**
+	 * Som messages(), men även med texterna som bara servern använder
+	 * (1.16.0). Filtret relativt_form_messages får alltid hela listan, så att
+	 * en översättning i filtret når även de texterna.
+	 *
+	 * @return array<string,string>
+	 */
+	private function all_messages( int $form_id = 0 ): array {
+		$defaults   = self::message_defaults() + self::server_message_defaults();
 		$translated = array_map( [ 'Relativt_Form_I18n', 't' ], $defaults );
 
 		/**
@@ -1279,6 +1314,15 @@ final class Relativt_Form {
 					'default_value'=> 0,
 					'instructions' => 'IP-adress är en personuppgift. Av som standard – slå bara på om ni behöver den, t.ex. för att utreda missbruk. Frekvensspärren mot spam fungerar ändå.',
 				],
+				[
+					'key'          => 'field_xf_post_context',
+					'label'        => 'Koppla inskicket till sidan',
+					'name'         => 'xf_post_context',
+					'type'         => 'true_false',
+					'ui'           => 1,
+					'default_value'=> 0,
+					'instructions' => 'Sidans titel och post-ID följer med i mailet, det sparade inskicket och CSV-exporten, och sajtens egen kod får veta vilken sida formuläret skickades från. Krävs för alternativ som skiljer sig mellan sidor (filtret relativt_form_field_choices). Töm sidcachen efter att du slagit på det.',
+				],
 
 				[ 'key' => 'field_xf_tab_protect', 'label' => 'Skydd', 'type' => 'tab' ],
 				[
@@ -1758,6 +1802,193 @@ final class Relativt_Form {
 		return (bool) $this->setting( $form_id, 'xf_store', true );
 	}
 
+	/* ---------------------------------------------------------------------
+	 * Sidkontext och alternativ (1.16.0)
+	 * ------------------------------------------------------------------ */
+
+	/**
+	 * Är "Koppla inskicket till sidan" på? Av som standard. Med inställningen
+	 * av är post-ID:t 0 överallt, och formuläret beter sig exakt som i 1.15.0.
+	 */
+	public function post_context_enabled( int $form_id ): bool {
+		return (bool) $this->setting( $form_id, 'xf_post_context', false );
+	}
+
+	/**
+	 * Posten formuläret ritas ut på, eller 0. Bara en enskild post räknas –
+	 * på ett arkiv svarar get_queried_object_id() med termens id – och bara
+	 * en post som vem som helst kan se, samma krav som vid inskicket.
+	 */
+	private function current_post_id(): int {
+		if ( ! function_exists( 'is_singular' ) || ! is_singular() ) {
+			return 0;
+		}
+		$post_id = (int) get_queried_object_id();
+		return $this->usable_post( $post_id ) ? $post_id : 0;
+	}
+
+	/** Finns posten och är den publik? Utkast, privata och borttagna poster ger 0. */
+	private function usable_post( int $post_id ): bool {
+		return $post_id > 0 && function_exists( 'is_post_publicly_viewable' ) && is_post_publicly_viewable( $post_id );
+	}
+
+	/**
+	 * Värdet i det dolda kontextfältet: post-ID och en signatur över
+	 * formulär-ID och post-ID. Signaturen är densamma för alla besökare på
+	 * sidan och tål därför sidcache. Den visar att formuläret har ritats ut
+	 * på just den posten – vem som helst kan läsa den i markupen, men ingen
+	 * kan räkna fram den för en annan post.
+	 */
+	private function post_token( int $form_id, int $post_id ): string {
+		return $post_id . ':' . $this->sign( 'post|' . $form_id . '|' . $post_id );
+	}
+
+	/**
+	 * Post-ID:t ur ett inskick, eller 0. Saknas fältet (markup från före
+	 * 1.16.0, eller inställningen var av när sidan cachades), är signaturen
+	 * fel eller posten inte längre publik, blir det 0 – aldrig ett fel.
+	 */
+	private function submitted_post_id( int $form_id, array $body ): int {
+		$raw = $body['fields'][ self::POST_FIELD ] ?? '';
+		if ( ! is_string( $raw ) || ! preg_match( '/^(\d{1,20}):([a-f0-9]{64})$/', $raw, $m ) ) {
+			return 0;
+		}
+		$post_id = (int) $m[1];
+		if ( ! hash_equals( $this->sign( 'post|' . $form_id . '|' . $post_id ), $m[2] ) ) {
+			return 0;
+		}
+		return $this->usable_post( $post_id ) ? $post_id : 0;
+	}
+
+	/**
+	 * Kör filtret relativt_form_field_choices på formulärets val-fält.
+	 *
+	 * Samma metod används när formuläret ritas ut, när ett inskick valideras
+	 * och när GET /form svarar, så att det som visas och det som godkänns
+	 * kommer från en och samma källa. Ändrar filtret ingenting – som när ingen
+	 * lyssnar – lämnas fältet orört, utan några nya nycklar.
+	 *
+	 * Ett fält vars lista filtrerats får nyckeln 'disabled': de tekniska
+	 * värdena för de spärrade alternativen. choices behåller formen
+	 * värde => etikett, så att villkor, mottagarregler, mailet och
+	 * statistiken fungerar som förut.
+	 *
+	 * @param array<int,array<string,mixed>> $fields
+	 * @param string                         $phase 'render', 'validate' eller 'definition'.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function filter_choices( int $form_id, array $fields, int $post_id, string $phase ): array {
+		foreach ( $fields as $i => $f ) {
+			if ( ! in_array( $f['type'], self::CHOICE_TYPES, true ) || '' === $f['key'] ) {
+				continue;
+			}
+
+			$list = [];
+			foreach ( $f['choices'] as $value => $label ) {
+				$list[] = [ 'value' => (string) $value, 'label' => (string) $label, 'disabled' => false ];
+			}
+
+			/**
+			 * Alternativen i ett val-fält (Rullista, Radioknappar, Val-knappar,
+			 * Flerval). 1.16.0.
+			 *
+			 * Körs på samma sätt när formuläret ritas ut och när ett inskick
+			 * valideras. Listan får därför inte bero på $context['phase'] – fasen
+			 * är bara en upplysning. Använd $context['post_id'], aldrig
+			 * get_the_ID(): vid inskicket finns ingen global post.
+			 *
+			 * @param array<int,array{value:string,label:string,disabled:bool}> $list    Fältets alternativ, i ordning.
+			 * @param array                                                    $field   Fältet: key, type, label m.m.
+			 * @param int                                                      $form_id Formulärets id.
+			 * @param array{post_id:int,phase:string}                          $context post_id är 0 om sidan är okänd
+			 *                                                                          eller "Koppla inskicket till sidan" är av.
+			 */
+			$filtered = apply_filters( 'relativt_form_field_choices', $list, $f, $form_id, [ 'post_id' => $post_id, 'phase' => $phase ] );
+			if ( $filtered === $list ) {
+				continue;
+			}
+
+			[ $choices, $disabled ] = self::normalize_choices( $filtered );
+
+			$fields[ $i ]['choices']  = $choices;
+			$fields[ $i ]['disabled'] = $disabled;
+		}
+
+		return $fields;
+	}
+
+	/**
+	 * Gör filtrets svar till choices (värde => etikett) och listan med
+	 * spärrade värden. Tål det mesta: en lista med value/label/disabled, eller
+	 * värde => etikett. Tomma värden hoppas över; finns ett värde två gånger
+	 * gäller det första. Något annat än en lista ger en tom lista.
+	 *
+	 * @param mixed $list
+	 * @return array{0:array<string,string>,1:array<int,string>}
+	 */
+	private static function normalize_choices( $list ): array {
+		$choices  = [];
+		$disabled = [];
+
+		foreach ( is_array( $list ) ? $list : [] as $key => $item ) {
+			if ( is_array( $item ) ) {
+				$value = trim( (string) ( $item['value'] ?? '' ) );
+				$label = (string) ( $item['label'] ?? $value );
+				$off   = ! empty( $item['disabled'] );
+			} elseif ( is_scalar( $item ) && is_string( $key ) ) {
+				$value = trim( $key );
+				$label = (string) $item;
+				$off   = false;
+			} else {
+				continue;
+			}
+
+			if ( '' === $value || array_key_exists( $value, $choices ) ) {
+				continue;
+			}
+			$choices[ $value ] = '' !== trim( $label ) ? $label : $value;
+			if ( $off ) {
+				$disabled[] = $value;
+			}
+		}
+
+		return [ $choices, $disabled ];
+	}
+
+	/** Är värdet ett av fältets spärrade alternativ? */
+	private static function is_disabled_choice( array $f, $value ): bool {
+		return ! empty( $f['disabled'] ) && in_array( (string) $value, $f['disabled'], true );
+	}
+
+	/**
+	 * Ett förval får aldrig välja ett spärrat alternativ – varken
+	 * standardvärdet, ett shortcode-attribut eller (i JS) en URL-parameter.
+	 * Rör bara fält som har spärrade alternativ.
+	 *
+	 * @param array<int,array<string,mixed>> $fields
+	 * @param array<string,string>           $presets
+	 * @return array{0:array<int,array<string,mixed>>,1:array<string,string>}
+	 */
+	private static function drop_disabled_presets( array $fields, array $presets ): array {
+		foreach ( $fields as $i => $f ) {
+			if ( empty( $f['disabled'] ) ) {
+				continue;
+			}
+			$clean = static function ( string $value ) use ( $f ): string {
+				if ( 'checkboxes' !== $f['type'] ) {
+					return self::is_disabled_choice( $f, trim( $value ) ) ? '' : $value;
+				}
+				$kept = array_filter( array_map( 'trim', explode( ',', $value ) ), static fn( $v ) => ! self::is_disabled_choice( $f, $v ) );
+				return implode( ', ', $kept );
+			};
+			$fields[ $i ]['default'] = $clean( (string) $f['default'] );
+			if ( isset( $presets[ $f['key'] ] ) ) {
+				$presets[ $f['key'] ] = $clean( (string) $presets[ $f['key'] ] );
+			}
+		}
+		return [ $fields, $presets ];
+	}
+
 	/** Gallringstiden i dagar, 0 = aldrig. Samma tolkning som run_cleanup(). */
 	public function retention_days( int $form_id ): int {
 		return max( 0, (int) $this->setting( $form_id, 'xf_retention', self::DEFAULT_RETENTION ) );
@@ -2056,6 +2287,15 @@ final class Relativt_Form {
 		$uid    = 'xf-' . $form_id . '-' . wp_rand( 1000, 9999 );
 
 		/*
+		 * Sidkontext och alternativ (1.16.0). Med "Koppla inskicket till sidan"
+		 * av är post-ID:t 0, och utan lyssnare på relativt_form_field_choices
+		 * är fälten orörda – formuläret ritas då byte för byte som i 1.15.0.
+		 */
+		$post_id              = $this->post_context_enabled( $form_id ) ? $this->current_post_id() : 0;
+		$fields               = $this->filter_choices( $form_id, $fields, $post_id, 'render' );
+		[ $fields, $presets ] = self::drop_disabled_presets( $fields, $presets );
+
+		/*
 		 * Flerstegsformulär (1.14.0). Allt nedan som rör steg sker BARA när
 		 * $multistep är sant. Ett formulär utan steg renderas av exakt samma
 		 * rader som före 1.14.0 – tests/fixtures/render-1.13.0.json bevakar
@@ -2125,7 +2365,7 @@ final class Relativt_Form {
 						<?php echo $this->render_field( $field, $uid, $presets, $resolved ); // phpcs:ignore ?>
 					<?php endforeach; ?>
 				</div>
-<?php endif; ?>
+<?php endif; echo $this->render_post_context( $form_id, $post_id ); // phpcs:ignore WordPress.Security.EscapeOutput -- escapad i metoden. Tom sträng utan sidkontext, så markupen är oförändrad. ?>
 
 				<?php if ( $this->setting( $form_id, 'xf_consent_box' ) ) : ?>
 					<div class="xf-field xf-field--full xf-type-consent">
@@ -2238,6 +2478,24 @@ final class Relativt_Form {
 		</div>
 		<?php
 		return (string) ob_get_clean();
+	}
+
+	/**
+	 * Det dolda kontextfältet (1.16.0): post-ID och signatur, se post_token().
+	 * Ritas bara när "Koppla inskicket till sidan" är på och formuläret står
+	 * på en publik enskild post. Ligger utanför stegen, så att det alltid
+	 * följer med inskicket, och bär klassen xf-type-hidden, så att JS
+	 * hoppar över det i valideringen.
+	 */
+	private function render_post_context( int $form_id, int $post_id ): string {
+		if ( $post_id <= 0 ) {
+			return '';
+		}
+		return sprintf(
+			"\t\t\t\t" . '<div class="xf-field xf-field--full xf-type-hidden xf-post-context" data-xf-key="%1$s" hidden><input type="hidden" name="fields[%1$s]" value="%2$s"></div>' . "\n",
+			esc_attr( self::POST_FIELD ),
+			esc_attr( $this->post_token( $form_id, $post_id ) )
+		);
 	}
 
 	private function render_field( array $f, string $uid, array $presets, array $resolved = [] ): string {
@@ -2360,7 +2618,9 @@ final class Relativt_Form {
 					printf( '<option value=""%s>%s</option>', selected( $value, '', false ), esc_html( $f['placeholder'] ) );
 				}
 				foreach ( $f['choices'] as $val => $label ) {
-					printf( '<option value="%s"%s>%s</option>', esc_attr( $val ), selected( $value, $val, false ), esc_html( $label ) );
+					// 1.16.0: ett spärrat alternativ syns men går inte att välja.
+					$off = self::is_disabled_choice( $f, $val ) ? ' class="is-disabled" disabled' : '';
+					printf( '<option value="%s"%s%s>%s</option>', esc_attr( $val ), selected( $value, $val, false ), $off, esc_html( $label ) );
 				}
 				echo '</select><span class="xf-select-arrow" aria-hidden="true"></span></div>';
 				break;
@@ -2372,10 +2632,13 @@ final class Relativt_Form {
 				$i = 0;
 				foreach ( $f['choices'] as $val => $label ) {
 					$oid = $id . '-' . $i++;
+					// 1.16.0: ett spärrat alternativ syns men går inte att välja.
+					$off = self::is_disabled_choice( $f, $val );
 					printf(
-						'<input class="xf-choice-input" type="radio" id="%s" name="%s" value="%s"%s%s><label class="xf-choice-label" for="%s">%s</label>',
+						'<input class="xf-choice-input" type="radio" id="%s" name="%s" value="%s"%s%s%s><label class="%s" for="%s">%s</label>',
 						esc_attr( $oid ), esc_attr( $name ), esc_attr( $val ),
-						checked( $value, $val, false ), $required, // phpcs:ignore
+						checked( $value, $val, false ), $required, $off ? ' disabled' : '', // phpcs:ignore
+						$off ? 'xf-choice-label is-disabled' : 'xf-choice-label',
 						esc_attr( $oid ), esc_html( $label )
 					);
 				}
@@ -2388,10 +2651,13 @@ final class Relativt_Form {
 				$i        = 0;
 				foreach ( $f['choices'] as $val => $label ) {
 					$oid = $id . '-' . $i++;
+					// 1.16.0: ett spärrat alternativ syns men går inte att välja.
+					$off = self::is_disabled_choice( $f, $val );
 					printf(
-						'<label class="xf-check" for="%s"><input class="xf-check-input" type="checkbox" id="%s" name="%s[]" value="%s"%s><span class="xf-check-box" aria-hidden="true"></span><span class="xf-check-text">%s</span></label>',
+						'<label class="%s" for="%s"><input class="xf-check-input" type="checkbox" id="%s" name="%s[]" value="%s"%s%s><span class="xf-check-box" aria-hidden="true"></span><span class="xf-check-text">%s</span></label>',
+						$off ? 'xf-check is-disabled' : 'xf-check',
 						esc_attr( $oid ), esc_attr( $oid ), esc_attr( $name ), esc_attr( $val ),
-						checked( in_array( (string) $val, $selected, true ), true, false ),
+						checked( in_array( (string) $val, $selected, true ), true, false ), $off ? ' disabled' : '',
 						esc_html( $label )
 					);
 				}
@@ -2508,8 +2774,24 @@ final class Relativt_Form {
 			$fields = $this->steps_as_headings( $fields );
 		}
 
+		/*
+		 * 1.16.0: samma filter som när formuläret ritas ut, i fasen
+		 * 'definition' och utan sidkontext (post_id 0) – svaret är publikt
+		 * och cachebart, och vet inte vilken sida frontenden visar.
+		 */
+		$fields = $this->filter_choices( $form_id, $fields, 0, 'definition' );
+
 		return array_map(
 			function ( array $f ): array {
+				/*
+				 * Spärrade alternativ (1.16.0) får en egen nyckel, och bara när
+				 * det finns några – svaret för alla andra fält är oförändrat.
+				 */
+				$disabled = $f['disabled'] ?? [];
+				unset( $f['disabled'] );
+				if ( $disabled ) {
+					$f['disabled_choices'] = array_values( $disabled );
+				}
 				$f['choices'] = (object) $f['choices'];
 				// Statistikvalet är en admininställning, inte en del av formuläret.
 				unset( $f['stats'] );
@@ -2648,6 +2930,17 @@ final class Relativt_Form {
 		$form_id = (int) ( $body['form'] ?? 0 );
 
 		/*
+		 * Sidkontext (1.16.0). Bara med "Koppla inskicket till sidan" på får
+		 * $body nyckeln post_id – kontrollerad mot signaturen och mot att
+		 * posten är publik, annars 0. Filtren relativt_form_errors och
+		 * relativt_form_values läser den därifrån. Formulär med inställningen
+		 * av får exakt samma $body som förut.
+		 */
+		if ( $this->post_context_enabled( $form_id ) ) {
+			$body['post_id'] = $this->submitted_post_id( $form_id, $body );
+		}
+
+		/*
 		 * 1.15.0: allt besökaren kan få se – spärrarnas fel, valideringsfelen,
 		 * tacktexterna – tas fram på sidans språk, som JS skickar med i lang.
 		 * Därefter återställs språket, så att lagringen och notismailet sker
@@ -2784,7 +3077,7 @@ final class Relativt_Form {
 
 		// 6. Validering.
 		$raw    = is_array( $body['fields'] ?? null ) ? $body['fields'] : [];
-		$result = $this->validate( $form_id, $raw );
+		$result = $this->validate( $form_id, $raw, (int) ( $body['post_id'] ?? 0 ) );
 
 		/**
 		 * Egna valideringsfel, för tillägg som bygger på motorn (1.9.0).
@@ -2991,9 +3284,15 @@ final class Relativt_Form {
 	 *
 	 * @return array{values:array<int,array>,errors:array<string,string>}
 	 */
-	public function validate( int $form_id, array $raw ): array {
-		$fields  = $this->get_fields( $form_id );
-		$msg     = $this->messages( $form_id );
+	public function validate( int $form_id, array $raw, int $post_id = 0 ): array {
+		/*
+		 * 1.16.0: alternativen valideras mot samma filtrerade lista som
+		 * formuläret ritades ut med – för posten inskicket kom från, och
+		 * som den ser ut NU. En cachad sida kan visa en inaktuell lista; det
+		 * är det här som avgör. Utan lyssnare är fälten orörda.
+		 */
+		$fields  = $this->filter_choices( $form_id, $this->get_fields( $form_id ), $post_id, 'validate' );
+		$msg     = $this->all_messages( $form_id );
 		$flat    = [];
 		$errors  = [];
 		$values  = [];
@@ -3043,6 +3342,11 @@ final class Relativt_Form {
 			if ( in_array( $type, [ 'checkboxes' ], true ) ) {
 				$value = is_array( $value ) ? array_map( 'sanitize_text_field', $value ) : [];
 				$value = array_values( array_intersect( $value, array_keys( $f['choices'] ) ) );
+				// 1.16.0: okända värden rensas som förut, men ett spärrat alternativ är ett fel.
+				if ( array_filter( $value, fn( $v ) => self::is_disabled_choice( $f, $v ) ) ) {
+					$errors[ $key ] = $msg['choice_disabled'];
+					continue;
+				}
 				$store = implode( ', ', array_map( fn( $v ) => $f['choices'][ $v ] ?? $v, $value ) );
 			} elseif ( 'textarea' === $type ) {
 				$store = sanitize_textarea_field( (string) $this->flatten( $value ) );
@@ -3053,6 +3357,11 @@ final class Relativt_Form {
 				$store = (string) $this->flatten( $value );
 				if ( '' !== $store && ! isset( $f['choices'][ $store ] ) ) {
 					$errors[ $key ] = $msg['choice'];
+					continue;
+				}
+				// 1.16.0: alternativet finns men är spärrat, t.ex. fullbokat sedan sidan cachades.
+				if ( '' !== $store && self::is_disabled_choice( $f, $store ) ) {
+					$errors[ $key ] = $msg['choice_disabled'];
 					continue;
 				}
 				$store = '' !== $store ? ( $f['choices'][ $store ] ?? $store ) : '';
@@ -3411,6 +3720,9 @@ final class Relativt_Form {
 			'date'     => 'Datum',
 			'time'     => 'Tid',
 			'page'     => 'Skickat från',
+			// 1.16.0: bara i inskick med sidkontext; annars saknas nycklarna och raderna hoppas över.
+			'post_title' => 'Sidtitel',
+			'post_id'    => 'Post-ID',
 			'landing'  => 'Landningssida',
 			'referrer' => 'Hänvisande sida',
 			'consent'  => 'Samtycke',
@@ -3464,6 +3776,24 @@ final class Relativt_Form {
 			'consent'  => $this->consent_record( $form_id, $body ),
 			'ip'       => $this->setting( $form_id, 'xf_log_ip', false ) ? $this->client_ip() : '',
 			'utm'      => $utm,
+		] + $this->post_meta( (int) ( $body['post_id'] ?? 0 ) );
+	}
+
+	/**
+	 * Sidans titel och post-ID för metadatan (1.16.0). Bara när inskicket
+	 * har en post – annars inga nycklar alls, så att mailet, det sparade
+	 * inskicket och CSV-exporten är oförändrade. Titeln läses på servern,
+	 * aldrig ur inskicket.
+	 *
+	 * @return array{post_title?:string,post_id?:int}
+	 */
+	private function post_meta( int $post_id ): array {
+		if ( $post_id <= 0 ) {
+			return [];
+		}
+		return [
+			'post_title' => html_entity_decode( wp_strip_all_tags( (string) get_the_title( $post_id ) ), ENT_QUOTES, 'UTF-8' ),
+			'post_id'    => $post_id,
 		];
 	}
 
@@ -4261,6 +4591,15 @@ final class Relativt_Form {
 		$columns = [ 'Datum', 'Formulär' ];
 		$rows    = [];
 
+		/*
+		 * 1.16.0: sidtitel och post-ID ur inskick med sidkontext. De hålls
+		 * under egna nycklar – ett formulär kan ha ett fält som heter
+		 * "Sidtitel" – och läggs sist, efter alla befintliga kolumner, och
+		 * bara om något av inskicken har dem. Exporten är annars oförändrad.
+		 */
+		$tail      = [ "\0post_title" => 'Sidtitel', "\0post_id" => 'Post-ID' ];
+		$tail_used = false;
+
 		foreach ( $entries as $entry ) {
 			$values = get_post_meta( $entry->ID, '_xf_values', true );
 			$meta   = get_post_meta( $entry->ID, '_xf_meta', true );
@@ -4288,8 +4627,19 @@ final class Relativt_Form {
 					$columns[] = $label;
 				}
 			}
+			if ( is_array( $meta ) && ! empty( $meta['post_id'] ) ) {
+				$row["\0post_title"] = (string) ( $meta['post_title'] ?? '' );
+				$row["\0post_id"]    = (string) $meta['post_id'];
+				$tail_used           = true;
+			}
 
 			$rows[] = $row;
+		}
+
+		$header = $columns;
+		if ( $tail_used ) {
+			$columns = array_merge( $columns, array_keys( $tail ) );
+			$header  = array_merge( $header, array_values( $tail ) );
 		}
 
 		nocache_headers();
@@ -4298,7 +4648,7 @@ final class Relativt_Form {
 
 		$out = fopen( 'php://output', 'w' );
 		fprintf( $out, chr( 0xEF ) . chr( 0xBB ) . chr( 0xBF ) ); // BOM så Excel läser å ä ö.
-		fputcsv( $out, array_map( [ self::class, 'csv_guard' ], $columns ), ';' );
+		fputcsv( $out, array_map( [ self::class, 'csv_guard' ], $header ), ';' );
 		foreach ( $rows as $row ) {
 			fputcsv( $out, array_map( fn( $c ) => self::csv_guard( (string) ( $row[ $c ] ?? '' ) ), $columns ), ';' );
 		}

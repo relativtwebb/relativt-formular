@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.15.0
+Stable tag: 1.16.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -23,6 +23,10 @@ Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
 == Upgrade Notice ==
 
+= 1.16.0 =
+Inga åtgärder för befintliga formulär. Slår du på "Koppla inskicket till
+sidan" i ett formulär: töm sidcachen efteråt.
+
 = 1.15.0 =
 Flerspråkiga sajter: töm sidcachen efter uppdateringen, så att sidorna får
 med sitt språk till formulärets skript. Sajter med ett språk behöver inte
@@ -37,6 +41,14 @@ Utan samtyckesverktyg skrivs kampanjkakan inte längre. Se CHANGELOG för hur
 det gamla beteendet behålls.
 
 == Changelog ==
+
+= 1.16.0 =
+Dynamiska alternativ och sidkontext. Sajtens kod kan fylla alternativen i
+val-fält och spärra enskilda alternativ via filtret
+relativt_form_field_choices; servern validerar mot samma lista. Inställningen
+"Koppla inskicket till sidan" lägger sidtitel och post-ID i mailet, inskicket
+och CSV-exporten. Båda av som standard; befintliga formulär är oförändrade.
+Se docs/dynamiska-alternativ.md.
 
 = 1.15.0 =
 Stöd för flerspråkiga sajter. Sidans språk följer med REST-anropen, så fel

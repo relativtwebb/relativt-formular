@@ -1,0 +1,1608 @@
+/**
+ * Relativt Formulär
+ * -----------------------------------------------------------------------------
+ * Två ansvarsområden:
+ *
+ *  1. Kampanjspårning. Körs på ALLA sidor, oavsett om ett formulär finns där,
+ *     eftersom UTM-taggarna ligger på landningssidan och inte på kontaktsidan.
+ *  2. Formulärlogik. Villkorlig fältvisning, förval, validering, ajax-inskick
+ *     och tack-läge.
+ *
+ * Laddas globalt via enqueue-arrayen. Inga beroenden.
+ *
+ * Konfigurationen (window.relativtFormConfig) skrivs av PHP:s register_assets
+ * före den här filen: felmeddelanden, länkspärrens tak, samtyckesläget och
+ * samtyckeskategorierna för kampanjkakan, och vilka samtyckesverktyg som finns.
+ * Saknas objektet – som i demon – gäller standardvärdena nedan.
+ */
+
+(() => {
+	'use strict';
+
+	const CONFIG = typeof window.relativtFormConfig === 'object' && window.relativtFormConfig !== null
+		? window.relativtFormConfig
+		: {};
+
+	/* =========================================================================
+	 * 1. Kampanjspårning
+	 * ====================================================================== */
+
+	const COOKIE = 'xf_src';
+	const DAYS = 90;
+	const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
+	const CLICK_KEYS = ['gclid', 'fbclid'];
+	const CAMPAIGN_KEYS = [...UTM_KEYS, ...CLICK_KEYS];
+	/** Attributionen: det som räcker med statistiksamtycke för. */
+	const BASE_KEYS = [...UTM_KEYS, 'landing', 'referrer'];
+
+	/*
+	 * Samtyckesläge för kakan, satt via filtret relativt_form_utm_cookie:
+	 *
+	 *   'auto'   (standard) – kakan skrivs bara med samtycke från ett
+	 *            samtyckesverktyg, i den här prioritetsordningen:
+	 *              1. Relativt Cookie Consent (rccCookie i konfigurationen)
+	 *              2. WP Consent API (wp_has_consent)
+	 *              3. den generella kroken window.relativtFormConsent
+	 *            Finns inget av dem skrivs kakan inte alls (före 1.7.0 skrevs
+	 *            den direkt).
+	 *   'always' – skriv alltid, med klick-id. Det gamla beteendet, för sajter
+	 *            som hanterar samtycket på annat håll och blockerar skriptet
+	 *            därifrån.
+	 *   'never'  – skriv aldrig.
+	 *
+	 * Kakan har två delar med var sin samtyckeskategori (filtret
+	 * relativt_form_consent_categories, någon kategori i listan räcker):
+	 *
+	 *   attribution – UTM-parametrar, landningssida, hänvisande sida.
+	 *                 Standard: statistics eller marketing.
+	 *   clickIds    – gclid och fbclid. Annonsplattformarnas identifierare för
+	 *                 ett enskilt klick. Standard: marketing.
+	 *
+	 * Det kakan inte får innehålla hålls bara i minnet: värden från den här
+	 * sidans URL följer med ett inskick härifrån, men inte till nästa sida.
+	 * Det kakan inte längre får innehålla läses inte heller ur den – det
+	 * plockas bort, både ur kakan och ur minnet.
+	 */
+	const UTM_MODE = ['always', 'never'].includes(CONFIG.utmCookie) ? CONFIG.utmCookie : 'auto';
+	const RCC_COOKIE = typeof CONFIG.rccCookie === 'string' && CONFIG.rccCookie !== '' ? CONFIG.rccCookie : null;
+	/** Sajtens samtyckesversion i Relativt Cookie Consent, eller null om okänd. */
+	const RCC_VERSION = Number.isInteger(CONFIG.rccConsentVersion) && CONFIG.rccConsentVersion > 0 ? CONFIG.rccConsentVersion : null;
+	const WP_CONSENT_API = CONFIG.wpConsentApi === true;
+
+	const categoryList = (value, fallback) => (Array.isArray(value)
+		? value.filter((category) => typeof category === 'string' && category !== '')
+		: fallback);
+
+	const CATEGORIES = {
+		attribution: categoryList(CONFIG.consentCategories?.attribution, ['statistics', 'marketing']),
+		clickIds: categoryList(CONFIG.consentCategories?.clickIds, ['marketing']),
+	};
+
+	const hasCookie = (name) => document.cookie.split('; ').some((row) => row.startsWith(`${name}=`));
+
+	const readCookie = (name) => {
+		const match = document.cookie.split('; ').find((row) => row.startsWith(`${name}=`));
+		if (!match) return null;
+		try {
+			return JSON.parse(decodeURIComponent(match.slice(name.length + 1)));
+		} catch {
+			return null;
+		}
+	};
+
+	/**
+	 * Livslängden räknas från posten (t), inte från skrivtillfället. En kaka
+	 * som skrivs om – klick-id som plockas bort, samtycke som kommer senare –
+	 * får alltså aldrig förlängd livstid.
+	 */
+	const writeCookie = (name, value) => {
+		const start = Number(value?.t) || Date.now();
+		const expires = new Date(start + DAYS * 864e5).toUTCString();
+		const secure = location.protocol === 'https:' ? '; Secure' : '';
+		document.cookie = `${name}=${encodeURIComponent(JSON.stringify(value))}; expires=${expires}; path=/; SameSite=Lax${secure}`;
+	};
+
+	const removeCookie = (name) => {
+		document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax`;
+	};
+
+	/* -- Samtyckesverktygen ---------------------------------------------- */
+
+	/** true, 'allow' (WP Consent API) och 'granted' (Consent Mode) räknas som ja. */
+	const isYes = (value) => value === true || value === 'allow' || value === 'granted';
+
+	// Senaste besked från respektive verktygs ändringshändelse. Händelsen kan
+	// komma innan verktyget hunnit spara beskedet där det annars läses.
+	let rccLatest = null;
+	const wpLatest = {};
+	let hookLatest = null;
+
+	/*
+	 * WP Consent API köar sitt skript med mycket hög prioritet, så det körs
+	 * EFTER det här. Och en egen samtyckeslösning kan definiera kroken i ett
+	 * senare skript. Inget samtyckesverktyg är därför inte avgjort förrän
+	 * sidan laddat färdigt – fram till dess lämnas kakan orörd.
+	 */
+	let settled = document.readyState === 'complete';
+
+	const wpConsentType = () => (typeof window.wp_consent_type !== 'undefined'
+		? window.wp_consent_type
+		: window.wp_fallback_consent_type);
+
+	/**
+	 * Vilket samtyckesverktyg som gäller just nu: 'rcc', 'wp-consent-api',
+	 * 'hook', null (inget) eller 'pending' (inte avgjort ännu).
+	 *
+	 * WP Consent API utan samtyckestyp betyder att inget samtyckesverktyg
+	 * kopplat in sig, och då svarar wp_has_consent() ja på allt. Det svaret
+	 * används inte – API:et räknas bara när en typ (optin/optout) är satt.
+	 * Med wp_consent_api_waitfor_consent_hook väntar vi på typen
+	 * (wp_consent_type_defined) så länge det tar.
+	 */
+	const consentTool = () => {
+		// Relativt Cookie Consent: vänta på dess API (window.rcc), som vet om
+		// samtycket gäller den aktuella samtyckesversionen.
+		if (RCC_COOKIE) return rccApi() || settled || rccLatest ? 'rcc' : 'pending';
+
+		if (typeof window.wp_has_consent === 'function') {
+			if (wpConsentType()) return 'wp-consent-api';
+			if (!settled || window.waitfor_consent_hook) return 'pending';
+		} else if (WP_CONSENT_API && !settled) {
+			return 'pending';
+		}
+
+		if (typeof window.relativtFormConsent === 'function' || hookLatest) return 'hook';
+
+		return settled ? null : 'pending';
+	};
+
+	const rccApi = () => typeof window.rcc?.getConsent === 'function';
+
+	/**
+	 * Samtycket i Relativt Cookie Consent – bara om det gäller sajtens
+	 * aktuella samtyckesversion. window.rcc.getConsent() svarar null för ett
+	 * inaktuellt samtycke. Har cookie-pluginets skript inte körts alls när
+	 * sidan laddat färdigt (fördröjt av ett optimeringsplugin, blockerat)
+	 * läses samtyckeskakan direkt, men bara om versionen stämmer med den PHP
+	 * skickat. Okänd version = inget samtycke.
+	 */
+	const rccConsent = () => {
+		if (rccApi()) return window.rcc.getConsent();
+
+		const consent = readCookie(RCC_COOKIE);
+		if (!consent || typeof consent !== 'object' || !RCC_VERSION) return null;
+		return (parseInt(consent.version, 10) || 1) === RCC_VERSION ? consent : null;
+	};
+
+	const granted = (tool, category) => {
+		try {
+			switch (tool) {
+				case 'rcc': {
+					const consent = rccLatest ?? rccConsent();
+					return !!(consent && isYes(consent[category]));
+				}
+				case 'wp-consent-api':
+					return category in wpLatest ? wpLatest[category] : !!window.wp_has_consent(category);
+				case 'hook':
+					if (hookLatest && category in hookLatest) return isYes(hookLatest[category]);
+					return typeof window.relativtFormConsent === 'function' && isYes(window.relativtFormConsent(category));
+				default:
+					return false;
+			}
+		} catch {
+			// Ett trasigt samtyckesverktyg ska aldrig betyda ja.
+			return false;
+		}
+	};
+
+	const NOTHING = { base: false, clicks: false };
+
+	/** Vad kakan får innehålla just nu, eller null om det inte är avgjort. */
+	const permissions = () => {
+		if (UTM_MODE === 'always') return { base: true, clicks: true };
+		if (UTM_MODE === 'never') return NOTHING;
+
+		const tool = consentTool();
+		if (tool === 'pending') return null;
+		if (!tool) return NOTHING;
+
+		return {
+			base: CATEGORIES.attribution.some((category) => granted(tool, category)),
+			clicks: CATEGORIES.clickIds.some((category) => granted(tool, category)),
+		};
+	};
+
+	/** De delar av posten som får sparas, eller null om ingenting återstår. */
+	const pick = (record, perms) => {
+		if (!record || typeof record !== 'object' || !perms) return null;
+
+		const keys = [...(perms.base ? BASE_KEYS : []), ...(perms.clicks ? CLICK_KEYS : [])];
+		const out = {};
+		let filled = false;
+
+		for (const key of keys) {
+			if (typeof record[key] !== 'string') continue;
+			out[key] = record[key];
+			filled = filled || record[key] !== '';
+		}
+
+		if (!filled) return null;
+		out.t = Number(record.t) || Date.now();
+		return out;
+	};
+
+	/* -- Posten -------------------------------------------------------- */
+
+	const params = new URLSearchParams(location.search);
+	const incoming = {};
+	for (const key of CAMPAIGN_KEYS) {
+		const value = params.get(key);
+		if (value) incoming[key] = value.slice(0, 200);
+	}
+	const hasCampaign = Object.keys(incoming).length > 0;
+
+	/** Den här sidans post – innan samtycket är avgjort är det den som gäller. */
+	const pageRecord = {
+		...incoming,
+		landing: `${location.origin}${location.pathname}`,
+		referrer: document.referrer && !document.referrer.includes(location.host) ? document.referrer : '',
+		t: Date.now(),
+	};
+
+	/** Sätts när samtycket först är avgjort. */
+	let state = null;
+
+	/**
+	 * Kakan skrivs vid första besöket, och skrivs om när besökaren kommer
+	 * tillbaka via en NY kampanjlänk. Ett direktbesök däremellan rör aldrig
+	 * posten – det är hela poängen med att spara den.
+	 *
+	 * Ur en befintlig kaka läses bara det som får sparas nu. Dras samtycket
+	 * till marknadsföring tillbaka försvinner alltså klick-id även ur minnet,
+	 * och de kommer inte tillbaka om samtycket ges igen senare på sidan.
+	 */
+	const initialise = (perms) => {
+		const stored = pick(readCookie(COOKIE), perms);
+		const page = { ...pageRecord, referrer: pageRecord.referrer || stored?.referrer || '' };
+		const fromUrl = hasCampaign || !stored;
+		state = { page, fromUrl, captured: fromUrl ? page : stored };
+	};
+
+	/** Attributionen som följer med ett inskick. */
+	const currentSource = () => {
+		if (!state) return pageRecord;
+		if (state.fromUrl) return state.captured;
+
+		// Posten kom ur kakan: samma gränser som för kakan, även i minnet.
+		const perms = permissions();
+		if (!perms) return state.captured;
+		return pick(state.captured, perms) ?? state.page;
+	};
+
+	/** Skriver, skalar av eller tar bort kakan efter dagens samtycke. */
+	const sync = () => {
+		const perms = permissions();
+		if (!perms) return; // Inte avgjort – kakan lämnas orörd.
+
+		if (!state) initialise(perms);
+
+		const record = pick(state.captured, perms);
+		if (record) {
+			if (JSON.stringify(record) !== JSON.stringify(readCookie(COOKIE))) writeCookie(COOKIE, record);
+		} else if (hasCookie(COOKIE)) {
+			removeCookie(COOKIE);
+		}
+	};
+
+	// Samtycket kan komma, ändras eller dras tillbaka långt efter sidladdningen.
+	if (UTM_MODE === 'auto') {
+		document.addEventListener('rcc_consent_updated', (event) => {
+			if (event.detail && typeof event.detail === 'object') rccLatest = event.detail;
+			sync();
+		});
+		// Cookie-pluginets API är klart (om det laddas efter det här skriptet).
+		document.addEventListener('rcc_ready', sync);
+
+		document.addEventListener('wp_listen_for_consent_change', (event) => {
+			const changed = event.detail && typeof event.detail === 'object' ? event.detail : {};
+			for (const category of Object.keys(changed)) wpLatest[category] = isYes(changed[category]);
+			sync();
+		});
+		document.addEventListener('wp_consent_type_defined', sync);
+
+		/*
+		 * Den generella kroken för egna samtyckeslösningar: definiera
+		 * window.relativtFormConsent = (kategori) => true/false, och skicka
+		 * relativt-form:consent när samtycket ändras. Händelsens detail kan
+		 * bära beskedet direkt: { statistics: true, marketing: false }.
+		 */
+		document.addEventListener('relativt-form:consent', (event) => {
+			if (event.detail && typeof event.detail === 'object') hookLatest = { ...(hookLatest ?? {}), ...event.detail };
+			sync();
+		});
+
+		if (!settled) {
+			window.addEventListener('load', () => {
+				settled = true;
+				sync();
+			});
+		}
+	}
+
+	sync();
+
+	/** Felsökning: vilket verktyg som läses och vad kakan får innehålla. */
+	const consentStatus = () => {
+		const perms = permissions();
+		return {
+			mode: UTM_MODE,
+			tool: UTM_MODE === 'auto' ? consentTool() : null,
+			attribution: perms ? perms.base : null,
+			clickIds: perms ? perms.clicks : null,
+		};
+	};
+
+	/* =========================================================================
+	 * 2. Formulärlogik
+	 * ====================================================================== */
+
+	// I Oxygens builder ska formuläret vara ett vanligt redigerbart block.
+	const inBuilder = () => document.body?.classList.contains('oxygen-builder-body');
+
+	/*
+	 * Standardtexterna SPEGLAR messages() i class-relativt-form.php – på en
+	 * riktig sajt skrivs de över av samma filtrerade lista via konfigurationen,
+	 * så klient och server säger ordagrant samma sak.
+	 */
+	const MESSAGES = {
+		required: 'Fyll i detta fält.',
+		email: 'Kontrollera e-postadressen.',
+		tel: 'Ange ett giltigt telefonnummer, t.ex. 070-123 45 67.',
+		number: 'Ange ett nummer.',
+		date: 'Kontrollera datumet.',
+		url: 'Ange en giltig webbadress, t.ex. https://exempel.se.',
+		confirm: 'Stämmer inte överens. Kontrollera att du skrivit likadant båda gångerna.',
+		links: 'Meddelandet innehåller för många länkar.',
+		consent: 'Du behöver godkänna villkoren.',
+		generic: 'Något gick fel. Försök igen om en liten stund.',
+		turnstile: 'Säkerhetskontrollen är inte klar. Vänta en sekund och försök igen.',
+		...(typeof CONFIG.messages === 'object' && CONFIG.messages !== null ? CONFIG.messages : {}),
+	};
+
+	/*
+	 * Sidans språk (1.15.0), som PHP skrev det i konfigurationen: Polylangs
+	 * språkkod eller WordPress locale. Det skickas med /token och /submit, så
+	 * att servern svarar på samma språk som sidan – REST-anropet vet annars
+	 * inte vilken språkversion besökaren står på. Servern validerar värdet;
+	 * kontrollen här håller bara skräp borta från adressen. Saknas språket,
+	 * som i en konfiguration från före 1.15.0, skickas ingenting och allt
+	 * fungerar som förut.
+	 */
+	const LANG = typeof CONFIG.lang === 'string' && /^[A-Za-z0-9_-]{1,24}$/.test(CONFIG.lang) ? CONFIG.lang : '';
+
+	/** Speglar länkspärren i validate() – samma tak, samma räkning. 0 = av. */
+	const MAX_LINKS = Number.isFinite(Number(CONFIG.maxLinks)) ? Math.max(0, Math.trunc(Number(CONFIG.maxLinks))) : 3;
+
+	/* -------------------------------------------------------------------------
+	 * E-post och telefon
+	 *
+	 * SPEGLAR valid_email() och normalize_phone() i class-relativt-form.php. Ändras den
+	 * ena MÅSTE den andra ändras – annars godkänner webbläsaren något servern
+	 * sedan avvisar, vilket ser ut som ett slumpmässigt fel för besökaren.
+	 * ---------------------------------------------------------------------- */
+
+	const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i;
+
+	const validEmail = (value) => {
+		const email = value.trim();
+		if (!EMAIL_RE.test(email)) return false;
+		if (email.includes('..') || email.includes('.@') || email.includes('@.')) return false;
+		return true;
+	};
+
+	/** Svenskt nummer med inledande nolla: 8–12 siffror, inte samma siffra rakt igenom. */
+	const validNational = (digits) => {
+		if (digits.length < 8 || digits.length > 12) return false;
+		return !/^(\d)\1+$/.test(digits);
+	};
+
+	/** Returnerar det normaliserade numret, eller null om det inte kan vara ett nummer. */
+	const normalizePhone = (raw) => {
+		const input = raw.trim();
+		if (input === '') return null;
+
+		let plus = input.startsWith('+');
+		let digits = input.replace(/\D+/g, '');
+		if (digits === '') return null;
+
+		// 0046… är samma sak som +46…
+		if (!plus && digits.startsWith('00')) {
+			plus = true;
+			digits = digits.slice(2);
+		}
+
+		if (plus) {
+			if (digits.startsWith('46')) {
+				const national = `0${digits.slice(2).replace(/^0+/, '')}`;
+				return validNational(national) ? national : null;
+			}
+			// Landsnummer börjar aldrig med noll. Utan den kontrollen tolkas
+			// t.ex. 0000000000 som "+00000000" och släpps igenom.
+			if (digits.startsWith('0')) return null;
+			return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
+		}
+
+		if (digits.startsWith('0')) {
+			return validNational(digits) ? digits : null;
+		}
+
+		// Mobilnummer utan inledande nolla, t.ex. "701234567".
+		if (digits.length === 9 && digits.startsWith('7')) return `0${digits}`;
+
+		return null;
+	};
+
+	/* -------------------------------------------------------------------------
+	 * Landsväljare för telefonfält (1.12.0)
+	 *
+	 * Fältet är ett vanligt tel-fält, förifyllt med landsnumret, plus en
+	 * rullista som bara hjälper till att byta prefixet. Allt nedan lever i
+	 * webbläsaren: servern får numret som en vanlig sträng och validerar det med
+	 * normalize_phone() precis som förut. Ändras något här som gör att ett
+	 * nummer räknas som giltigt eller ogiltigt, ändra det i PHP också.
+	 * ---------------------------------------------------------------------- */
+
+	/** Landsnumret (utan plus) för det valda landet i rullistan. */
+	const dialOf = (select) => select?.selectedOptions?.[0]?.dataset?.dial ?? '';
+
+	/**
+	 * Landet ett nummer i internationell form (+47 … / 0047 …) hör till, eller
+	 * null. Längsta landsnumret vinner; vid lika vinner det som står först, så
+	 * +1 blir USA. Speglar phone_country_of() i class-relativt-form.php.
+	 */
+	const matchDial = (select, value) => {
+		const input = value.trim();
+		let digits = input.replace(/\D+/g, '');
+		if (input.startsWith('00')) digits = digits.slice(2);
+		else if (!input.startsWith('+')) return null;
+
+		let best = null;
+		for (const option of select.options) {
+			const dial = option.dataset.dial ?? '';
+			if (dial && digits.startsWith(dial) && (best === null || dial.length > best.dataset.dial.length)) best = option;
+		}
+		return best;
+	};
+
+	/**
+	 * Det fältet skickar och valideras som. Tomt om bara landsnumret står kvar.
+	 * Ett nummer utan landsnummer får det valda landets. Nollan före
+	 * abonnentnumret (070…, 07946…) tas bort – annars blir +44 07946 …
+	 * ett nummer som inte går att ringa. Italien är undantaget: där ingår nollan.
+	 * Text som inte går att tolka lämnas orörd, så att den vanliga valideringen
+	 * avvisar den med samma meddelande som förut.
+	 */
+	const composePhone = (raw, dial) => {
+		const value = raw.trim();
+		if (value === '' || dial === '') return value;
+
+		const international = value.startsWith('+') || value.startsWith('00');
+		let digits = value.replace(/\D+/g, '');
+		if (value.startsWith('00')) digits = digits.slice(2);
+
+		if (international) {
+			if (!digits.startsWith(dial)) return value;
+			digits = digits.slice(dial.length);
+			if (digits === '') return /[^\d\s+()-]/.test(value) ? value : '';
+		} else if (digits === '') {
+			return value;
+		}
+
+		const national = dial === '39' ? digits : digits.replace(/^0+/, '');
+		return national === '' ? value : `+${dial}${national}`;
+	};
+
+	/**
+	 * Speglar datumkontrollen i validate(): formatet räcker inte, 2026-13-45
+	 * matchar mönstret. Date-objektet rullar över ogiltiga datum (13:e månaden
+	 * blir januari året därpå), så komponenterna jämförs efter konstruktionen.
+	 */
+	const validDate = (value) => {
+		if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+		const [y, m, d] = value.split('-').map(Number);
+		const date = new Date(y, m - 1, d);
+		return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+	};
+
+	/** Speglar länkräkningen i validate() – samma mönster, samma resultat. */
+	const countLinks = (value) => (value.match(/https?:\/\/|www\./gi) ?? []).length;
+
+	/**
+	 * Returnerar en normaliserad URL, eller null om värdet inte kan vara en
+	 * webbadress. SPEGLAR normalize_url() i class-relativt-form.php – ändras
+	 * den ena MÅSTE den andra ändras.
+	 */
+	const normalizeUrl = (raw) => {
+		let input = raw.trim();
+		if (input === '') return null;
+
+		if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(input)) {
+			input = `https://${input.replace(/^\/+/, '')}`;
+		}
+
+		try {
+			const url = new URL(input);
+			if (!url.hostname.includes('.')) return null;
+			return url.href;
+		} catch {
+			return null;
+		}
+	};
+
+	/**
+	 * Det två värden jämförs som i ett bekräftelsefält (1.13.0). Speglar
+	 * confirm_key() i class-relativt-form.php: mellanrum i kanterna räknas inte
+	 * och flera i rad räknas som ett, e-post utan skillnad på versaler,
+	 * telefonnummer och webbadresser normaliserade, övrigt exakt.
+	 */
+	const confirmKey = (type, raw) => {
+		const value = String(raw ?? '').replace(/\s+/g, ' ').trim();
+		if (value === '') return '';
+		if (type === 'email') return value.toLowerCase();
+		if (type === 'tel') return normalizePhone(value) ?? value;
+		if (type === 'url') return normalizeUrl(value) ?? value;
+		return value;
+	};
+
+	class RelativtForm {
+		constructor(root) {
+			this.root = root;
+			this.form = root.querySelector('.xf-form');
+			this.thanks = root.querySelector('.xf-thanks');
+			this.formError = root.querySelector('.xf-form-error');
+			this.submitBtn = root.querySelector('.xf-submit');
+			// Turnstile-widgeten finns bara när formuläret kräver det (1.4.0).
+			this.turnstileBox = root.querySelector('[data-xf-turnstile]');
+			this.turnstileField = this.turnstileBox?.closest('.xf-field') ?? null;
+			this.id = root.dataset.xfForm;
+			this.rest = root.dataset.xfRest;
+			this.token = null;
+			this.tokenPromise = null;
+			this.busy = false;
+			this.redirecting = false;
+
+			this.fields = [...root.querySelectorAll('[data-xf-key]')].filter((el) => el.dataset.xfKey !== '');
+
+			/*
+			 * Flerstegsformulär (1.14.0). PHP sätter klassen xf-multistep bara
+			 * när formuläret har minst två steg; annars är this.steps tom och
+			 * ingen stegkod körs.
+			 */
+			this.steps = root.classList.contains('xf-multistep') ? [...root.querySelectorAll('.xf-step[data-xf-step]')] : [];
+			if (this.steps.length < 2) this.steps = [];
+			this.stepIndex = 0;
+			this.animating = false;
+
+			this.applyUrlPresets();
+			// Efter förvalen: ett förifyllt nummer kan tillhöra ett annat land än förvalda.
+			this.wirePhoneFields();
+			this.mountTurnstile();
+			this.wireA11y();
+			this.bind();
+			if (this.steps.length) this.bindSteps();
+			this.evaluateConditions();
+
+			root.classList.add('is-ready');
+		}
+
+		/**
+		 * Landsväljaren (1.12.0). Rullistan byter landsnumret först i fältet; skriver
+		 * besökaren själv ett annat landsnummer (eller webbläsaren autofyller ett helt
+		 * nummer) följer rullistan och flaggan med, så att de aldrig pekar åt olika håll.
+		 */
+		wirePhoneFields() {
+			for (const wrap of this.root.querySelectorAll('.xf-phone')) {
+				const select = wrap.querySelector('.xf-phone-select');
+				const input = wrap.querySelector('.xf-phone-input');
+				const flag = wrap.querySelector('.xf-phone-flag');
+				if (!select || !input) continue;
+
+				let previous = dialOf(select);
+				const showFlag = () => {
+					if (flag) flag.textContent = select.selectedOptions[0]?.dataset.flag ?? '';
+				};
+
+				// Ett förifyllt nummer (shortcode-attribut, sparat värde) kan tillhöra ett annat land.
+				const sync = () => {
+					const match = matchDial(select, input.value);
+					if (match && match.dataset.dial !== dialOf(select)) {
+						select.value = match.value;
+						previous = match.dataset.dial;
+					}
+					showFlag();
+				};
+
+				select.addEventListener('change', () => {
+					const dial = dialOf(select);
+					const typed = input.value.trim();
+					const old = matchDial(select, typed);
+					const oldDial = old ? old.dataset.dial : previous;
+
+					if (typed === '' || composePhone(typed, previous) === '') {
+						input.value = `+${dial} `;
+					} else if (typed.startsWith('+') || typed.startsWith('00')) {
+						// Ett nummer med landsnummer: byt bara landsnumret, behåll resten.
+						const rest = typed.replace(/^(\+|00)\s*/, '').slice(oldDial.length);
+						input.value = `+${dial}${rest.startsWith(' ') ? '' : ' '}${rest}`;
+					} else {
+						input.value = `+${dial} ${typed}`;
+					}
+
+					previous = dial;
+					showFlag();
+					// Samma väg som när besökaren skriver: rensar ett visat fel m.m.
+					input.dispatchEvent(new Event('input', { bubbles: true }));
+				});
+
+				input.addEventListener('input', sync);
+				sync();
+			}
+		}
+
+		/**
+		 * Kopplar hjälptext och felrad till fältet via aria-describedby, en
+		 * gång vid start. Felraden är tom tills ett fel visas – en tom
+		 * beskrivning läses inte upp, så kopplingen kan ligga kvar permanent
+		 * i stället för att växlas fram och tillbaka.
+		 */
+		wireA11y() {
+			for (const field of this.fields) {
+				const ids = [field.querySelector('.xf-help')?.id, field.querySelector('.xf-error')?.id].filter(Boolean);
+				if (!ids.length) continue;
+
+				for (const input of this.inputs(field)) {
+					input.setAttribute('aria-describedby', ids.join(' '));
+				}
+			}
+		}
+
+		/* -- Fältåtkomst ------------------------------------------------- */
+
+		wrapper(key) {
+			return this.fields.find((el) => el.dataset.xfKey === key) ?? null;
+		}
+
+		inputs(wrapper) {
+			// data-xf-aux = hjälpkontroll som aldrig är en del av värdet (landsväljaren).
+			return [...wrapper.querySelectorAll('input, select, textarea')].filter((el) => el.name !== 'xf_website' && !el.hasAttribute('data-xf-aux'));
+		}
+
+		valueOf(key) {
+			const wrapper = this.wrapper(key);
+			if (!wrapper) return '';
+
+			const inputs = this.inputs(wrapper);
+			if (!inputs.length) return '';
+
+			const first = inputs[0];
+
+			if (first.type === 'radio') {
+				return inputs.find((el) => el.checked)?.value ?? '';
+			}
+			if (first.type === 'checkbox') {
+				const checked = inputs.filter((el) => el.checked);
+				if (inputs.length === 1) return checked.length ? '1' : '';
+				return checked.map((el) => el.value).join(', ');
+			}
+			if (first.classList.contains('xf-phone-input')) {
+				return composePhone(first.value ?? '', dialOf(wrapper.querySelector('.xf-phone-select')));
+			}
+			return first.value ?? '';
+		}
+
+		/**
+		 * Det tekniska värdet OCH den synliga etiketten. Villkor och regler
+		 * skrivs i wp-admin av en människa som lika gärna skriver "Kandidat"
+		 * som "kandidat" – båda måste träffa, och servern gör samma sak.
+		 */
+		candidatesOf(key) {
+			const wrapper = this.wrapper(key);
+			const raw = this.valueOf(key);
+			if (!wrapper) return [raw];
+
+			const inputs = this.inputs(wrapper);
+			const first = inputs[0];
+			let label = '';
+
+			if (first?.type === 'radio') {
+				const checked = inputs.find((el) => el.checked);
+				label = checked ? wrapper.querySelector(`label[for="${CSS.escape(checked.id)}"]`)?.textContent ?? '' : '';
+			} else if (first?.tagName === 'SELECT') {
+				label = first.options[first.selectedIndex]?.textContent ?? '';
+			}
+
+			return [raw, label.trim()].filter(Boolean);
+		}
+
+		setValue(key, value) {
+			const wrapper = this.wrapper(key);
+			if (!wrapper) return;
+
+			const inputs = this.inputs(wrapper);
+			if (!inputs.length) return;
+
+			const first = inputs[0];
+
+			if (first.type === 'radio' || (first.type === 'checkbox' && inputs.length > 1)) {
+				const wanted = String(value).trim().toLowerCase();
+				// Matcha på tekniskt värde i första hand, annars på den synliga
+				// etiketten – en kampanjlänk skrivs av en människa.
+				const labelOf = (input) =>
+					(wrapper.querySelector(`label[for="${CSS.escape(input.id)}"]`)?.textContent ?? '').trim().toLowerCase();
+
+				const target =
+					inputs.find((input) => input.value.trim().toLowerCase() === wanted) ??
+					inputs.find((input) => labelOf(input) === wanted);
+
+				if (!target) return;
+				for (const input of inputs) input.checked = input === target;
+				return;
+			}
+			if (first.type === 'checkbox') {
+				first.checked = value === '1' || value === 'true';
+				return;
+			}
+			if (first.tagName === 'SELECT') {
+				const wanted = String(value).trim().toLowerCase();
+				const match =
+					[...first.options].find((o) => o.value.trim().toLowerCase() === wanted) ??
+					[...first.options].find((o) => o.textContent.trim().toLowerCase() === wanted);
+				if (match) first.value = match.value;
+				return;
+			}
+			first.value = value;
+		}
+
+		/**
+		 * URL-parametern vinner över shortcode-attributet, så kampanjlänkar kan
+		 * styra förvalet: ?jagar=kandidat
+		 */
+		applyUrlPresets() {
+			const params = new URLSearchParams(location.search);
+			for (const field of this.fields) {
+				const key = field.dataset.xfKey;
+				// Ett förifyllt bekräftelsefält bekräftar ingenting.
+				if (field.dataset.xfConfirm) continue;
+				if (params.has(key)) this.setValue(key, params.get(key));
+			}
+		}
+
+		/* -- Villkor ------------------------------------------------------ */
+
+		matches(candidates, expected) {
+			const list = (Array.isArray(candidates) ? candidates : [candidates]).map((v) => String(v).trim());
+			const wanted = String(expected ?? '').trim();
+
+			if (wanted === '') return list.some(Boolean);
+
+			const accepted = wanted
+				.split(',')
+				.map((v) => v.trim().toLowerCase())
+				.filter(Boolean);
+
+			return list.some((value) => accepted.includes(value.toLowerCase()));
+		}
+
+		evaluateConditions() {
+			for (const field of this.fields) {
+				const controller = field.dataset.xfCondField;
+				if (!controller) continue;
+
+				const visible = this.matches(this.candidatesOf(controller), field.dataset.xfCondValue);
+				field.hidden = !visible;
+				field.classList.toggle('is-hidden', !visible);
+
+				if (!visible) this.clearError(field);
+			}
+
+			// Ett svar kan hoppa över eller ta fram ett senare steg (1.14.0).
+			if (this.steps.length) this.updateSteps();
+		}
+
+		/**
+		 * Är fältets VILLKOR uppfyllt? Fält utan villkor är alltid med.
+		 *
+		 * Regression 1.1.3: testet var tidigare "är wrappern dold?"
+		 * (field.hidden) – men fälttypen Dolt fält renderas med samma
+		 * hidden-attribut som villkorsdolda fält, så dolda fält skickades
+		 * ALDRIG med i inskicket. Bara villkoret får avgöra deltagandet;
+		 * att typen inte syns är en annan sak än att fältet inte gäller.
+		 */
+		condSatisfied(field) {
+			// Flerstegsformulär: ett fält i ett överhoppat steg är inte med (1.14.0).
+			if (this.steps.length && !this.stepOpen(this.stepOf(field))) return false;
+			return this.ownCondSatisfied(field);
+		}
+
+		/** Bara fältets eget villkor, utan stegets. */
+		ownCondSatisfied(field) {
+			const controller = field.dataset.xfCondField;
+			if (!controller) return true;
+			return this.matches(this.candidatesOf(controller), field.dataset.xfCondValue);
+		}
+
+		/* -- Turnstile ---------------------------------------------------- */
+
+		/*
+		 * Widgeten renderas av Cloudflares api.js (implicit rendering via
+		 * klassen cf-turnstile). Varje formulär pratar med SIN container – inte
+		 * med ett widget-id – så att sidan och modalen inte blandar ihop
+		 * varandras token. getResponse/reset tar containern lika gärna som id.
+		 */
+		mountTurnstile() {
+			if (!this.turnstileBox) return;
+			// Flerstegsformulär: renderas först när sista steget visas, se ensureTurnstile().
+			if (this.turnstileBox.hasAttribute('data-xf-turnstile-defer')) return;
+			// Implicit rendering hittar bara containrar som finns när api.js
+			// laddas. Ett formulär som läggs in senare (ajax-modal) renderas här.
+			if (document.readyState === 'complete' && window.turnstile?.render && !this.turnstileBox.childElementCount) {
+				try {
+					window.turnstile.render(this.turnstileBox);
+				} catch {
+					/* Redan renderad – inget att göra. */
+				}
+			}
+		}
+
+		/**
+		 * Flerstegsformulär (1.14.0): widgeten ligger i sista steget, som är
+		 * dolt tills besökaren kommer dit. Den renderas därför först då – inte
+		 * i en dold behållare. Hinner besökaren dit innan Cloudflares api.js
+		 * laddats försöker vi igen en stund.
+		 */
+		ensureTurnstile() {
+			const box = this.turnstileBox;
+			if (!box || !box.hasAttribute('data-xf-turnstile-defer') || box.childElementCount || this.turnstileTimer) return;
+
+			const attempt = () => {
+				if (box.childElementCount) return true;
+				if (!window.turnstile?.render) return false;
+				try {
+					window.turnstile.render(box);
+				} catch {
+					/* Redan renderad – inget att göra. */
+				}
+				return true;
+			};
+
+			if (attempt()) return;
+			let tries = 0;
+			this.turnstileTimer = setInterval(() => {
+				if (attempt() || ++tries > 60) {
+					clearInterval(this.turnstileTimer);
+					this.turnstileTimer = null;
+				}
+			}, 250);
+		}
+
+		turnstileToken() {
+			if (!this.turnstileBox) return '';
+			let token = '';
+			try {
+				token = window.turnstile?.getResponse?.(this.turnstileBox) ?? '';
+			} catch {
+				token = '';
+			}
+			// Widgeten skriver också token till ett dolt fält i containern.
+			return token || this.turnstileBox.querySelector('[name="cf-turnstile-response"]')?.value || '';
+		}
+
+		/** En token kan bara verifieras en gång – efter ett misslyckat inskick behövs en ny. */
+		resetTurnstile() {
+			if (!this.turnstileBox) return;
+			try {
+				window.turnstile?.reset?.(this.turnstileBox);
+			} catch {
+				/* Ingen widget att återställa. */
+			}
+		}
+
+		/* -- Fel ---------------------------------------------------------- */
+
+		showError(field, message) {
+			const target = field.querySelector('.xf-error');
+			if (target) target.textContent = message;
+			field.classList.add('has-error');
+			for (const input of this.inputs(field)) input.setAttribute('aria-invalid', 'true');
+		}
+
+		clearError(field) {
+			const target = field.querySelector('.xf-error');
+			if (target) target.textContent = '';
+			field.classList.remove('has-error');
+			for (const input of this.inputs(field)) input.removeAttribute('aria-invalid');
+		}
+
+		clearAllErrors() {
+			for (const field of this.root.querySelectorAll('.xf-field')) this.clearError(field);
+			if (this.formError) this.formError.textContent = '';
+		}
+
+		/* -- Validering --------------------------------------------------- */
+
+		/**
+		 * Klientvalideringen. Utan argument kontrolleras hela formuläret, som
+		 * inför inskicket. Flerstegsformulär (1.14.0) skickar in fälten i det
+		 * aktuella steget och final = false: då hoppas samtyckesrutan och
+		 * Turnstile över (de hör till sista steget), liksom bekräftelser vars
+		 * original ligger i ett senare steg som besökaren inte nått ännu.
+		 */
+		validate(fields = this.fields, final = true) {
+			let firstBad = null;
+			const confirms = [];
+
+			for (const field of fields) {
+				if (!this.condSatisfied(field)) continue;
+
+				const key = field.dataset.xfKey;
+				const type = [...field.classList].find((c) => c.startsWith('xf-type-'))?.replace('xf-type-', '') ?? 'text';
+				if (type === 'heading' || type === 'hidden') continue;
+
+				const value = String(this.valueOf(key)).trim();
+
+				// Bekräftelsefält (1.13.0) kontrolleras sist, när originalet är klart.
+				if (type === 'confirm') {
+					confirms.push(field);
+					continue;
+				}
+
+				/*
+				 * data-xf-required sätts av renderaren. required-ATTRIBUTET
+				 * räcker inte: en flervalsgrupp kan inte bära det (då kräver
+				 * webbläsaren ALLA rutor), så utan flaggan åkte obligatoriska
+				 * flerval till servern i onödan bara för att studsa där.
+				 */
+				const required = field.dataset.xfRequired === '1' || this.inputs(field).some((el) => el.required);
+
+				if (required && value === '') {
+					this.showError(field, MESSAGES.required);
+					firstBad ??= field;
+					continue;
+				}
+				if (value === '') continue;
+
+				if (type === 'email' && !validEmail(value)) {
+					this.showError(field, MESSAGES.email);
+					firstBad ??= field;
+				} else if (type === 'tel' && normalizePhone(value) === null) {
+					this.showError(field, MESSAGES.tel);
+					firstBad ??= field;
+				} else if (type === 'number' && Number.isNaN(Number(value))) {
+					this.showError(field, MESSAGES.number);
+					firstBad ??= field;
+				} else if (type === 'date' && !validDate(value)) {
+					this.showError(field, MESSAGES.date);
+					firstBad ??= field;
+				} else if (type === 'url' && normalizeUrl(value) === null) {
+					this.showError(field, MESSAGES.url);
+					firstBad ??= field;
+				} else if (type === 'textarea' && MAX_LINKS > 0 && countLinks(value) > MAX_LINKS) {
+					this.showError(field, MESSAGES.links);
+					firstBad ??= field;
+				}
+			}
+
+			/*
+			 * Speglar validate_confirms(): har originalet ett eget fel, eller är
+			 * det dolt av sitt villkor, säger bekräftelsen ingenting.
+			 */
+			for (const field of confirms) {
+				const target = this.wrapper(field.dataset.xfConfirm);
+				if (!target || !this.condSatisfied(target) || target.classList.contains('has-error')) continue;
+				if (!final && this.steps.indexOf(this.stepOf(target)) > this.stepIndex) continue;
+				const as = field.dataset.xfConfirmType;
+				const expected = confirmKey(as, this.valueOf(field.dataset.xfConfirm));
+				const given = confirmKey(as, this.valueOf(field.dataset.xfKey));
+				const message = given === '' && expected !== '' ? MESSAGES.required : given !== expected ? MESSAGES.confirm : '';
+				if (!message) continue;
+				this.showError(field, message);
+				// Fokus till det fel som står först i formuläret, även om det kontrollerades sist.
+				if (!firstBad || field.compareDocumentPosition(firstBad) & Node.DOCUMENT_POSITION_FOLLOWING) firstBad = field;
+			}
+
+			if (!final) return firstBad;
+
+			const consent = this.root.querySelector('.xf-type-consent .xf-check-input');
+			if (consent && !consent.checked) {
+				const field = consent.closest('.xf-field');
+				this.showError(field, MESSAGES.consent);
+				firstBad ??= field;
+			}
+
+			// Utan token avvisar servern ändå – säg det vid widgeten direkt.
+			if (this.turnstileField && this.turnstileToken() === '') {
+				this.showError(this.turnstileField, MESSAGES.turnstile);
+				firstBad ??= this.turnstileField;
+			}
+
+			return firstBad;
+		}
+
+		/* -- Token -------------------------------------------------------- */
+
+		/**
+		 * Nonce och tidsstämpel hämtas separat, så att en cachad sida inte
+		 * serverar en utgången nonce. Tidsstämpeln är signerad på servern.
+		 * Anropet får en unik parameter och cache: 'no-store', så att inte
+		 * heller en sidcache, CDN eller proxy som struntar i serverns headers
+		 * kan servera ett gammalt svar.
+		 */
+		fetchToken() {
+			if (this.token) return Promise.resolve(this.token);
+			const lang = LANG ? `&lang=${encodeURIComponent(LANG)}` : '';
+			this.tokenPromise ??= fetch(`${this.rest}token?form=${encodeURIComponent(this.id)}&_=${Date.now()}${lang}`, {
+				credentials: 'same-origin',
+				cache: 'no-store',
+			})
+				.then((r) => (r.ok ? r.json() : null))
+				.then((data) => {
+					this.token = data;
+					return data;
+				})
+				.catch(() => null)
+				.finally(() => {
+					this.tokenPromise = null;
+				});
+			return this.tokenPromise;
+		}
+
+		/* -- Nyttolast ---------------------------------------------------- */
+
+		payload() {
+			const fields = {};
+
+			for (const field of this.fields) {
+				// Villkoret avgör – INTE wrapperns hidden-attribut, som även
+				// fälttypen Dolt fält bär. Rubriker faller bort på inputs-
+				// kontrollen nedan.
+				if (!this.condSatisfied(field)) continue;
+
+				const key = field.dataset.xfKey;
+				const inputs = this.inputs(field);
+				if (!inputs.length) continue;
+
+				const first = inputs[0];
+				if (first.type === 'checkbox' && inputs.length > 1) {
+					fields[key] = inputs.filter((el) => el.checked).map((el) => el.value);
+				} else {
+					fields[key] = this.valueOf(key);
+				}
+			}
+
+			const utm = { ...currentSource() };
+			delete utm.t;
+			/*
+			 * Klick-id lämnar bara webbläsaren med samtycke till kategorin för
+			 * klick-id (normalt marknadsföring) när inskicket görs. De är
+			 * annonsplattformarnas identifierare för ett enskilt klick, och i
+			 * inskicket kopplas de dessutom till ett namn och en e-postadress.
+			 * Utan samtycke fanns de bara i minnet – nu stannar de där.
+			 */
+			if (permissions()?.clicks !== true) {
+				for (const key of CLICK_KEYS) delete utm[key];
+			}
+
+			const payload = {
+				form: this.id,
+				fields,
+				utm,
+				page: `${location.origin}${location.pathname}`,
+				xf_website: this.form.querySelector('[name="xf_website"]')?.value ?? '',
+				xf_consent: this.root.querySelector('.xf-type-consent .xf-check-input')?.checked ? 1 : 0,
+				nonce: this.token?.nonce ?? '',
+				ts: this.token?.ts ?? 0,
+				sig: this.token?.sig ?? '',
+				// Bara när widgeten finns – nyttolasten är oförändrad för alla andra formulär.
+				...(this.turnstileBox ? { turnstile: this.turnstileToken() } : {}),
+				// Sidans språk (1.15.0), så att serverns fel kommer på rätt språk.
+				...(LANG ? { lang: LANG } : {}),
+			};
+
+			/*
+			 * Krok för tillägg (1.9.0): lyssnare kan lägga data i
+			 * detail.payload.extra, t.ex. en varukorg. Servern skickar `extra`
+			 * vidare till filtren relativt_form_errors och relativt_form_values.
+			 * Utan lyssnare är nyttolasten oförändrad.
+			 */
+			this.root.dispatchEvent(
+				new CustomEvent('relativt-form:payload', {
+					bubbles: true,
+					detail: { formId: this.id, root: this.root, payload },
+				})
+			);
+
+			return payload;
+		}
+
+		/* -- Inskick ------------------------------------------------------ */
+
+		setBusy(busy) {
+			this.busy = busy;
+			if (!this.submitBtn) return;
+
+			this.submitBtn.disabled = busy;
+			this.root.classList.toggle('is-sending', busy);
+
+			// Knappanimationen i temat lindar knapptexten i .btn-anim-text. Skriv till
+			// den innersta noden, annars raderas lindningen och hover-animationen
+			// slutar fungera efter första inskicket.
+			const label =
+				this.submitBtn.querySelector('.xf-submit-text .btn-anim-text') ??
+				this.submitBtn.querySelector('.xf-submit-text');
+
+			if (label) {
+				label.textContent = busy
+					? this.submitBtn.dataset.xfSending || 'Skickar…'
+					: this.submitBtn.dataset.xfLabel || label.textContent;
+			}
+		}
+
+		async submit() {
+			if (this.busy || this.animating) return;
+
+			// Flerstegsformulär: Enter i ett fält före sista steget betyder Nästa.
+			if (this.steps.length && !this.onLastStep()) {
+				this.next();
+				return;
+			}
+
+			this.clearAllErrors();
+
+			const bad = this.validate();
+			if (bad) {
+				await this.revealStepOf(bad);
+				bad.querySelector('input, select, textarea')?.focus();
+				return;
+			}
+
+			this.setBusy(true);
+			try {
+				await this.send(0);
+			} finally {
+				// Vid omdirigering behålls "Skickar…" tills sidbytet sker –
+				// en knapp som hinner bli klickbar igen ger dubbelinskick.
+				if (!this.redirecting) this.setBusy(false);
+			}
+		}
+
+		/**
+		 * Själva sändningen, skild från submit() så att den kan göra om sig
+		 * själv. Två fall åtgärdas tyst i stället för att skickas tillbaka
+		 * till besökaren:
+		 *
+		 *  - "toofast": tidsspärren. Token hämtas vid första fokus, och en
+		 *    besökare med autofyll fyller allt på en sekund – hade spärren
+		 *    fått synas åt besökaren vore den ren friktion. Vi väntar ut
+		 *    serverns retry_after och skickar om. En bot som postar direkt
+		 *    mot REST-rutten kör inte den här koden och får bara felet.
+		 *  - "nonce": utgången nonce, typiskt en flik som stått öppen över
+		 *    natten. Ny token hämtas och inskicket görs om, en gång.
+		 */
+		async send(attempt) {
+			await this.fetchToken();
+
+			try {
+				const response = await fetch(`${this.rest}submit`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					credentials: 'same-origin',
+					body: JSON.stringify(this.payload()),
+				});
+
+				const data = await response.json().catch(() => null);
+
+				if (response.ok && data?.ok) {
+					this.succeed(data);
+					return;
+				}
+
+				if (response.status === 422 && data?.errors) {
+					// Servern verifierar Turnstile FÖRE valideringen, så token är förbrukad.
+					this.resetTurnstile();
+					for (const [key, message] of Object.entries(data.errors)) {
+						const field = key === 'xf_consent'
+							? this.root.querySelector('.xf-type-consent')
+							: this.wrapper(key);
+						if (field) {
+							this.showError(field, message);
+						} else if (this.formError) {
+							// Fel som inte hör till ett fält, t.ex. från ett tillägg (1.9.0).
+							this.formError.textContent = message;
+						}
+					}
+					// Flerstegsformulär: felet kan ligga i ett tidigare steg (1.14.0).
+					const first = this.root.querySelector('.xf-field.has-error');
+					if (first) await this.revealStepOf(first);
+					this.root.querySelector('.has-error input, .has-error select, .has-error textarea')?.focus();
+					return;
+				}
+
+				if (data?.code === 'toofast' && attempt < 2) {
+					const wait = Math.min(10, Math.max(1, Number(data.retry_after) || 3));
+					await new Promise((resolve) => setTimeout(resolve, wait * 1000 + 250));
+					return this.send(attempt + 1);
+				}
+
+				if (data?.code === 'nonce' && attempt < 1) {
+					this.token = null;
+					return this.send(attempt + 1);
+				}
+
+				/*
+				 * Slutgiltigt misslyckande: ny Turnstile-token till nästa försök.
+				 * De tysta omförsöken ovan (toofast, nonce) återställer INTE –
+				 * de spärrarna ligger före Turnstile på servern, så token är
+				 * fortfarande oanvänd och följer med i omsändningen.
+				 */
+				this.resetTurnstile();
+
+				if (data?.code === 'turnstile' && this.turnstileField) {
+					this.showError(this.turnstileField, data.message || MESSAGES.turnstile);
+					return;
+				}
+
+				if (this.formError) this.formError.textContent = data?.message || MESSAGES.generic;
+			} catch {
+				this.resetTurnstile();
+				if (this.formError) this.formError.textContent = MESSAGES.generic;
+			}
+		}
+
+		succeed(data) {
+			// Låter GTM eller annan spårning hänga på utan att vi bakar in den.
+			// Sänds FÖRE en eventuell omdirigering – men en extern förfrågan
+			// hinner sällan iväg innan sidbytet, så på sajter med tack-sida
+			// hör spårningen hemma på själva tack-sidan i stället.
+			document.dispatchEvent(
+				new CustomEvent('relativt-form:success', {
+					bubbles: true,
+					detail: { formId: this.id, root: this.root },
+				})
+			);
+
+			// Tack-sida angiven i wp-admin: skicka besökaren dit i stället
+			// för att visa tack-rutan. Adressen är satt av sajtens redaktör,
+			// aldrig av besökaren.
+			if (typeof data.redirect === 'string' && data.redirect !== '') {
+				this.redirecting = true;
+				window.location.assign(data.redirect);
+				return;
+			}
+
+			if (data.title) {
+				const title = this.thanks?.querySelector('.xf-thanks-title');
+				if (title) title.textContent = data.title;
+			}
+			if (data.text) {
+				const text = this.thanks?.querySelector('.xf-thanks-text');
+				if (text) text.textContent = data.text;
+			}
+
+			this.form.hidden = true;
+			if (this.thanks) this.thanks.hidden = false;
+			this.root.classList.add('is-submitted');
+
+			/*
+			 * Modalens tack-läge, om formuläret ligger i en. Vi letar efter
+			 * [data-modal] i stället för en klass från en viss sajt – det är
+			 * ändå data-attributet som bär modalens id, och då fungerar
+			 * kopplingen oavsett vad temat kallar sin modalruta.
+			 */
+			const modal = this.root.closest('[data-modal]');
+			const modalId = modal?.dataset.modal;
+			if (modalId && window.relativtFormModal?.onSubmitSuccess) {
+				window.relativtFormModal.onSubmitSuccess(modalId);
+			}
+
+			this.thanks?.focus?.();
+		}
+
+		/* -- Steg (1.14.0) ------------------------------------------------ */
+
+		/*
+		 * Flerstegsformulär. Alla steg finns i markupen från start; CSS visar
+		 * bara det med klassen is-active. Rotens klasser is-first-step och
+		 * is-last-step styr knapparna (Tillbaka, Nästa, Skicka) och sista
+		 * stegets delar (samtycke, Turnstile).
+		 *
+		 * Ett steg hoppas över när dess eget villkor inte är uppfyllt, eller
+		 * när det inte har något fält kvar att fylla i – alla är dolda av sina
+		 * villkor. Överhoppade steg räknas inte i "Steg 2 av 4".
+		 *
+		 * Events, på formulärets rot (bubblar):
+		 *   relativt-form:step-leave – innan steget lämnas. detail.waitUntil(promise)
+		 *                              låter en egen animation (t.ex. GSAP) hinna klart.
+		 *   relativt-form:step       – när det nya steget visas. Bra för spårning
+		 *                              av var besökare hoppar av.
+		 */
+
+		bindSteps() {
+			this.prevBtn = this.root.querySelector('[data-xf-prev]');
+			this.nextBtn = this.root.querySelector('[data-xf-next]');
+			this.progressText = this.root.querySelector('[data-xf-progress-text]');
+			this.progressFill = this.root.querySelector('.xf-progress-fill');
+
+			this.prevBtn?.addEventListener('click', () => this.prev());
+			this.nextBtn?.addEventListener('click', () => this.next());
+
+			/*
+			 * Enter i ett fält före sista steget. Formulärets submit-händelse
+			 * fångar det också (se submit()), men en webbläsare skickar inte
+			 * alltid formuläret när skicka-knappen är dold – därför här.
+			 */
+			this.form.addEventListener('keydown', (event) => {
+				if (event.key !== 'Enter' || event.isComposing || this.onLastStep()) return;
+				const el = event.target;
+				if (!(el instanceof HTMLInputElement)) return;
+				if (['checkbox', 'button', 'submit', 'reset', 'file'].includes(el.type)) return;
+				event.preventDefault();
+				this.next();
+			});
+
+			this.updateSteps();
+		}
+
+		stepOf(el) {
+			return el?.closest?.('.xf-step[data-xf-step]') ?? null;
+		}
+
+		/** Stegets eget villkor. Steg utan villkor är alltid öppna. */
+		stepOpen(step) {
+			const controller = step?.dataset.xfStepCondField;
+			if (!controller) return true;
+			return this.matches(this.candidatesOf(controller), step.dataset.xfStepCondValue);
+		}
+
+		/** Har steget något kvar att fylla i? Rubriker och dolda fält räknas inte. */
+		stepHasInput(step) {
+			return this.fields.some((field) => {
+				if (this.stepOf(field) !== step) return false;
+				if (field.classList.contains('xf-type-hidden') || !this.inputs(field).length) return false;
+				return this.ownCondSatisfied(field);
+			});
+		}
+
+		/** Stegen besökaren går igenom, i ordning. Det aktuella är alltid med. */
+		visibleSteps() {
+			const current = this.steps[this.stepIndex];
+			return this.steps.filter((step) => step === current || (this.stepOpen(step) && this.stepHasInput(step)));
+		}
+
+		onLastStep() {
+			if (!this.steps.length) return true;
+			const visible = this.visibleSteps();
+			return visible[visible.length - 1] === this.steps[this.stepIndex];
+		}
+
+		/** Knappar, indikator och sista stegets delar efter aktuellt läge. */
+		updateSteps() {
+			const visible = this.visibleSteps();
+			const current = this.steps[this.stepIndex];
+			const position = visible.indexOf(current) + 1;
+			const total = visible.length;
+			const last = position === total;
+
+			this.root.classList.toggle('is-first-step', position === 1);
+			this.root.classList.toggle('is-last-step', last);
+			this.root.dataset.xfStep = String(position);
+
+			if (this.progressText) {
+				const text = (this.progressText.dataset.xfTemplate || 'Steg {current} av {total}')
+					.replace('{current}', String(position))
+					.replace('{total}', String(total));
+				// Bara vid ändring – texten är en aria-live-region.
+				if (this.progressText.textContent !== text) this.progressText.textContent = text;
+			}
+			if (this.progressFill) this.progressFill.style.width = `${(position / total) * 100}%`;
+
+			if (last) this.ensureTurnstile();
+		}
+
+		/** Väntar ut stegets CSS-animation, om den har någon. */
+		animationDone(el) {
+			const style = getComputedStyle(el);
+			const seconds = (value) =>
+				Math.max(0, ...String(value).split(',').map((v) => (v.trim().endsWith('ms') ? parseFloat(v) / 1000 : parseFloat(v) || 0)));
+			const total = (seconds(style.animationDuration) + seconds(style.animationDelay)) * 1000;
+			if (style.animationName === 'none' || total <= 0) return Promise.resolve();
+
+			return new Promise((resolve) => {
+				const done = () => {
+					clearTimeout(timer);
+					el.removeEventListener('animationend', onEnd);
+					resolve();
+				};
+				const onEnd = (event) => {
+					if (event.target === el) done();
+				};
+				// Reserv om animationend aldrig kommer (fliken i bakgrunden, avbruten animation).
+				const timer = setTimeout(done, total + 100);
+				el.addEventListener('animationend', onEnd);
+			});
+		}
+
+		reducedMotion() {
+			return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+		}
+
+		stepDetail(step, extra = {}) {
+			const visible = this.visibleSteps();
+			return {
+				formId: this.id,
+				root: this.root,
+				step: visible.indexOf(step) + 1,
+				total: visible.length,
+				title: step.querySelector('.xf-step-title')?.textContent ?? '',
+				element: step,
+				...extra,
+			};
+		}
+
+		/**
+		 * Byter till steget med index `index`. direction: 1 framåt, -1 bakåt.
+		 *
+		 * Låset (this.animating) gäller bara medan det gamla steget lämnas, så
+		 * att ett dubbelklick på Nästa inte hoppar två steg. När det nya steget
+		 * väl visas går det att klicka vidare direkt, även mitt i inglidningen.
+		 */
+		async goTo(index, direction) {
+			const from = this.steps[this.stepIndex];
+			const to = this.steps[index];
+			if (!to || from === to || this.animating) return;
+
+			const dir = direction > 0 ? 'next' : 'prev';
+			this.animating = true;
+			try {
+				const waits = [];
+				this.root.dispatchEvent(
+					new CustomEvent('relativt-form:step-leave', {
+						bubbles: true,
+						detail: {
+							...this.stepDetail(from),
+							to,
+							direction: dir,
+							waitUntil: (promise) => waits.push(Promise.resolve(promise).catch(() => {})),
+						},
+					})
+				);
+
+				this.root.classList.toggle('is-going-back', direction < 0);
+				from.classList.remove('is-entering');
+				from.classList.add('is-leaving');
+				await Promise.all([this.animationDone(from), ...waits]);
+				from.classList.remove('is-active', 'is-leaving');
+
+				this.stepIndex = index;
+				to.classList.add('is-active', 'is-entering');
+				this.updateSteps();
+				this.scrollToForm();
+				to.focus({ preventScroll: true });
+			} finally {
+				this.animating = false;
+			}
+
+			this.root.dispatchEvent(
+				new CustomEvent('relativt-form:step', {
+					bubbles: true,
+					detail: this.stepDetail(to, { direction: dir }),
+				})
+			);
+
+			await this.animationDone(to);
+			to.classList.remove('is-entering');
+		}
+
+		/** Har formulärets överkant scrollat ur bild flyttas den tillbaka in. */
+		scrollToForm() {
+			const top = this.root.getBoundingClientRect().top;
+			if (top >= 0 && top < window.innerHeight) return;
+			this.root.scrollIntoView({ block: 'start', behavior: this.reducedMotion() ? 'auto' : 'smooth' });
+		}
+
+		/** Nästa: kontrollera det aktuella steget, gå sedan vidare. */
+		async next() {
+			if (this.busy || this.animating) return;
+
+			const step = this.steps[this.stepIndex];
+			const fields = this.fields.filter((field) => this.stepOf(field) === step);
+			for (const field of fields) this.clearError(field);
+			if (this.formError) this.formError.textContent = '';
+
+			const bad = this.validate(fields, false);
+			if (bad) {
+				bad.querySelector('input, select, textarea')?.focus();
+				return;
+			}
+
+			// Token hämtas redan vid första fokus; det här täcker en besökare som bara klickat.
+			this.fetchToken();
+
+			const visible = this.visibleSteps();
+			const target = visible[visible.indexOf(step) + 1];
+			if (target) await this.goTo(this.steps.indexOf(target), 1);
+		}
+
+		/** Tillbaka: utan kontroll – besökaren ska kunna backa från ett halvfärdigt steg. */
+		async prev() {
+			if (this.busy || this.animating) return;
+
+			const visible = this.visibleSteps();
+			const target = visible[visible.indexOf(this.steps[this.stepIndex]) - 1];
+			if (target) await this.goTo(this.steps.indexOf(target), -1);
+		}
+
+		/** Visar steget som ett fält (eller fel) ligger i, t.ex. vid ett fel från servern. */
+		async revealStepOf(el) {
+			if (!this.steps.length) return;
+			const step = this.stepOf(el);
+			const index = this.steps.indexOf(step);
+			if (index < 0 || index === this.stepIndex) return;
+			await this.goTo(index, index < this.stepIndex ? -1 : 1);
+		}
+
+		/* -- Bindningar ---------------------------------------------------- */
+
+		bind() {
+			// Token hämtas vid första interaktionen. Det ger också tidsspärren
+			// något meningsfullt att mäta mot.
+			const prime = () => this.fetchToken();
+			this.form.addEventListener('focusin', prime, { once: true });
+			this.form.addEventListener('input', prime, { once: true });
+
+			this.form.addEventListener('change', () => this.evaluateConditions());
+
+			this.form.addEventListener('input', (event) => {
+				const field = event.target.closest?.('.xf-field');
+				if (field?.classList.contains('has-error')) this.clearError(field);
+				// Ändras originalet gäller inte bekräftelsens gamla fel längre.
+				const key = field?.dataset.xfKey;
+				if (key) {
+					for (const confirm of this.fields) {
+						if (confirm.dataset.xfConfirm === key && confirm.classList.contains('has-error')) this.clearError(confirm);
+					}
+				}
+			});
+
+			this.form.addEventListener('submit', (event) => {
+				event.preventDefault();
+				this.submit();
+			});
+		}
+	}
+
+	/* =========================================================================
+	 * Init
+	 * ====================================================================== */
+
+	const instances = new WeakMap();
+
+	const init = (scope = document) => {
+		if (inBuilder()) return;
+
+		for (const root of scope.querySelectorAll('.relativt-form[data-xf-form]')) {
+			if (instances.has(root)) continue;
+			instances.set(root, new RelativtForm(root));
+		}
+	};
+
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', () => init());
+	} else {
+		init();
+	}
+
+	// Formulär som portas in i modalen eller läggs in via ajax.
+	document.addEventListener('modal:open', () => init());
+
+	window.relativtForm = { init, source: () => ({ ...currentSource() }), consent: consentStatus };
+})();

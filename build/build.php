@@ -24,6 +24,7 @@ const SHIP = [
 	'CHANGELOG.md',
 	'docs/flerstegsformular.md',
 	'docs/flersprakiga-sajter.md',
+	'docs/dynamiska-alternativ.md',
 	// Måste ligga i pluginets rot: det är där flerspråkstilläggen letar.
 	'wpml-config.xml',
 	'includes/class-relativt-form.php',
