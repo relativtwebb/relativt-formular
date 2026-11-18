@@ -1334,6 +1334,56 @@ final class Relativt_Form {
 					'default_value' => 0,
 					'instructions'  => 'Cloudflare Turnstile som extra spamskydd, utöver honungsfällan och tidsspärren. Nycklarna sätts under Formulär → Standardvärden eller i wp-config.php. Saknas de skickas formuläret som vanligt, utan Turnstile.',
 				],
+
+				// Webhook (1.17.0). Av som standard. Se Relativt_Form_Webhook.
+				[ 'key' => 'field_xf_tab_webhook', 'label' => 'Webhook', 'type' => 'tab' ],
+				[
+					'key'           => 'field_xf_webhook',
+					'label'         => 'Skicka inskick till en webhook',
+					'name'          => 'xf_webhook',
+					'type'          => 'true_false',
+					'ui'            => 1,
+					'default_value' => 0,
+					'instructions'  => 'Varje inskick skickas som JSON till adressen nedan, t.ex. en Zapier-zap, efter att det sparats och mailats. Mailet går alltid ändå. Slås alltid av vid import av formuläret.',
+				],
+				[
+					'key'               => 'field_xf_webhook_url',
+					'label'             => 'Adress',
+					'name'              => 'xf_webhook_url',
+					'type'              => 'url',
+					'placeholder'       => 'https://hooks.zapier.com/hooks/catch/…',
+					'instructions'      => 'Bara https.',
+					'conditional_logic' => [ [ [ 'field' => 'field_xf_webhook', 'operator' => '==', 'value' => '1' ] ] ],
+				],
+				[
+					'key'               => 'field_xf_webhook_header_name',
+					'label'             => 'Eget huvud: namn',
+					'name'              => 'xf_webhook_header_name',
+					'type'              => 'text',
+					'placeholder'       => 'X-Webhook-Secret',
+					'instructions'      => 'Valfritt. För en delad hemlighet som mottagaren kontrollerar.',
+					'wrapper'           => [ 'width' => '50' ],
+					'conditional_logic' => [ [ [ 'field' => 'field_xf_webhook', 'operator' => '==', 'value' => '1' ] ] ],
+				],
+				[
+					'key'               => 'field_xf_webhook_header_value',
+					'label'             => 'Eget huvud: värde',
+					'name'              => 'xf_webhook_header_value',
+					'type'              => 'password',
+					'instructions'      => 'Följer aldrig med i formulärexporten.',
+					'wrapper'           => [ 'width' => '50' ],
+					'conditional_logic' => [ [ [ 'field' => 'field_xf_webhook', 'operator' => '==', 'value' => '1' ] ] ],
+				],
+				[
+					'key'               => 'field_xf_webhook_test',
+					'label'             => 'Testinskick',
+					'name'              => '',
+					'type'              => 'message',
+					'message'           => '',
+					'esc_html'          => 0,
+					'new_lines'         => '',
+					'conditional_logic' => [ [ [ 'field' => 'field_xf_webhook', 'operator' => '==', 'value' => '1' ] ] ],
+				],
 			],
 		] );
 	}
@@ -2994,6 +3044,16 @@ final class Relativt_Form {
 		 */
 		do_action( 'relativt_form_submitted', $form_id, $values, $meta, (int) $entry_id, (bool) $sent );
 
+		/*
+		 * Webhook (1.17.0): sist, efter lagring, mail och åtgärden ovan. Gör
+		 * ingenting för formulär utan webhook. Själva anropet görs efter att
+		 * svaret skickats, så det fördröjer inte besökaren och ett fel där
+		 * når aldrig besökaren.
+		 */
+		if ( class_exists( 'Relativt_Form_Webhook', false ) ) {
+			Relativt_Form_Webhook::instance()->queue( $form_id, $values, $meta, (int) $entry_id );
+		}
+
 		return new WP_REST_Response( $checked['success'], 200 );
 	}
 
@@ -4463,6 +4523,11 @@ final class Relativt_Form {
 
 			echo '</tbody></table>';
 		}
+
+		// 1.17.0: webhookens status och Skicka om, bara för inskick som har en webhook.
+		if ( class_exists( 'Relativt_Form_Webhook', false ) ) {
+			echo Relativt_Form_Webhook::instance()->entry_box( (int) $post->ID ); // phpcs:ignore WordPress.Security.EscapeOutput -- escapad i metoden.
+		}
 	}
 
 	public function form_columns( array $cols ): array {
@@ -4537,6 +4602,10 @@ final class Relativt_Form {
 				echo '0' === get_post_meta( $post_id, '_xf_mail_ok', true )
 					? '<span style="color:#b32d2e">Misslyckades</span>'
 					: '<span style="color:#008a20">Skickat</span>';
+				// 1.17.0: webhookens status, bara för inskick som har en.
+				if ( class_exists( 'Relativt_Form_Webhook', false ) ) {
+					echo Relativt_Form_Webhook::instance()->list_label( $post_id ); // phpcs:ignore WordPress.Security.EscapeOutput -- escapad i metoden.
+				}
 				break;
 		}
 	}

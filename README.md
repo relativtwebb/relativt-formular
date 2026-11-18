@@ -15,6 +15,7 @@ Byggd för byråarbete: samma motor på flera kundsajter, formulär som kan flyt
 - **Spamskydd** utan CAPTCHA: honungsfälla, HMAC-signerad tidsstämpel med minsta tid, frekvensspärr per IP och länkspärr i textrutor. Valfritt per formulär: [Cloudflare Turnstile](#cloudflare-turnstile).
 - **UTM-attribution** via förstapartskaka, så att inskicket bär med sig vilken kampanj besökaren kom ifrån. Kakan skrivs bara med samtycke via [Relativt Cookie Consent](https://github.com/relativtwebb/relativt-cookie-consent), WP Consent API eller en egen JS-krok, och annonsklick-id (`gclid`/`fbclid`) bara med samtycke till marknadsföring – se [Kampanjkakan och samtycke](#kampanjkakan-och-samtycke).
 - **Inskickslagring** med konfigurerbar gallring och CSV-export.
+- **Webhook per formulär:** inskicket som JSON till t.ex. Zapier, efter mailet och efter att besökaren fått sitt svar, med omförsök och status på inskicket – av som standard, se [Webhook](#webhook).
 - **Personuppgifter:** inskicken kan exporteras och raderas med WordPress integritetsverktyg, samtyckesrutan sparas med texten som gällde, IP-adressen sparas bara om den slås på – se [Personuppgifter](#personuppgifter).
 - **Tillgänglighet:** riktiga etiketter, fel kopplade till fälten och upplästa, fokus till första felet, och autofyll-attribut på fält för besökarens egna uppgifter (WCAG 1.3.5) – se [Autofyll](#autofyll).
 - **Statistik** över inskickens metadata: över tid, kanaler, kampanjer, sidor, enhet och klockslag – se [Statistik](#statistik).
@@ -129,6 +130,14 @@ add_filter( 'relativt_form_field_choices', function ( $list, $field, $form_id, $
 ```
 
 Hela genomgången, med ett komplett exempel som läser en ACF-repeater och tömmer LiteSpeed-cachen, finns i **[docs/dynamiska-alternativ.md](docs/dynamiska-alternativ.md)**.
+
+### Webhook
+
+Under formulärets flik **Webhook** (av som standard) skickas varje inskick som JSON till en `https`-adress, t.ex. en Zapier-zap: fältnycklar med tekniska värden (`fields`) och visningsvärden (`fields_display`), formulär, inskickets id, tidpunkt och metadata (sida, sidtitel och post-ID, kampanjdata). Ett valfritt eget huvud bär en delad hemlighet, och **Skicka testinskick** skickar exempeldata med formulärets riktiga fältnycklar.
+
+Ordningen är spara → mejl → webhook. Anropet görs efter att besökaren fått sitt svar, och ett fel där stoppar aldrig mejlet. Misslyckas det görs ett omförsök efter fem minuter via WP-Cron. Status, svarskod och antal försök sparas på inskicket och syns i inskickslistan, och inskicket kan skickas om för hand. Filtren `relativt_form_webhook_payload` och `relativt_form_webhook_args` lägger till egna nycklar och huvuden.
+
+Hela genomgången – dataformatet, WP-Cron och cron-jobb, säkerhet, flytt mellan miljöer och ett komplett exempel för Zapier – finns i **[docs/webhook.md](docs/webhook.md)**.
 
 ### Tack-sida i stället för tack-rutan
 
@@ -265,6 +274,8 @@ add_filter( 'relativt_form_submit_icon_class', fn( $c ) => trim( "$c ct-fancy-ic
 | `relativt_form_step_button_class` | Nästa: som `relativt_form_submit_class`, Tillbaka: `''` | Klasser på Nästa/Tillbaka i flerstegsformulär. Får `$form_id` och `$dir` (`next`/`prev`). Även `_text_class` och `_icon_class`, se [docs/flerstegsformular.md](docs/flerstegsformular.md) |
 | `relativt_form_step_icon` | ikonen som valts i formuläret | Byt Nästa/Tillbaka-ikonens SVG. Får `$svg`, `$form_id`, `$dir`, `$icon_key` |
 | `relativt_form_step_counter` | `'Steg {current} av {total}'` | Texten i stegindikatorn |
+| `relativt_form_webhook_payload` | datan enligt [docs/webhook.md](docs/webhook.md) | Ändra eller lägg till nycklar i webhookens JSON. Får `$data`, `$form_id`, `$values`, `$meta`; returnera `null` för att inte skicka |
+| `relativt_form_webhook_args` | timeout 10, inga omdirigeringar, JSON-huvuden | Argumenten till `wp_safe_remote_post()`. Får `$args`, `$form_id`, `$data`. Timeouten hålls inom 1–10 sekunder |
 | `relativt_form_field_choices` | alternativen ur fältets textruta | Fyll eller spärra alternativen i val-fält. Får `$list`, `$field`, `$form_id` och `$context` (`post_id`, `phase`); registrera med `10, 4`. Se [docs/dynamiska-alternativ.md](docs/dynamiska-alternativ.md) |
 
 ### Krokar för tillägg (1.9.0)
@@ -655,7 +666,7 @@ Importen läser aldrig in fältnamn rakt av — allt passerar en vitlista, och d
 
 **Kontrollera alltid mottagaradresserna efter en import.** De följer med från sajten filen kom ifrån.
 
-**Koppla inskicket till sidan** följer med när den är på. Signaturerna i formulärets markup bygger på sajtens salter, så töm sidcachen på den nya sajten, och uppdatera formulär-id:n i sajtens egen kod – importen ger formuläret ett nytt id.
+**Koppla inskicket till sidan** följer med när den är på. Webhookens adress och huvudnamn följer med, men aldrig av/på eller hemligheten: ett importerat formulär skickar ingenting förrän någon slagit på webhooken. Signaturerna i formulärets markup bygger på sajtens salter, så töm sidcachen på den nya sajten, och uppdatera formulär-id:n i sajtens egen kod – importen ger formuläret ett nytt id.
 
 ## Standardvärden
 
@@ -677,6 +688,8 @@ Inskick som hålls kvar redovisas i verktyget.
 **Samtyckesrutan.** Är **Kräv ikryssad ruta** på sparas *Godkänt:* och samtyckestexten som gällde med inskicket, och visas i inskicket, mailet och CSV-exporten. Tidpunkten är inskickets datum och tid. Utan rutan sparas inget samtycke – texten under knappen är då bara information. För de flesta kontaktformulär är den rättsliga grunden en förfrågan eller berättigat intresse, och då behövs ingen ruta alls.
 
 **IP-adress.** Sparas bara om **Spara IP-adress** är på för formuläret – av som standard sedan 1.8.0. Frekvensspärren mot spam använder IP-adressen ändå, men bara som en hash i en tillfällig spärr. Formulär som sparats tidigare behåller sitt val.
+
+**Webhook.** Har ett formulär webhooken på skickas inskicken vidare till en extern tjänst, och WordPress förslag till integritetspolicy får ett avsnitt om det. Integritetsverktyget raderar inskicket i WordPress, men inte det som redan skickats vidare.
 
 **Gallring.** Inskick raderas efter **Radera inskick efter (dagar)**, 365 som standard. 0 betyder aldrig.
 
@@ -700,8 +713,8 @@ Misslyckas ett mail sparas inskicket ändå (om lagringen är på) och en varnin
 npm ci
 npx playwright install chromium
 
-php tests/server-test.php   # 1426 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik, flersteg, språk, dynamiska alternativ, regression mot 1.15.0
-npx playwright test         # 450 tester i riktig webbläsare, desktop och mobil
+php tests/server-test.php   # 1518 assertions: validering, villkor, routing, mail, rendering, REST-flödet, definitionen, Turnstile, import, statistik, flersteg, språk, dynamiska alternativ, webhook, regression mot 1.15.0
+npx playwright test         # 454 tester i riktig webbläsare, desktop och mobil
 ```
 
 Har du redan en Chromium på maskinen som Playwright inte installerat själv, peka ut den med `CHROMIUM_PATH=/sökväg/till/chrome npx playwright test`. Utan variabeln används Playwrights egen.
@@ -714,7 +727,7 @@ Demon som webbläsartesterna körs mot genereras av den riktiga renderaren via r
 
 **Sajter utan Polylang får inte påverkas av språkstödet.** `tests/fixtures/i18n-1.14.0.json` är allt en besökare kunde få se i 1.14.0 – texterna, konfigurationen till skriptet, markup och svaren från `/form`, `/token` och `/submit`, spärr för spärr – genererat av `tests/i18n-snapshots.php` innan språkstödet byggdes. `server-test.php` kör samma sak med dagens kod, i en ren process utan Polylang, och kräver att allt är identiskt; det enda som får tillkomma är `lang` i konfigurationen. Fallet med Polylang körs mot `tests/polylang-mock.php`, som efterliknar de delar av Polylang språkstödet vilar på. Webbläsartesterna får en svensk och en engelsk sida (`php tests/build-i18n-demo.php` → `demo-i18n-sv.html` och `demo-i18n-en.html`) där serverns svar är inspelade från den riktiga `rest_submit()` och väljs efter det språk skriptet faktiskt skickar.
 
-**Befintliga formulär ska bete sig exakt som i 1.15.0.** `tests/fixtures/regression-1.15.0.json` genererades av `tests/regression-snapshots.php` mot 1.15.0-koden (`git archive v1.15.0`). Det kör representativa formulär – kontaktformulär med villkor och mottagarregel, alla fälttyper med samtyckesruta, flersteg, bekräftelsefält, Turnstile, kampanjdata med och utan klick-id, utan lagring och med Polylang – genom hela kedjan och samlar markup, skriptets konfiguration, svaren från `/form`, `/token` och `/submit`, mejlet, det sparade inskicket, CSV-raden, inskicksvyn, integritetsexporten och JSON-exporten. `server-test.php` kör samma sak med dagens kod i egna processer och kräver att allt är identiskt. Dynamiska alternativ och sidkontext har egna demosidor (`php tests/build-dynamic-demo.php` → `demo-dynamic.html`, `demo-dynamic-steps.html` och `demo-dynamic-115.html`, den sista med JS:en från 1.15.0 i `tests/fixtures/relativt-formular-1.15.0.js`).
+**Befintliga formulär ska bete sig exakt som i 1.15.0.** `tests/fixtures/regression-1.15.0.json` genererades av `tests/regression-snapshots.php` mot 1.15.0-koden (`git archive v1.15.0`). Det kör representativa formulär – kontaktformulär med villkor och mottagarregel, alla fälttyper med samtyckesruta, flersteg, bekräftelsefält, Turnstile, kampanjdata med och utan klick-id, utan lagring och med Polylang – genom hela kedjan och samlar markup, skriptets konfiguration, svaren från `/form`, `/token` och `/submit`, mejlet, det sparade inskicket, CSV-raden, inskicksvyn, integritetsexporten och JSON-exporten. `server-test.php` kör samma sak med dagens kod i egna processer och kräver att allt är identiskt. Dynamiska alternativ och sidkontext har egna demosidor (`php tests/build-dynamic-demo.php` → `demo-dynamic.html`, `demo-dynamic-steps.html` och `demo-dynamic-115.html`, den sista med JS:en från 1.15.0 i `tests/fixtures/relativt-formular-1.15.0.js`), och webhooken en (`php tests/build-webhook-demo.php` → `demo-webhook.html`) som visar att adressen och hemligheten aldrig når webbläsaren.
 
 Båda sviterna kör automatiskt vid varje push. Servertesterna körs mot PHP 8.0, 8.2 och 8.4 — det är den matrisen som bevisar `Requires PHP: 8.0`, inte headern i sig.
 

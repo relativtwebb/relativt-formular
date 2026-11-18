@@ -3,7 +3,7 @@ Contributors: relativt
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.16.0
+Stable tag: 1.17.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -23,6 +23,11 @@ Fullständig dokumentation: https://github.com/relativtwebb/relativt-formular
 
 == Upgrade Notice ==
 
+= 1.17.0 =
+Inga åtgärder för befintliga formulär. Webhooken är av som standard. Den som
+slår på den på en sajt med DISABLE_WP_CRON behöver ett cron-jobb för
+omförsöken.
+
 = 1.16.0 =
 Inga åtgärder för befintliga formulär. Slår du på "Koppla inskicket till
 sidan" i ett formulär: töm sidcachen efteråt.
@@ -41,6 +46,12 @@ Utan samtyckesverktyg skrivs kampanjkakan inte längre. Se CHANGELOG för hur
 det gamla beteendet behålls.
 
 == Changelog ==
+
+= 1.17.0 =
+Webhook per formulär: inskicket som JSON till en https-adress, t.ex. Zapier,
+efter mailet och efter svaret till besökaren. Ett omförsök via WP-Cron,
+status på inskicket, Skicka om och testinskick. Av som standard; befintliga
+formulär är oförändrade. Se docs/webhook.md.
 
 = 1.16.0 =
 Dynamiska alternativ och sidkontext. Sajtens kod kan fylla alternativen i

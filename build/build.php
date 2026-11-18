@@ -25,6 +25,7 @@ const SHIP = [
 	'docs/flerstegsformular.md',
 	'docs/flersprakiga-sajter.md',
 	'docs/dynamiska-alternativ.md',
+	'docs/webhook.md',
 	// Måste ligga i pluginets rot: det är där flerspråkstilläggen letar.
 	'wpml-config.xml',
 	'includes/class-relativt-form.php',
@@ -35,6 +36,7 @@ const SHIP = [
 	'includes/class-relativt-form-settings.php',
 	'includes/class-relativt-form-updater.php',
 	'includes/class-relativt-form-stats.php',
+	'includes/class-relativt-form-webhook.php',
 	'assets/css/relativt-formular.css',
 	'assets/js/relativt-formular.js',
 ];

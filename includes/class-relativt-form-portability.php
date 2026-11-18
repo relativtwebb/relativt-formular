@@ -77,6 +77,16 @@ final class Relativt_Form_Portability {
 		'xf_step_prev_icon'   => 'key',
 		// Sidkontext (1.16.0). Se OPTIONAL_FIELDS.
 		'xf_post_context'     => 'bool',
+		/*
+		 * Webhook (1.17.0). Adressen och namnet på det egna huvudet följer
+		 * med; av/på och huvudets VÄRDE (hemligheten) gör det aldrig. Ett
+		 * importerat formulär skickar alltså ingenting förrän någon slagit
+		 * på webhooken – ett formulär som flyttas från produktion till
+		 * staging ska inte börja skicka testinskick till kundens riktiga
+		 * system.
+		 */
+		'xf_webhook_url'         => 'text',
+		'xf_webhook_header_name' => 'text',
 	];
 
 	/**
@@ -85,7 +95,7 @@ final class Relativt_Form_Portability {
 	 * ett formulär som inte använder dem är oförändrad. Vid import behandlas
 	 * de som alla andra.
 	 */
-	private const OPTIONAL_FIELDS = [ 'xf_post_context' ];
+	private const OPTIONAL_FIELDS = [ 'xf_post_context', 'xf_webhook_url', 'xf_webhook_header_name' ];
 
 	private const FIELD_ROW = [
 		'type'        => 'type',

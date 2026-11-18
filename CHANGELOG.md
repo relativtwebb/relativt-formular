@@ -3,6 +3,45 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.17.0] – 2026-11-18
+
+Nytt: **webhook per formulär.** Av som standard. Ett formulär som inte slår på den är oförändrat, och regressionstestet mot 1.15.0 är grönt. How-to: [docs/webhook.md](docs/webhook.md).
+
+### Tillagt
+- **Fliken Webhook** i formuläret: **Skicka inskick till en webhook** (av som standard), **Adress** (bara `https`), ett valfritt **eget huvud** (namn och värde) för en delad hemlighet, och **Skicka testinskick**.
+- **Datan:** `POST` med JSON:
+  - `form_id`, `form_title`
+  - `submission_id` (`null` utan lagring)
+  - `submitted_at` (ISO 8601 med sajtens tidszon)
+  - `fields` (fältnyckel → tekniskt värde, flerval som lista)
+  - `fields_display` (fältnyckel → visningsvärde)
+  - `meta`: `page`, `post_id`, `post_title`, `landing`, `referrer`, `consent`, `utm` (objekt) och `ip` bara om den sparas
+
+  Dolda fält och överhoppade steg tas inte med, som i mejlet.
+- **Ordningen spara → mejl → webhook.** Första försöket görs efter att svaret skickats till besökaren: i `shutdown`, efter `fastcgi_finish_request()` eller `litespeed_finish_request()`, och annars via WP-Cron när inskicket sparas. Timeout 10 sekunder, inga omdirigeringar, `wp_safe_remote_post()`.
+- **Ett omförsök** efter fem minuter via WP-Cron vid nätverksfel eller en svarskod utanför 2xx.
+- **Status på inskicket** (*Skickad*, *Väntar*, *Misslyckades*), med tidpunkt, svarskod, antal försök och fel. Den syns i inskickslistan under Mail och i inskicket, som också har knappen **Skicka om**. Varje försök skickar exakt samma JSON-text, som sparas på inskicket.
+- **Utan lagring:** ett försök, och ett misslyckande loggas till PHP:s fellogg.
+- **Testinskick:** exempeldata med formulärets riktiga fältnycklar och `"test": true`, till den sparade adressen, genom samma filter som ett riktigt inskick.
+- **Filtren `relativt_form_webhook_payload`** (`$data`, `$form_id`, `$values`, `$meta`; `null` = skicka inte) och **`relativt_form_webhook_args`** (`$args`, `$form_id`, `$data`; timeouten hålls inom 1–10 sekunder).
+- **Integritet:** när något formulär har webhooken på får WordPress förslag till integritetspolicy ett avsnitt om det.
+- Klassen `Relativt_Form_Webhook` i `includes/class-relativt-form-webhook.php`. WP-Cron-kroken `relativt_form_webhook`.
+- `docs/webhook.md`, med ett komplett exempel för Zapier, som också följer med i zip-filen.
+- Tester: 92 nya server-assertions, varav körningen med `litespeed_finish_request()` sker i en egen process (`tests/webhook-finish-request.php`), och 4 nya webbläsartester (`tests/webhook.spec.js` mot `demo-webhook.html`): adressen och hemligheten når aldrig webbläsaren.
+
+### Ändrat
+- `rest_submit()` anropar webhooken sist, efter `relativt_form_submitted`. Utan webhook görs ingenting.
+- Inskickslistans Mail-kolumn och inskicksvyn visar webhookens status, men bara för inskick som har en.
+- Avaktivering och avinstallation tar bort väntande webhookförsök ur WP-Cron.
+- JSON-exporten tar med webhookens adress och huvudnamn när de är satta, men aldrig av/på eller hemligheten.
+- Testriggen: `wp_safe_remote_post()`, `wp_schedule_single_event()`, `wp_date()`, `wp_safe_redirect()`, `wp_die()` och `wp_add_privacy_policy_content()`.
+
+### Att veta
+- **WP-Cron behöver trafik.** Med `DISABLE_WP_CRON` krävs ett cron-jobb på servern, annars blir inskicken stående på *Väntar*. Se docs/webhook.md.
+- **Ett importerat formulär har webhooken av.** Slå på den och fyll i hemligheten. En databaskopia tar däremot med allt – stäng av webhooken på staging efter en kopia från produktion.
+- På en server utan finish-funktion och med lagring av görs försöket i slutet av anropet, och besökaren väntar på det i högst 10 sekunder.
+- Det som skickats vidare raderas inte av WordPress integritetsverktyg.
+
 ## [1.16.0] – 2026-11-18
 
 Nytt: **dynamiska alternativ och sidkontext.** Sajtens kod kan fylla alternativen i ett val-fält och spärra enskilda alternativ, och formuläret kan veta vilken sida det står på. Båda är **av som standard**. Ett formulär som inte slås på, på en sajt som inte använder filtret, är oförändrat: markup, skriptets konfiguration, REST-svar, mejl, sparat inskick, CSV-rad, inskicksvyn, integritetsexporten och JSON-exporten jämförs mot 1.15.0 i ett nytt regressionstest. How-to: [docs/dynamiska-alternativ.md](docs/dynamiska-alternativ.md).
