@@ -41,3 +41,4 @@ delete_option( 'relativt_form_defaults' );
 delete_option( 'relativt_form_turnstile' );
 delete_option( 'relativt_form_delete_data' );
 wp_clear_scheduled_hook( 'relativt_form_cleanup' );
+wp_clear_scheduled_hook( 'relativt_form_webhook' );

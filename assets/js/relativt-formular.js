@@ -740,9 +740,11 @@
 				const labelOf = (input) =>
 					(wrapper.querySelector(`label[for="${CSS.escape(input.id)}"]`)?.textContent ?? '').trim().toLowerCase();
 
+				// Ett spärrat alternativ (1.16.0) går inte att förvälja.
+				const open = inputs.filter((input) => !input.disabled);
 				const target =
-					inputs.find((input) => input.value.trim().toLowerCase() === wanted) ??
-					inputs.find((input) => labelOf(input) === wanted);
+					open.find((input) => input.value.trim().toLowerCase() === wanted) ??
+					open.find((input) => labelOf(input) === wanted);
 
 				if (!target) return;
 				for (const input of inputs) input.checked = input === target;
@@ -754,9 +756,11 @@
 			}
 			if (first.tagName === 'SELECT') {
 				const wanted = String(value).trim().toLowerCase();
+				// Ett spärrat alternativ (1.16.0) går inte att förvälja.
+				const options = [...first.options].filter((o) => !o.disabled);
 				const match =
-					[...first.options].find((o) => o.value.trim().toLowerCase() === wanted) ??
-					[...first.options].find((o) => o.textContent.trim().toLowerCase() === wanted);
+					options.find((o) => o.value.trim().toLowerCase() === wanted) ??
+					options.find((o) => o.textContent.trim().toLowerCase() === wanted);
 				if (match) first.value = match.value;
 				return;
 			}

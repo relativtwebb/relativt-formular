@@ -3006,7 +3006,7 @@ check( 'språkfilen, wpml-config.xml och how-to:n följer med i zip-filen', str_
 // Versionen står på tre ställen, och release.yml kräver att de stämmer överens.
 preg_match( '/^\s*\*\s*Version:\s*(\S+)/m', (string) file_get_contents( __DIR__ . '/../relativt-formular.php' ), $xf_header );
 preg_match( '/^Stable tag:\s*(\S+)/m', (string) file_get_contents( __DIR__ . '/../readme.txt' ), $xf_stable );
-check( 'Version-headern, konstanten och Stable tag är alla 1.15.0', '1.15.0' === ( $xf_header[1] ?? '' ) && '1.15.0' === RELATIVT_FORM_VERSION && '1.15.0' === ( $xf_stable[1] ?? '' ) );
+check( 'Version-headern, konstanten och Stable tag är alla 1.17.0', '1.17.0' === ( $xf_header[1] ?? '' ) && '1.17.0' === RELATIVT_FORM_VERSION && '1.17.0' === ( $xf_stable[1] ?? '' ) );
 
 echo "\nFlerspråkiga sajter (1.15.0): med Polylang\n";
 
@@ -3045,7 +3045,9 @@ foreach ( [ 'Skicka', 'Skickar…', 'Tack!', 'Något gick fel.', 'Nästa', 'Till
 	check( "fallbacken \"{$xf_text}\" registreras", isset( $xf_reg[ $xf_text ] ) );
 }
 check( 'allt hamnar i gruppen Relativt Formulär', [ 'Relativt Formulär' ] === array_values( array_unique( array_column( $xf_reg, 'context' ) ) ) );
-check( 'utan sparade standardvärden registreras inga sådana', count( $xf_reg ) === count( Relativt_Form::message_defaults() ) + 1 + count( Relativt_Form_I18n::FALLBACKS ) );
+// 1.16.0: plus texterna som bara servern använder (choice_disabled).
+check( 'texterna som bara servern använder registreras också (1.16.0)', [] === array_diff( array_values( Relativt_Form::server_message_defaults() ), array_keys( $xf_reg ) ) );
+check( 'utan sparade standardvärden registreras inga sådana', count( $xf_reg ) === count( Relativt_Form::message_defaults() ) + 1 + count( Relativt_Form_I18n::FALLBACKS ) + count( Relativt_Form::server_message_defaults() ) );
 
 $xf_site = [
 	'relativt_form_defaults' => [
@@ -3272,6 +3274,807 @@ check( 'ett extra restore() gör ingenting', 0 === Relativt_Form_I18n::depth() )
 xf_pll_rest();
 $GLOBALS['__pll']['translations'] = [];
 xf_i18n_reset();
+
+/* =============================================================================
+ * Dynamiska alternativ och sidkontext (1.16.0)
+ * ========================================================================== */
+echo "\nDynamiska alternativ och sidkontext (1.16.0)\n";
+
+require_once __DIR__ . '/regression-snapshots.php';
+
+xf_pll_rest();
+$GLOBALS['__pll']['translations'] = [];
+
+/** Kursformuläret: ett tillfälle ur sajtens kod, ett fält som styrs av det, flerval och radio. */
+function xf_dyn_form( array $over = [] ): array {
+	return array_merge( xf_test_form(), [
+		'xf_fields'       => [
+			[ 'type' => 'text', 'key' => 'namn', 'label' => 'Namn', 'required' => 1 ],
+			[ 'type' => 'email', 'key' => 'epost', 'label' => 'E-post', 'required' => 1 ],
+			[ 'type' => 'select', 'key' => 'tillfalle', 'label' => 'Tillfälle', 'choices' => "standard : Ur textrutan", 'placeholder' => 'Välj tillfälle', 'required' => 1 ],
+			[ 'type' => 'text', 'key' => 'resa', 'label' => 'Resväg', 'cond_field' => 'tillfalle', 'cond_value' => '20270202_plats' ],
+			[ 'type' => 'radio', 'key' => 'plats', 'label' => 'Plats', 'choices' => "a : A\nb : B", 'default' => 'b' ],
+			[ 'type' => 'checkboxes', 'key' => 'tillval', 'label' => 'Tillval', 'choices' => "lunch : Lunch\nmiddag : Middag" ],
+			[ 'type' => 'buttons', 'key' => 'niva', 'label' => 'Nivå', 'choices' => "bas : Bas\npro : Pro" ],
+		],
+		'xf_rules'        => [ [ 'field' => 'tillfalle', 'value' => '20270301_webbaserad', 'email' => 'distans@exempel.se', 'subject' => '' ] ],
+		'xf_post_context' => 1,
+	], $over );
+}
+
+/** Kurstillfällen per post, som sajtens kod skulle läsa ur en ACF-repeater. */
+$GLOBALS['__dyn_sessions'] = [
+	82 => [
+		[ 'value' => '20270202_plats', 'label' => '2–3 februari 2027 · På plats', 'disabled' => false ],
+		[ 'value' => '20270301_webbaserad', 'label' => '1 mars 2027 · Distans (Fullbokat)', 'disabled' => true ],
+		[ 'value' => '20270410_plats', 'label' => '10 april 2027 · På plats (Fåtal platser kvar)', 'disabled' => false ],
+	],
+	96 => [
+		[ 'value' => '20270505_plats', 'label' => '5 maj 2027 · På plats', 'disabled' => false ],
+	],
+];
+$GLOBALS['__dyn_calls'] = [];
+$xf_dyn_filter = static function ( $list, $field, $form_id, $context ) {
+	$GLOBALS['__dyn_calls'][] = [ 'key' => $field['key'], 'type' => $field['type'], 'form' => $form_id, 'context' => $context ];
+	if ( 'tillfalle' === $field['key'] ) {
+		return $GLOBALS['__dyn_sessions'][ $context['post_id'] ] ?? [];
+	}
+	if ( 'plats' === $field['key'] || 'tillval' === $field['key'] || 'niva' === $field['key'] ) {
+		// Spärra det andra alternativet i de övriga fälttyperna.
+		$list[1]['disabled'] = true;
+	}
+	return $list;
+};
+
+/** Ritar formuläret på post $post_id (0 = ingen enskild post). */
+function xf_dyn_render( array $form, int $post_id, array $presets = [] ): string {
+	$GLOBALS['__form']    = $form;
+	$GLOBALS['__queried'] = $post_id;
+	Relativt_Form::flush_fields_cache();
+	$count = new ReflectionProperty( Relativt_Form::class, 'render_count' );
+	xf_accessible( $count );
+	$count->setValue( null, [] );
+	return (string) call( Relativt_Form::instance(), 'render_form', [ 12, $presets, '' ] );
+}
+
+/** Kontextfältets värde ur markupen, eller null. */
+function xf_dyn_token( string $html ): ?string {
+	return preg_match( '/name="fields\[_xf_post\]" value="([^"]*)"/', $html, $m ) ? html_entity_decode( $m[1] ) : null;
+}
+
+/** Ett inskick till formulär 12; nollställer det ett inskick lämnar efter sig. */
+function xf_dyn_submit( array $fields, array $extra = [] ) {
+	$GLOBALS['__transients'] = [];
+	$GLOBALS['__mail']       = [];
+	$GLOBALS['__posts']      = [];
+	$GLOBALS['__saved_meta'] = [];
+	return Relativt_Form::instance()->rest_submit( new WP_REST_Request( xf_submit_body( [ 'fields' => $fields ] + $extra ) ) );
+}
+
+$GLOBALS['__public_posts'] = [ 82 => true, 96 => true ];
+$GLOBALS['__titles']       = [ 82 => 'Kurs: Test 1 &amp; mer', 96 => 'Test 11' ];
+$GLOBALS['__queried']      = 0;
+
+// --- Utan inställningen och utan filter: som 1.15.0 ------------------------
+$plain_html = xf_dyn_render( xf_dyn_form( [ 'xf_post_context' => 0 ] ), 82 );
+check( 'av som standard: inget kontextfält i markupen', null === xf_dyn_token( $plain_html ) && ! str_contains( $plain_html, '_xf_post' ) );
+check( 'utan filter: alternativen ur textrutan, inga spärrar', str_contains( $plain_html, 'Ur textrutan' ) && ! str_contains( $plain_html, 'disabled' ) && ! str_contains( $plain_html, 'is-disabled' ) );
+$off_html = xf_dyn_render( xf_dyn_form(), 82 );
+$uid_free = static fn( string $h ): string => (string) preg_replace( '/\bxf-12-\d+/', 'xf-12-UID', $h );
+$stripped = (string) preg_replace( '/\t{4}<div class="xf-field xf-field--full xf-type-hidden xf-post-context"[^\n]*\n/', '', $off_html );
+check( 'inställningen på utan filter: bara kontextfältet tillkommer', null !== xf_dyn_token( $off_html ) && $uid_free( $stripped ) === $uid_free( $plain_html ), substr( (string) json_encode( [ array_values( array_diff( explode( "\n", $uid_free( $stripped ) ), explode( "\n", $uid_free( $plain_html ) ) ) ) ] ), 0, 600 ) );
+
+$seen_body = null;
+add_filter( 'relativt_form_errors', function ( $errors, $form_id, $body ) use ( &$seen_body ) {
+	$seen_body = $body;
+	return $errors;
+}, 10, 3 );
+$GLOBALS['__form'] = xf_dyn_form( [ 'xf_post_context' => 0 ] );
+Relativt_Form::flush_fields_cache();
+$res = xf_dyn_submit( [ 'namn' => 'Anna', 'epost' => 'anna@exempel.se', 'tillfalle' => 'standard' ] );
+$last = end( $GLOBALS['__saved_meta'] );
+check( 'av: inskicket går igenom som förut', 200 === $res->status );
+check( 'av: $body får ingen post_id', is_array( $seen_body ) && ! array_key_exists( 'post_id', $seen_body ) );
+check( 'av: metadatan får inga nya nycklar', ! array_key_exists( 'post_id', $last['_xf_meta'] ) && ! array_key_exists( 'post_title', $last['_xf_meta'] ) );
+check( 'av: mailet saknar sidtitel och post-ID', ! str_contains( $GLOBALS['__mail'][0]['body'], 'Sidtitel' ) && ! str_contains( $GLOBALS['__mail'][0]['body'], 'Post-ID' ) );
+$res = xf_dyn_submit( [ 'namn' => 'Anna', 'epost' => 'anna@exempel.se', 'tillfalle' => 'standard', '_xf_post' => '82:' . str_repeat( 'a', 64 ) ] );
+check( 'av: ett påhittat kontextfält läses aldrig', 200 === $res->status && ! array_key_exists( 'post_id', $seen_body ) );
+remove_all_filters( 'relativt_form_errors' );
+
+// --- Sidkontexten ----------------------------------------------------------
+$html  = xf_dyn_render( xf_dyn_form(), 82 );
+$token = xf_dyn_token( $html );
+check( 'på, enskild publik post: kontextfältet ritas med post-ID och signatur', null !== $token && 1 === preg_match( '/^82:[a-f0-9]{64}$/', $token ) );
+check( 'kontextfältet är ett dolt fält som JS skickar med men inte validerar', str_contains( $html, 'class="xf-field xf-field--full xf-type-hidden xf-post-context" data-xf-key="_xf_post" hidden' ) );
+check( 'signaturen är densamma vid varje rendering (tål sidcache)', $token === xf_dyn_token( xf_dyn_render( xf_dyn_form(), 82 ) ) );
+check( 'en annan post ger en annan signatur', $token !== xf_dyn_token( xf_dyn_render( xf_dyn_form(), 96 ) ) );
+check( 'arkiv eller ingen enskild post: inget kontextfält', null === xf_dyn_token( xf_dyn_render( xf_dyn_form(), 0 ) ) );
+$GLOBALS['__public_posts'][ 50 ] = false;
+check( 'en post som inte är publik (utkast, privat): inget kontextfält', null === xf_dyn_token( xf_dyn_render( xf_dyn_form(), 50 ) ) );
+
+$post_of = static function ( $value ) use ( &$seen_body ): ?int {
+	$seen_body = null;
+	add_filter( 'relativt_form_errors', function ( $errors, $form_id, $body ) use ( &$seen_body ) {
+		$seen_body = $body;
+		return $errors;
+	}, 10, 3 );
+	$fields = [ 'namn' => 'Anna', 'epost' => 'anna@exempel.se', 'tillfalle' => 'standard' ];
+	if ( null !== $value ) {
+		$fields['_xf_post'] = $value;
+	}
+	$GLOBALS['__form'] = xf_dyn_form();
+	Relativt_Form::flush_fields_cache();
+	$res = xf_dyn_submit( $fields );
+	remove_all_filters( 'relativt_form_errors' );
+	return 200 === $res->status ? (int) $seen_body['post_id'] : -1;
+};
+check( 'giltig signatur: $body[post_id] är postens id', 82 === $post_of( $token ) );
+check( 'utan kontextfält (markup från 1.15.0): post_id 0, inget fel', 0 === $post_of( null ) );
+check( 'bytt post-ID med gammal signatur: 0, inget fel', 0 === $post_of( '96:' . substr( $token, 3 ) ) );
+check( 'påhittad signatur: 0', 0 === $post_of( '82:' . str_repeat( 'f', 64 ) ) );
+check( 'skräp i fältet: 0', 0 === $post_of( 'hej' ) && 0 === $post_of( '82' ) );
+check( 'en lista i stället för en sträng: 0', 0 === $post_of( [ '82' ] ) );
+$sign_other = call( $engine, 'sign', [ 'post|13|82' ] );
+check( 'signatur för ett annat formulär gäller inte här', 0 === $post_of( '82:' . $sign_other ) );
+$GLOBALS['__public_posts'][ 82 ] = false;
+check( 'posten avpublicerad efter att sidan cachades: 0', 0 === $post_of( $token ) );
+$GLOBALS['__public_posts'][ 82 ] = true;
+
+// Metadatan, mailet, inskicket, CSV-exporten, vyn och integritetsexporten.
+$GLOBALS['__form'] = xf_dyn_form();
+Relativt_Form::flush_fields_cache();
+$res  = xf_dyn_submit( [ 'namn' => 'Anna', 'epost' => 'anna@exempel.se', 'tillfalle' => 'standard', '_xf_post' => $token ] );
+$last = end( $GLOBALS['__saved_meta'] );
+$meta = $last['_xf_meta'];
+check( 'metadatan får sidtitel och post-ID, titeln läst på servern', 'Kurs: Test 1 & mer' === ( $meta['post_title'] ?? null ) && 82 === ( $meta['post_id'] ?? null ) );
+$body = $GLOBALS['__mail'][0]['body'];
+check( 'mailet: Sidtitel och Post-ID direkt efter Skickat från', 1 === preg_match( '/Skickat från<\/th>.*?<\/tr><tr><th[^>]*>Sidtitel<\/th><td[^>]*>Kurs: Test 1 &amp; mer<\/td><\/tr><tr><th[^>]*>Post-ID<\/th><td[^>]*>82<\/td>/s', $body ) );
+check( 'kontextfältet syns aldrig bland värdena', ! str_contains( serialize( $last['_xf_values'] ), '_xf_post' ) && ! str_contains( $body, '_xf_post' ) );
+$GLOBALS['__postmeta'][ 4242 ] = $last;
+ob_start();
+$engine->render_entry_box( (object) [ 'ID' => 4242 ] );
+$view = (string) ob_get_clean();
+check( 'inskicket i wp-admin visar sidtitel och post-ID', str_contains( $view, '<th style="width:200px">Sidtitel</th><td>Kurs: Test 1 &amp; mer</td>' ) && str_contains( $view, '<th style="width:200px">Post-ID</th><td>82</td>' ) );
+$data = call( $engine, 'privacy_data', [ 4242 ] );
+check( 'integritetsexporten tar med sidtitel och post-ID', in_array( [ 'name' => 'Sidtitel', 'value' => 'Kurs: Test 1 & mer' ], $data, true ) && in_array( [ 'name' => 'Post-ID', 'value' => '82' ], $data, true ) );
+unset( $GLOBALS['__postmeta'][ 4242 ] );
+
+$csv = xf_regression_csv( [ 7001 => $last, 7002 => [ '_xf_form_id' => 12, '_xf_values' => [ [ 'key' => 'namn', 'label' => 'Sidtitel', 'value' => 'Ett fält som heter så', 'raw' => 'x', 'type' => 'text' ] ], '_xf_meta' => [ 'utm' => [ 'utm_source' => 'google' ] ] ] ] );
+$csv_rows = array_map( static fn( $l ) => str_getcsv( $l, ';', '"', '\\' ), array_values( array_filter( explode( "\n", preg_replace( '/^\xEF\xBB\xBF/', '', $csv ) ) ) ) );
+check( 'CSV: Sidtitel och Post-ID är de två sista kolumnerna', [ 'Sidtitel', 'Post-ID' ] === array_slice( $csv_rows[0] ?? [], -2 ) );
+check( 'CSV: inskicket med sidkontext har titel och id sist', [ 'Kurs: Test 1 & mer', '82' ] === array_slice( $csv_rows[1] ?? [], -2 ) );
+check( 'CSV: ett fält som heter "Sidtitel" krockar inte med kolumnen', in_array( 'Ett fält som heter så', $csv_rows[2] ?? [], true ) && [ '', '' ] === array_slice( $csv_rows[2] ?? [], -2 ) );
+$csv_plain = xf_regression_csv( [ 7003 => [ '_xf_form_id' => 12, '_xf_values' => [], '_xf_meta' => [ 'utm' => [] ] ] ] );
+check( 'CSV utan inskick med sidkontext: inga nya kolumner', ! str_contains( $csv_plain, 'Sidtitel' ) && ! str_contains( $csv_plain, 'Post-ID' ) );
+
+// Inställningen på men ingen post (arkiv): post_id 0 i $body, inga nycklar i metadatan.
+$res  = xf_dyn_submit( [ 'namn' => 'Anna', 'epost' => 'anna@exempel.se', 'tillfalle' => 'standard' ] );
+$last = end( $GLOBALS['__saved_meta'] );
+check( 'på men utan post: inga nya nycklar i metadatan och inga rader i mailet', 200 === $res->status && ! array_key_exists( 'post_id', $last['_xf_meta'] ) && ! str_contains( $GLOBALS['__mail'][0]['body'], 'Post-ID' ) );
+
+// --- Filtret för alternativ --------------------------------------------------
+add_filter( 'relativt_form_field_choices', $xf_dyn_filter, 10, 4 );
+
+$GLOBALS['__dyn_calls'] = [];
+$html = xf_dyn_render( xf_dyn_form(), 82 );
+$calls = $GLOBALS['__dyn_calls'];
+check( 'filtret körs för varje val-fält, och bara för dem', [ 'tillfalle', 'plats', 'tillval', 'niva' ] === array_column( $calls, 'key' ) );
+check( 'filtret får listan, fältet, formulärets id och kontexten', 12 === $calls[0]['form'] && 'select' === $calls[0]['type'] && [ 'post_id' => 82, 'phase' => 'render' ] === $calls[0]['context'] );
+
+check( 'rullistan visar postens tillfällen, inte textrutans', str_contains( $html, '2–3 februari 2027 · På plats' ) && ! str_contains( $html, 'Ur textrutan' ) );
+check( 'spärrat alternativ i rullistan: disabled och klass', str_contains( $html, '<option value="20270301_webbaserad" class="is-disabled" disabled>1 mars 2027 · Distans (Fullbokat)</option>' ) );
+check( 'öppet alternativ i rullistan: oförändrad markup', str_contains( $html, '<option value="20270202_plats">2–3 februari 2027 · På plats</option>' ) );
+check( 'radio: det spärrade alternativet har disabled och klass på etiketten', 1 === preg_match( '/value="b" disabled><label class="xf-choice-label is-disabled"/', $html ) );
+check( 'val-knappar: samma sak', 1 === preg_match( '/value="pro" disabled><label class="xf-choice-label is-disabled"/', $html ) );
+check( 'flerval: disabled och klass på label.xf-check', 1 === preg_match( '/<label class="xf-check is-disabled" for="[^"]+"><input class="xf-check-input" type="checkbox" id="[^"]+" name="fields\[tillval\]\[\]" value="middag" disabled>/', $html ) );
+check( 'spärrade alternativ syns, de tas inte bort', 3 === substr_count( $html, '<option value="2027' ) && str_contains( $html, 'Fullbokat' ) );
+check( 'standardvärdet väljer aldrig ett spärrat alternativ', 1 === preg_match( '/value="b" disabled>/', $html ) && ! str_contains( $html, 'value="b" checked' ) );
+
+$html = xf_dyn_render( xf_dyn_form(), 82, [ 'tillfalle' => '20270301_webbaserad', 'tillval' => 'lunch, middag', 'niva' => 'pro' ] );
+check( 'shortcode-förval på ett spärrat tillfälle: inget väljs, platshållaren står kvar', ! str_contains( $html, 'value="20270301_webbaserad" selected' ) && str_contains( $html, '<option value="" selected="selected">Välj tillfälle</option>' ) );
+check( 'shortcode-förval i flerval: det spärrade tas bort, det öppna står kvar', 1 === preg_match( '/value="lunch" checked="checked">/', $html ) && ! str_contains( $html, 'value="middag" checked' ) );
+check( 'shortcode-förval på en spärrad val-knapp: inget väljs', ! str_contains( $html, 'value="pro" checked' ) );
+$html = xf_dyn_render( xf_dyn_form(), 82, [ 'tillfalle' => '20270202_plats' ] );
+check( 'förval på ett öppet tillfälle fungerar', str_contains( $html, '<option value="20270202_plats" selected="selected">' ) );
+check( 'villkor på ett dynamiskt fält: Resväg syns när förvalet träffar', 1 === preg_match( '/data-xf-key="resa" data-xf-cond-field="tillfalle" data-xf-cond-value="20270202_plats">/', $html ) );
+
+$html96 = xf_dyn_render( xf_dyn_form(), 96 );
+check( 'samma formulär på en annan post ger den postens lista', str_contains( $html96, '5 maj 2027' ) && ! str_contains( $html96, 'februari' ) );
+$GLOBALS['__dyn_calls'] = [];
+$html0 = xf_dyn_render( xf_dyn_form( [ 'xf_post_context' => 0 ] ), 82 );
+check( 'inställningen av: filtret får post_id 0 även på en kurssida', 0 === $GLOBALS['__dyn_calls'][0]['context']['post_id'] );
+check( 'tom lista: fältet ritas utan alternativ och utan PHP-fel', str_contains( $html0, '<select class="xf-input xf-select"' ) && 1 === preg_match( '/<select[^>]*name="fields\[tillfalle\]"[^>]*><option value="" selected="selected">Välj tillfälle<\/option><\/select>/', $html0 ) );
+
+// --- Validering mot den filtrerade listan ------------------------------------
+$GLOBALS['__form'] = xf_dyn_form();
+Relativt_Form::flush_fields_cache();
+$token82 = xf_dyn_token( xf_dyn_render( xf_dyn_form(), 82 ) );
+$token96 = xf_dyn_token( xf_dyn_render( xf_dyn_form(), 96 ) );
+$person  = [ 'namn' => 'Anna', 'epost' => 'anna@exempel.se' ];
+
+$GLOBALS['__dyn_calls'] = [];
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270202_plats', '_xf_post' => $token82 ] );
+check( 'öppet tillfälle på rätt kurs: 200', 200 === $res->status );
+check( 'valideringen kör filtret med fasen validate och postens id', [ 'post_id' => 82, 'phase' => 'validate' ] === $GLOBALS['__dyn_calls'][0]['context'] );
+$last = end( $GLOBALS['__saved_meta'] );
+check( 'det sparade värdet är etiketten ur filtrets lista, tekniskt värde som raw', '2–3 februari 2027 · På plats' === value_of( $last['_xf_values'], 'tillfalle' ) && '20270202_plats' === ( array_values( array_filter( $last['_xf_values'], static fn( $v ) => 'tillfalle' === $v['key'] ) )[0]['raw'] ?? null ) );
+
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270301_webbaserad', '_xf_post' => $token82 ] );
+check( 'spärrat tillfälle (skickat förbi webbläsaren): 422 med choice_disabled vid fältet', 422 === $res->status && 'Alternativet går inte längre att välja.' === ( $res->data['errors']['tillfalle'] ?? '' ) );
+check( 'spärrat tillfälle: ingenting sparas eller mailas', [] === $GLOBALS['__posts'] && [] === $GLOBALS['__mail'] );
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20260101_plats', '_xf_post' => $token82 ] );
+check( 'passerat tillfälle (finns inte i listan): choice', 422 === $res->status && 'Ogiltigt val.' === ( $res->data['errors']['tillfalle'] ?? '' ) );
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270505_plats', '_xf_post' => $token82 ] );
+check( 'tillfälle från en annan kurs: choice', 422 === $res->status && 'Ogiltigt val.' === ( $res->data['errors']['tillfalle'] ?? '' ) );
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270505_plats', '_xf_post' => '96:' . substr( (string) $token82, 3 ) ] );
+check( 'bytt post-ID: behandlas som 0, och då finns inga tillfällen', 422 === $res->status && 'Ogiltigt val.' === ( $res->data['errors']['tillfalle'] ?? '' ) );
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270505_plats', '_xf_post' => $token96 ] );
+check( 'samma tillfälle på sin egen kurs: 200', 200 === $res->status );
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '' ] );
+check( 'obligatoriskt fält utan valbara alternativ (post 0, tom lista): required', 422 === $res->status && 'Fyll i detta fält.' === ( $res->data['errors']['tillfalle'] ?? '' ) );
+
+// Fullbokat medan sidan var cachad: listan i markupen är gammal, valideringen ny.
+$GLOBALS['__dyn_sessions'][82][0]['disabled'] = true;
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270202_plats', '_xf_post' => $token82 ] );
+check( 'fullbokat efter att sidan cachades: avvisas med choice_disabled', 422 === $res->status && 'Alternativet går inte längre att välja.' === ( $res->data['errors']['tillfalle'] ?? '' ) );
+$GLOBALS['__dyn_sessions'][82][0]['disabled'] = false;
+
+// Villkor som pekar på ett dynamiskt fält, på servern.
+$res  = xf_dyn_submit( $person + [ 'tillfalle' => '20270202_plats', 'resa' => 'Tåg', '_xf_post' => $token82 ] );
+$last = end( $GLOBALS['__saved_meta'] );
+check( 'villkor mot ett dynamiskt värde: Resväg följer med när det träffar', 200 === $res->status && 'Tåg' === value_of( $last['_xf_values'], 'resa' ) );
+$res  = xf_dyn_submit( $person + [ 'tillfalle' => '20270410_plats', 'resa' => 'Tåg', '_xf_post' => $token82 ] );
+$last = end( $GLOBALS['__saved_meta'] );
+check( 'och hoppas över när det inte träffar', 200 === $res->status && null === value_of( $last['_xf_values'], 'resa' ) );
+
+// Mottagarregeln på det tekniska värdet fungerar mot den filtrerade listan.
+$GLOBALS['__dyn_sessions'][82][1]['disabled'] = false;
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270301_webbaserad', '_xf_post' => $token82 ] );
+check( 'mottagarregel på ett dynamiskt värde', 200 === $res->status && [ 'distans@exempel.se' ] === $GLOBALS['__mail'][0]['to'] );
+$GLOBALS['__dyn_sessions'][82][1]['disabled'] = true;
+
+// Övriga fälttyper.
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270202_plats', '_xf_post' => $token82, 'plats' => 'b' ] );
+check( 'radio: spärrat värde ger choice_disabled', 422 === $res->status && isset( $res->data['errors']['plats'] ) && 'Alternativet går inte längre att välja.' === $res->data['errors']['plats'] );
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270202_plats', '_xf_post' => $token82, 'niva' => 'pro' ] );
+check( 'val-knappar: spärrat värde ger choice_disabled', 422 === $res->status && isset( $res->data['errors']['niva'] ) );
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270202_plats', '_xf_post' => $token82, 'tillval' => [ 'lunch', 'middag' ] ] );
+check( 'flerval: ett spärrat värde ger choice_disabled', 422 === $res->status && 'Alternativet går inte längre att välja.' === ( $res->data['errors']['tillval'] ?? '' ) );
+$res  = xf_dyn_submit( $person + [ 'tillfalle' => '20270202_plats', '_xf_post' => $token82, 'tillval' => [ 'lunch', 'okand' ] ] );
+$last = end( $GLOBALS['__saved_meta'] );
+check( 'flerval: okända värden rensas som förut', 200 === $res->status && 'Lunch' === value_of( $last['_xf_values'], 'tillval' ) );
+
+// Meddelandet går att filtrera och översätta; det hålls utanför skriptets konfiguration.
+add_filter( 'relativt_form_messages', static function ( $m ) {
+	$m['choice_disabled'] = 'Fullbokat – välj ett annat tillfälle.';
+	return $m;
+} );
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270301_webbaserad', '_xf_post' => $token82 ] );
+check( 'choice_disabled går att byta med relativt_form_messages', 'Fullbokat – välj ett annat tillfälle.' === ( $res->data['errors']['tillfalle'] ?? '' ) );
+remove_all_filters( 'relativt_form_messages' );
+$GLOBALS['__pll']['translations'] = [ 'en' => [ 'Alternativet går inte längre att välja.' => 'This option is no longer available.' ] ];
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270301_webbaserad', '_xf_post' => $token82 ], [ 'lang' => 'en' ] );
+check( 'choice_disabled översätts i Polylang och kommer på sidans språk', 'This option is no longer available.' === ( $res->data['errors']['tillfalle'] ?? '' ) );
+$GLOBALS['__pll']['translations'] = [];
+xf_pll_rest();
+check( 'choice_disabled finns inte i messages() och därmed inte i skriptets konfiguration', ! isset( $engine->messages()['choice_disabled'] ) && ! str_contains( (string) json_encode( $engine->messages() ), 'längre att välja' ) );
+
+// relativt_form_errors: post_id i $body, så att sajtens kod kan stoppa sena anmälningar.
+add_filter( 'relativt_form_errors', static function ( $errors, $form_id, $body ) {
+	if ( 82 === ( $body['post_id'] ?? 0 ) ) {
+		$errors['tillfalle'] = 'Anmälan har stängt.';
+	}
+	return $errors;
+}, 10, 3 );
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270202_plats', '_xf_post' => $token82 ] );
+check( 'relativt_form_errors kan avvisa utifrån $body[post_id]', 422 === $res->status && 'Anmälan har stängt.' === ( $res->data['errors']['tillfalle'] ?? '' ) );
+remove_all_filters( 'relativt_form_errors' );
+
+// --- Filtrets svar tolkas förlåtande ---------------------------------------------
+$norm = static fn( $list ) => call( $engine, 'normalize_choices', [ $list ] );
+check( 'lista med value/label/disabled', [ [ 'a' => 'A', 'b' => 'B' ], [ 'b' ] ] === $norm( [ [ 'value' => 'a', 'label' => 'A' ], [ 'value' => 'b', 'label' => 'B', 'disabled' => 1 ] ] ) );
+check( 'värde => etikett fungerar också', [ [ 'x' => 'X', 'y' => 'Y' ], [] ] === $norm( [ 'x' => 'X', 'y' => 'Y' ] ) );
+check( 'tomma värden hoppas över, dubbletter: första gäller, etikett saknas: värdet', [ [ 'a' => 'A', 'c' => 'c' ], [] ] === $norm( [ [ 'value' => '' ], [ 'value' => 'a', 'label' => 'A' ], [ 'value' => 'a', 'label' => 'Igen' ], [ 'value' => 'c' ] ] ) );
+check( 'något annat än en lista ger en tom lista', [ [], [] ] === $norm( null ) && [ [], [] ] === $norm( 'skräp' ) );
+check( 'numeriska värden fungerar (20270202)', [ [ 20270202 => '2 februari' ], [ '20270202' ] ] === $norm( [ [ 'value' => '20270202', 'label' => '2 februari', 'disabled' => true ] ] ) );
+$GLOBALS['__dyn_sessions'][82][] = [ 'value' => '20270601', 'label' => 'Numeriskt', 'disabled' => true ];
+$res = xf_dyn_submit( $person + [ 'tillfalle' => '20270601', '_xf_post' => $token82 ] );
+check( 'ett spärrat numeriskt värde avvisas också', 422 === $res->status && 'Alternativet går inte längre att välja.' === ( $res->data['errors']['tillfalle'] ?? '' ) );
+array_pop( $GLOBALS['__dyn_sessions'][82] );
+
+// --- GET /form (headless): fasen definition, utan sidkontext -------------------
+$GLOBALS['__dyn_calls'] = [];
+$GLOBALS['__form']      = xf_dyn_form();
+Relativt_Form::flush_fields_cache();
+$def    = $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) );
+$by_key = array_column( $def['fields'], null, 'key' );
+check( '/form: filtret körs med fasen definition och post_id 0', [ 'post_id' => 0, 'phase' => 'definition' ] === $GLOBALS['__dyn_calls'][0]['context'] );
+check( '/form: listan för post 0 (tom här)', [] === (array) $by_key['tillfalle']['choices'] && ! isset( $by_key['tillfalle']['disabled_choices'] ) );
+check( '/form: spärrade alternativ i disabled_choices, bara på fält som har några', [ 'b' ] === ( $by_key['plats']['disabled_choices'] ?? null ) && ! isset( $by_key['namn']['disabled_choices'] ) && ! isset( $by_key['plats']['disabled'] ) );
+check( '/form: inget kontextfält i definitionen', ! isset( $by_key['_xf_post'] ) );
+
+// --- Flersteg: kontextfältet ligger utanför stegen och följer alltid med ---------
+$ms = xf_ms_form( [ 'xf_post_context' => 1 ] );
+$ms_html = xf_dyn_render( $ms, 82 );
+$ctx_at = strpos( $ms_html, 'xf-post-context' );
+check( 'flersteg: kontextfältet ritas efter stegen, inne i formuläret', false !== $ctx_at && strrpos( $ms_html, 'data-xf-step=' ) < $ctx_at && $ctx_at < strpos( $ms_html, '</form>' ) );
+
+remove_all_filters( 'relativt_form_field_choices' );
+$GLOBALS['__queried'] = 0;
+
+// --- JSON-export och import --------------------------------------------------------
+$GLOBALS['__form'] = xf_test_form();
+$payload           = Relativt_Form_Portability::instance()->build_payload( 12 );
+check( 'export: xf_post_context finns inte när det är av (exporten oförändrad)', ! array_key_exists( 'xf_post_context', $payload['settings'] ) );
+$GLOBALS['__form'] = xf_dyn_form();
+$payload           = Relativt_Form_Portability::instance()->build_payload( 12 );
+check( 'export: xf_post_context följer med när det är på', true == ( $payload['settings']['xf_post_context'] ?? null ) );
+check( 'import: xf_post_context finns i vitlistan som bool', 'bool' === ( ( new ReflectionClassConstant( Relativt_Form_Portability::class, 'TOP_FIELDS' ) )->getValue()['xf_post_context'] ?? null ) );
+
+// --- Statistiken klarar värden som inte finns i textrutan ---------------------------
+check( 'statistik: dynamiskt värde räknas på den sparade etiketten', [ '2–3 februari 2027 · På plats' ] === Relativt_Form_Stats::answer_labels( [ 'type' => 'select', 'choices' => [ 'standard' => 'Ur textrutan' ] ], [ 'value' => '2–3 februari 2027 · På plats', 'raw' => '20270202_plats' ] ) );
+
+// --- Inställningen i byggaren -------------------------------------------------------
+$field = xf_settings_field( 'field_xf_post_context' );
+check( 'byggaren: "Koppla inskicket till sidan", av som standard', null !== $field && 'xf_post_context' === $field['name'] && 'true_false' === $field['type'] && 0 === $field['default_value'] );
+
+check( 'how-to:n för dynamiska alternativ följer med i zip-filen', str_contains( (string) file_get_contents( __DIR__ . '/../build/build.php' ), "'docs/dynamiska-alternativ.md'" ) && is_file( __DIR__ . '/../docs/dynamiska-alternativ.md' ) );
+
+$GLOBALS['__form']         = xf_test_form();
+$GLOBALS['__public_posts'] = [];
+$GLOBALS['__titles']       = [];
+Relativt_Form::flush_fields_cache();
+
+
+/* =============================================================================
+ * Webhook per formulär (1.17.0)
+ * ========================================================================== */
+echo "\nWebhook (1.17.0)\n";
+
+$wh = Relativt_Form_Webhook::instance();
+
+/** Formulär med webhook på. Lagring på, IP av, om inget annat sägs. */
+function xf_wh_form( array $over = [] ): array {
+	return array_merge( xf_test_form(), [
+		'xf_fields'                => array_merge( xf_test_form()['xf_fields'], [
+			[ 'type' => 'checkboxes', 'key' => 'intressen', 'label' => 'Intressen', 'choices' => "a : A\nb : B\nc : C" ],
+			[ 'type' => 'checkbox', 'key' => 'nyhetsbrev', 'label' => 'Nyhetsbrev' ],
+		] ),
+		'xf_log_ip'                => 0,
+		'xf_webhook'               => 1,
+		'xf_webhook_url'           => 'https://hooks.zapier.com/hooks/catch/1/abc/',
+		'xf_webhook_header_name'   => 'X-Webhook-Secret',
+		'xf_webhook_header_value'  => 'hemligt',
+	], $over );
+}
+
+/** Nollställer allt ett inskick och en webhook lämnar efter sig. */
+function xf_wh_reset( ?array $form = null ): void {
+	$GLOBALS['__form']          = $form ?? xf_wh_form();
+	$GLOBALS['__transients']    = [];
+	$GLOBALS['__mail']          = [];
+	$GLOBALS['__posts']         = [];
+	$GLOBALS['__saved_meta']    = [];
+	$GLOBALS['__safe_calls']    = [];
+	$GLOBALS['__cron']          = [];
+	$GLOBALS['__safe_remote']   = [ 'code' => 200, 'body' => '' ];
+	$GLOBALS['__hooks']         = array_values( array_filter( $GLOBALS['__hooks'], static fn( $h ) => 'shutdown' !== $h['hook'] ) );
+	Relativt_Form::flush_fields_cache();
+}
+
+/** Ett inskick; returnerar svaret och inskickets id (0 utan lagring). */
+function xf_wh_submit( array $fields = [], array $extra = [] ): array {
+	$res   = Relativt_Form::instance()->rest_submit( new WP_REST_Request( xf_submit_body( ( $fields ? [ 'fields' => $fields ] : [] ) + $extra ) ) );
+	$entry = $GLOBALS['__saved_meta'] ? (int) array_key_last( $GLOBALS['__saved_meta'] ) : 0;
+	return [ $res, $entry ];
+}
+
+/** Gör så att WP-Cron och get_post_meta ser det inskicket sparade. */
+function xf_wh_persist( int $entry ): void {
+	$GLOBALS['__postmeta'][ $entry ] = $GLOBALS['__saved_meta'][ $entry ] ?? [];
+}
+
+/** Kör en schemalagd webhookhändelse, som WP-Cron. */
+function xf_wh_cron( int $entry ): void {
+	xf_wh_persist( $entry );
+	Relativt_Form_Webhook::instance()->run_scheduled( $entry );
+	// Det run_scheduled skrev läses in igen, som från databasen.
+	$GLOBALS['__postmeta'][ $entry ] = array_merge( $GLOBALS['__postmeta'][ $entry ], $GLOBALS['__saved_meta'][ $entry ] ?? [] );
+}
+
+$shutdowns = static fn(): int => count( array_filter( $GLOBALS['__hooks'], static fn( $h ) => 'shutdown' === $h['hook'] ) );
+$person    = [ 'jagar' => 'foretag', 'namn' => 'Anna Andersson', 'epost' => 'anna@exempel.se', 'telefon' => '070-123 45 67', 'behov' => 'Interim', 'onskemal' => 'Ska inte med', 'intressen' => [ 'a', 'c' ], 'nyhetsbrev' => '1', 'audit' => 'Webb' ];
+
+// --- Av som standard ----------------------------------------------------------
+xf_wh_reset( xf_test_form() );
+[ $res, $entry ] = xf_wh_submit( $person );
+check( 'av: inskicket går igenom som förut', 200 === $res->status );
+check( 'av: inget anrop, ingen shutdown-krok, ingen cron-händelse', [] === $GLOBALS['__safe_calls'] && 0 === $shutdowns() && [] === $GLOBALS['__cron'] );
+check( 'av: inskicket får inga webhooknycklar', ! isset( $GLOBALS['__saved_meta'][ $entry ][ Relativt_Form_Webhook::META_STATUS ] ) && ! isset( $GLOBALS['__saved_meta'][ $entry ][ Relativt_Form_Webhook::META_PAYLOAD ] ) );
+xf_wh_reset( xf_wh_form( [ 'xf_webhook' => 0 ] ) );
+xf_wh_submit( $person );
+check( 'adress ifylld men reglaget av: inget skickas', [] === $GLOBALS['__safe_calls'] && [] === $GLOBALS['__cron'] && 0 === $shutdowns() );
+xf_wh_reset( xf_wh_form( [ 'xf_webhook_url' => 'http://exempel.se/hook' ] ) );
+xf_wh_submit( $person );
+check( 'http i stället för https: räknas som av', [] === $GLOBALS['__safe_calls'] && [] === $GLOBALS['__cron'] && ! $wh->enabled( 12 ) );
+
+// --- Mailet och svaret är desamma med och utan webhook ----------------------------
+xf_wh_reset( xf_wh_form( [ 'xf_webhook' => 0 ] ) );
+[ $res_off ] = xf_wh_submit( $person );
+$mail_off    = $GLOBALS['__mail'];
+xf_wh_reset();
+[ $res_on, $entry ] = xf_wh_submit( $person );
+$no_time = static fn( $m ) => preg_replace( '/\b\d{2}:\d{2}\b|\b\d{4}-\d{2}-\d{2}\b/', '', serialize( $m ) );
+check( 'på: svaret till besökaren är detsamma', $res_off->status === $res_on->status && $res_off->data === $res_on->data );
+check( 'på: mailet är detsamma och har redan gått', $no_time( $mail_off ) === $no_time( $GLOBALS['__mail'] ) && 1 === count( $GLOBALS['__mail'] ) );
+check( 'på: inget anrop görs medan svaret byggs', [] === $GLOBALS['__safe_calls'] );
+
+// Markupen är densamma: webhooken syns aldrig i formuläret.
+$xf_uid = static fn( string $h ): string => (string) preg_replace( '/\bxf-12-\d+/', 'xf-12-UID', $h );
+$xf_reset_count = static function (): void {
+	$count = new ReflectionProperty( Relativt_Form::class, 'render_count' );
+	xf_accessible( $count );
+	$count->setValue( null, [] );
+};
+$GLOBALS['__form'] = xf_wh_form( [ 'xf_webhook' => 0, 'xf_webhook_url' => '', 'xf_webhook_header_name' => '', 'xf_webhook_header_value' => '' ] );
+Relativt_Form::flush_fields_cache();
+$xf_reset_count();
+$xf_plain_html = $xf_uid( (string) call( $engine, 'render_form', [ 12, [], '' ] ) );
+$GLOBALS['__form'] = xf_wh_form();
+Relativt_Form::flush_fields_cache();
+$xf_reset_count();
+$xf_wh_html = $xf_uid( (string) call( $engine, 'render_form', [ 12, [], '' ] ) );
+check( 'markupen är byte för byte densamma med webhooken på', $xf_plain_html === $xf_wh_html && ! str_contains( $xf_wh_html, 'zapier' ) && ! str_contains( $xf_wh_html, 'hemligt' ) );
+xf_wh_reset();
+[ $res_on, $entry ] = xf_wh_submit( $person );
+
+// --- Utan finish-funktion och med lagring: WP-Cron gör försöket -------------------
+check( 'testmiljön (CLI) har ingen finish-funktion', ! Relativt_Form_Webhook::can_finish_request() );
+check( 'med lagring: försöket schemaläggs i WP-Cron, direkt', 1 === count( $GLOBALS['__cron'] ) && Relativt_Form_Webhook::CRON_HOOK === $GLOBALS['__cron'][0]['hook'] && [ $entry ] === $GLOBALS['__cron'][0]['args'] && abs( $GLOBALS['__cron'][0]['ts'] - time() ) <= 2 );
+check( 'med lagring: ingen shutdown-krok', 0 === $shutdowns() );
+$status = $GLOBALS['__saved_meta'][ $entry ][ Relativt_Form_Webhook::META_STATUS ] ?? [];
+check( 'status Väntar, noll försök', 'pending' === ( $status['status'] ?? '' ) && 0 === ( $status['attempts'] ?? null ) );
+$stored = $GLOBALS['__saved_meta'][ $entry ][ Relativt_Form_Webhook::META_PAYLOAD ] ?? null;
+check( 'datan sparas på inskicket som JSON-text', is_string( $stored ) && is_array( json_decode( $stored, true ) ) );
+
+xf_wh_cron( $entry );
+$call = $GLOBALS['__safe_calls'][0] ?? null;
+check( 'WP-Cron skickar: ett anrop till adressen', 1 === count( $GLOBALS['__safe_calls'] ) && 'https://hooks.zapier.com/hooks/catch/1/abc/' === $call['url'] );
+check( 'POST med Content-Type application/json och eget huvud', 'application/json; charset=utf-8' === ( $call['args']['headers']['Content-Type'] ?? '' ) && 'hemligt' === ( $call['args']['headers']['X-Webhook-Secret'] ?? '' ) );
+check( 'timeout 10 sekunder, inga omdirigeringar', 10 === $call['args']['timeout'] && 0 === $call['args']['redirection'] );
+check( 'kroppen är exakt den sparade JSON-texten', $stored === $call['args']['body'] );
+
+$data = json_decode( (string) $call['args']['body'], true );
+check( 'nycklarna enligt specifikationen', [ 'form_id', 'form_title', 'submission_id', 'submitted_at', 'fields', 'fields_display', 'meta' ] === array_keys( $data ) );
+check( 'form_id, form_title och submission_id', 12 === $data['form_id'] && 'Kontaktformulär' === $data['form_title'] && $entry === $data['submission_id'] );
+check( 'submitted_at är ISO 8601 med tidszon', 1 === preg_match( '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $data['submitted_at'] ) );
+check( 'fields: tekniska värden som besökaren skickade dem, fältnyckel som nyckel', 'foretag' === $data['fields']['jagar'] && 'Interim' === $data['fields']['behov'] && '070-123 45 67' === $data['fields']['telefon'] );
+check( 'fields_display: telefonnumret normaliserat', '0701234567' === $data['fields_display']['telefon'] );
+check( 'fields: flerval som lista, kryssruta som 1', [ 'a', 'c' ] === $data['fields']['intressen'] && '1' === $data['fields']['nyhetsbrev'] );
+check( 'fields_display: visningsvärden (etikett, Ja)', 'Företag' === $data['fields_display']['jagar'] && 'A, C' === $data['fields_display']['intressen'] && 'Ja' === $data['fields_display']['nyhetsbrev'] );
+check( 'dolda fält (ouppfyllt villkor) tas inte med, precis som i mejlet', ! array_key_exists( 'onskemal', $data['fields'] ) && ! array_key_exists( 'onskemal', $data['fields_display'] ) );
+check( 'dolt fält av typen Dolt fält följer med', 'Webb' === $data['fields']['audit'] );
+check( 'meta: sida, post_id 0 och tom titel utan sidkontext, utm som objekt', 'https://exempel.se/kontakt/' === $data['meta']['page'] && 0 === $data['meta']['post_id'] && '' === $data['meta']['post_title'] && [ 'utm_source' => 'google' ] === $data['meta']['utm'] );
+check( 'meta: ip saknas när formuläret inte sparar den', ! array_key_exists( 'ip', $data['meta'] ) );
+check( 'utm utan kampanjdata blir ett JSON-objekt, inte en lista', str_contains( Relativt_Form_Webhook::encode( $wh->payload( 12, [], [ 'utm' => [] ], 0 ) ), '"utm":{}' ) );
+
+$status = $GLOBALS['__postmeta'][ $entry ][ Relativt_Form_Webhook::META_STATUS ];
+check( 'efter lyckat anrop: Skickad, ett försök, svarskod 200, tidpunkt', 'sent' === $status['status'] && 1 === $status['attempts'] && 200 === $status['code'] && '' !== $status['time'] );
+$GLOBALS['__safe_calls'] = [];
+xf_wh_cron( $entry );
+check( 'en skickad webhook skickas inte igen av WP-Cron', [] === $GLOBALS['__safe_calls'] );
+
+// IP följer med när den sparas.
+xf_wh_reset( xf_wh_form( [ 'xf_log_ip' => 1 ] ) );
+[ , $entry ] = xf_wh_submit( $person );
+xf_wh_cron( $entry );
+$data = json_decode( (string) ( $GLOBALS['__safe_calls'][0]['args']['body'] ?? '' ), true );
+check( 'meta: ip när formuläret sparar den', '' !== (string) ( $_SERVER['REMOTE_ADDR'] ?? '' ) && $_SERVER['REMOTE_ADDR'] === ( $data['meta']['ip'] ?? null ), (string) json_encode( $data['meta'] ?? null ) );
+
+// --- Misslyckanden och omförsök ---------------------------------------------------
+xf_wh_reset();
+[ , $entry ] = xf_wh_submit( $person );
+$GLOBALS['__cron']        = [];
+$GLOBALS['__safe_remote'] = [ 'code' => 500 ];
+xf_wh_cron( $entry );
+$status = $GLOBALS['__postmeta'][ $entry ][ Relativt_Form_Webhook::META_STATUS ];
+check( 'svarskod 500: Väntar, ett försök, svarskod sparad', 'pending' === $status['status'] && 1 === $status['attempts'] && 500 === $status['code'] && 'Svarskod 500.' === $status['error'] );
+check( 'omförsöket schemaläggs om fem minuter', 1 === count( $GLOBALS['__cron'] ) && [ $entry ] === $GLOBALS['__cron'][0]['args'] && abs( $GLOBALS['__cron'][0]['ts'] - ( time() + 300 ) ) <= 2 );
+$GLOBALS['__cron']        = [];
+$GLOBALS['__safe_remote'] = new WP_Error( 'http_request_failed', 'cURL error 28: Operation timed out' );
+xf_wh_cron( $entry );
+$status = $GLOBALS['__postmeta'][ $entry ][ Relativt_Form_Webhook::META_STATUS ];
+check( 'nätverksfel i omförsöket: Misslyckades, två försök, svarskod 0, felet sparat', 'failed' === $status['status'] && 2 === $status['attempts'] && 0 === $status['code'] && str_contains( $status['error'], 'timed out' ) );
+check( 'inget tredje automatiskt försök', [] === $GLOBALS['__cron'] );
+$GLOBALS['__safe_calls'] = [];
+xf_wh_cron( $entry );
+check( 'en misslyckad webhook skickas inte av WP-Cron på egen hand', [] === $GLOBALS['__safe_calls'] );
+
+xf_wh_reset();
+[ , $entry ] = xf_wh_submit( $person );
+$GLOBALS['__safe_remote'] = [ 'code' => 302 ];
+xf_wh_cron( $entry );
+$GLOBALS['__safe_remote'] = [ 'code' => 204 ];
+xf_wh_cron( $entry );
+$status = $GLOBALS['__postmeta'][ $entry ][ Relativt_Form_Webhook::META_STATUS ];
+check( 'en omdirigering räknas som fel; omförsöket med 204 lyckas', 'sent' === $status['status'] && 2 === $status['attempts'] && 204 === $status['code'] );
+
+// Webhooken avstängd medan ett försök väntar.
+xf_wh_reset();
+[ , $entry ] = xf_wh_submit( $person );
+$GLOBALS['__form']['xf_webhook'] = 0;
+xf_wh_cron( $entry );
+$status = $GLOBALS['__postmeta'][ $entry ][ Relativt_Form_Webhook::META_STATUS ];
+check( 'avstängd innan försöket: inget skickas, status Misslyckades med förklaring', [] === $GLOBALS['__safe_calls'] && 'failed' === $status['status'] && str_contains( $status['error'], 'avstängd' ) );
+
+// Inskicket raderat (gallring, integritetsverktyget) innan försöket.
+$GLOBALS['__safe_calls'] = [];
+$wh->run_scheduled( 987654 );
+check( 'raderat inskick: WP-Cron gör ingenting', [] === $GLOBALS['__safe_calls'] );
+
+// --- Med finish-funktion (LiteSpeed/PHP-FPM): efter svaret, i shutdown, även med lagring ---
+$xf_fin = json_decode( (string) shell_exec( escapeshellarg( PHP_BINARY ) . ' -d display_errors=stderr ' . escapeshellarg( __DIR__ . '/webhook-finish-request.php' ) ), true );
+check( 'finish-funktion: inget anrop och ingen cron-händelse medan svaret byggs, en shutdown-krok', is_array( $xf_fin ) && true === $xf_fin['can_finish'] && [ 'calls' => 0, 'cron' => 0, 'shutdowns' => 1 ] === $xf_fin['before'] );
+check( 'finish-funktion: ordningen är svar → svaret skickas klart → webhook', is_array( $xf_fin ) && [ 'response:200', 'finish', 'send' ] === $xf_fin['order'] );
+check( 'finish-funktion: status Skickad på inskicket', is_array( $xf_fin ) && 'sent' === ( $xf_fin['status']['status'] ?? '' ) && 1 === $xf_fin['calls'] );
+
+// --- Utan lagring: ett försök efter svaret, misslyckande till felloggen -------------
+xf_wh_reset( xf_wh_form( [ 'xf_store' => 0 ] ) );
+[ $res, $entry ] = xf_wh_submit( $person );
+check( 'utan lagring: svaret är 200 och inget har skickats ännu', 200 === $res->status && 0 === $entry && [] === $GLOBALS['__safe_calls'] );
+check( 'utan lagring: en shutdown-krok, ingen cron-händelse (inga personuppgifter i wp_options)', 1 === $shutdowns() && [] === $GLOBALS['__cron'] );
+$xf_log = tempnam( sys_get_temp_dir(), 'xfwh' );
+$xf_old_log = ini_set( 'error_log', $xf_log );
+$GLOBALS['__safe_remote'] = [ 'code' => 503 ];
+do_action( 'shutdown' );
+ini_set( 'error_log', (string) $xf_old_log );
+$logged = (string) file_get_contents( $xf_log );
+unlink( $xf_log );
+check( 'utan lagring: shutdown skickar en gång', 1 === count( $GLOBALS['__safe_calls'] ) );
+$data = json_decode( (string) $GLOBALS['__safe_calls'][0]['args']['body'], true );
+check( 'utan lagring: submission_id är null', array_key_exists( 'submission_id', $data ) && null === $data['submission_id'] );
+check( 'utan lagring: misslyckandet loggas till PHP:s fellogg', str_contains( $logged, 'webhooken för formulär 12 misslyckades (Svarskod 503.)' ) );
+
+// Varken lagring eller mail: besökaren får ett fel, och ingen webhook (ett nytt försök gav dubbletter).
+xf_wh_reset( xf_wh_form( [ 'xf_store' => 0, 'xf_to' => 'inte-en-adress', 'xf_rules' => [] ] ) );
+[ $res ] = xf_wh_submit( $person );
+check( 'varken sparat eller mailat: 500 och ingen webhook', 500 === $res->status && 0 === $shutdowns() && [] === $GLOBALS['__cron'] );
+
+// Mailet misslyckas men inskicket sparas: webhooken skickas ändå.
+xf_wh_reset( xf_wh_form( [ 'xf_to' => 'inte-en-adress', 'xf_rules' => [] ] ) );
+[ $res, $entry ] = xf_wh_submit( $person );
+check( 'mailet misslyckades men inskicket sparades: webhooken skickas', 200 === $res->status && 1 === count( $GLOBALS['__cron'] ) );
+
+// --- Filtren ------------------------------------------------------------------------
+xf_wh_reset();
+add_filter( 'relativt_form_values', static function ( $values ) {
+	$values[] = [ 'key' => 'tillagd', 'label' => 'Tillagd', 'type' => 'text', 'raw' => 'X-1', 'value' => 'X 1' ];
+	return $values;
+} );
+$seen_wh = null;
+add_filter( 'relativt_form_webhook_payload', static function ( $data, $form_id, $values, $meta ) use ( &$seen_wh ) {
+	$seen_wh          = [ $form_id, count( $values ), array_key_exists( 'page', $meta ), is_array( $data['fields'] ) && 'foretag' === $data['fields']['jagar'] && is_array( $data['meta']['utm'] ) ];
+	$data['tillfalle_start'] = '2027-02-02';
+	return $data;
+}, 10, 4 );
+add_filter( 'relativt_form_webhook_args', static function ( $args, $form_id, $data ) {
+	$args['timeout']                 = 60;
+	$args['headers']['X-Extra']      = 'ja';
+	return $args;
+}, 10, 3 );
+[ , $entry ] = xf_wh_submit( $person );
+xf_wh_cron( $entry );
+$call = $GLOBALS['__safe_calls'][0];
+$data = json_decode( (string) $call['args']['body'], true );
+check( 'relativt_form_values: tillagda rader följer med', 'X-1' === ( $data['fields']['tillagd'] ?? null ) && 'X 1' === ( $data['fields_display']['tillagd'] ?? null ) );
+check( 'relativt_form_webhook_payload: egna nycklar, får formulär-id, värden och meta', '2027-02-02' === ( $data['tillfalle_start'] ?? null ) && 12 === $seen_wh[0] && $seen_wh[1] > 5 && true === $seen_wh[2] );
+check( 'relativt_form_webhook_payload: fields och meta.utm är vanliga arrayer i filtret', true === $seen_wh[3] );
+check( 'relativt_form_webhook_args: egna huvuden, timeout kapas till 10', 'ja' === ( $call['args']['headers']['X-Extra'] ?? '' ) && 10 === $call['args']['timeout'] );
+remove_all_filters( 'relativt_form_values' );
+remove_all_filters( 'relativt_form_webhook_args' );
+remove_all_filters( 'relativt_form_webhook_payload' );
+
+xf_wh_reset();
+add_filter( 'relativt_form_webhook_payload', static fn() => null );
+[ , $entry ] = xf_wh_submit( $person );
+check( 'payload-filtret returnerar null: inget skickas och inget sparas', [] === $GLOBALS['__cron'] && 0 === $shutdowns() && ! isset( $GLOBALS['__saved_meta'][ $entry ][ Relativt_Form_Webhook::META_PAYLOAD ] ) );
+remove_all_filters( 'relativt_form_webhook_payload' );
+
+// --- Sidkontext (1.16.0) i webhooken --------------------------------------------------
+xf_wh_reset( xf_wh_form( [ 'xf_post_context' => 1 ] ) );
+$GLOBALS['__public_posts'] = [ 82 => true ];
+$GLOBALS['__titles']       = [ 82 => 'Test 1' ];
+$GLOBALS['__queried']      = 82;
+$token = xf_dyn_token( (string) call( Relativt_Form::instance(), 'render_form', [ 12, [], '' ] ) );
+$GLOBALS['__queried']      = 0;
+[ , $entry ] = xf_wh_submit( $person + [ '_xf_post' => $token ] );
+xf_wh_cron( $entry );
+$data = json_decode( (string) ( $GLOBALS['__safe_calls'][0]['args']['body'] ?? '' ), true );
+check( 'meta: post_id och post_title från sidkontexten', 82 === ( $data['meta']['post_id'] ?? null ) && 'Test 1' === ( $data['meta']['post_title'] ?? null ) );
+check( 'kontextfältet följer inte med bland fälten', ! array_key_exists( '_xf_post', $data['fields'] ) );
+$GLOBALS['__public_posts'] = [];
+$GLOBALS['__titles']       = [];
+
+// --- Flersteg: överhoppade steg tas inte med -------------------------------------------
+xf_wh_reset( xf_ms_form( [ 'xf_webhook' => 1, 'xf_webhook_url' => 'https://exempel.se/hook' ] ) );
+[ , $entry ] = xf_wh_submit( [ 'namn' => 'Bo', 'kundtyp' => 'privat', 'foretag' => 'Ska inte med', 'epost' => 'bo@exempel.se', 'epost2' => 'bo@exempel.se' ] );
+xf_wh_cron( $entry );
+$data = json_decode( (string) ( $GLOBALS['__safe_calls'][0]['args']['body'] ?? '' ), true );
+check( 'flersteg: fält i ett överhoppat steg och bekräftelsefält tas inte med', is_array( $data ) && ! array_key_exists( 'foretag', $data['fields'] ) && ! array_key_exists( 'epost', $data['fields'] ) && ! array_key_exists( 'epost2', $data['fields'] ) );
+
+// --- wp-admin: listan, inskicksvyn, skicka om ----------------------------------------------
+xf_wh_reset();
+[ , $entry ] = xf_wh_submit( $person );
+$GLOBALS['__safe_remote'] = [ 'code' => 500 ];
+xf_wh_cron( $entry );
+xf_wh_cron( $entry );
+xf_wh_persist( $entry );
+$GLOBALS['__postmeta'][ $entry ] = array_merge( $GLOBALS['__postmeta'][ $entry ], $GLOBALS['__saved_meta'][ $entry ] );
+ob_start();
+$engine->entry_column( 'xf_mail', $entry );
+$col = (string) ob_get_clean();
+check( 'listan: Mail-kolumnen får en rad om webhooken', str_contains( $col, '<span style="color:#008a20">Skickat</span><br><span style="color:#b32d2e">Webhook: Misslyckades</span>' ) );
+$GLOBALS['__postmeta'][ 5555 ] = [ '_xf_mail_ok' => '1' ];
+ob_start();
+$engine->entry_column( 'xf_mail', 5555 );
+check( 'listan: inskick utan webhook ser ut som förut', '<span style="color:#008a20">Skickat</span>' === (string) ob_get_clean() );
+ob_start();
+$engine->render_entry_box( (object) [ 'ID' => $entry ] );
+$box = (string) ob_get_clean();
+check( 'inskicksvyn: status, svarskod, antal försök och Skicka om', str_contains( $box, '<h4>Webhook</h4>' ) && str_contains( $box, '<td>Misslyckades</td>' ) && str_contains( $box, '<td>500</td>' ) && str_contains( $box, '<td>2</td>' ) && str_contains( $box, 'action=relativt_form_webhook_resend&amp;entry=' . $entry ) && str_contains( $box, '>Skicka om</a>' ) );
+ob_start();
+$engine->render_entry_box( (object) [ 'ID' => 5555 ] );
+check( 'inskicksvyn: inget webhookavsnitt för inskick utan webhook', ! str_contains( (string) ob_get_clean(), 'Webhook' ) );
+
+// Skicka om för hand.
+$GLOBALS['__can']          = true;
+$GLOBALS['__safe_remote']  = [ 'code' => 200 ];
+$GLOBALS['__safe_calls']   = [];
+$_GET                      = [ 'entry' => (string) $entry, '_wpnonce' => 'giltig' ];
+$redirect = '';
+try {
+	$wh->handle_resend();
+} catch ( Xf_Redirect $e ) {
+	$redirect = $e->getMessage();
+}
+$status = $GLOBALS['__saved_meta'][ $entry ][ Relativt_Form_Webhook::META_STATUS ];
+check( 'skicka om: samma data skickas igen', 1 === count( $GLOBALS['__safe_calls'] ) && $GLOBALS['__postmeta'][ $entry ][ Relativt_Form_Webhook::META_PAYLOAD ] === $GLOBALS['__safe_calls'][0]['args']['body'] );
+check( 'skicka om: status Skickad, tre försök, tillbaka till inskicket med besked', 'sent' === $status['status'] && 3 === $status['attempts'] && str_contains( $redirect, 'post=' . $entry ) && str_contains( $redirect, 'xf_webhook=ok-200' ) );
+$_GET = [ 'entry' => (string) $entry, '_wpnonce' => 'fel' ];
+$denied = false;
+try {
+	$wh->handle_resend();
+} catch ( RuntimeException $e ) {
+	$denied = true;
+} catch ( Xf_Redirect $e ) {
+}
+check( 'skicka om: fel nonce nekas', $denied );
+$GLOBALS['__can'] = false;
+$_GET             = [ 'entry' => (string) $entry, '_wpnonce' => 'giltig' ];
+$denied           = false;
+try {
+	$wh->handle_resend();
+} catch ( RuntimeException $e ) {
+	$denied = true;
+} catch ( Xf_Redirect $e ) {
+}
+check( 'skicka om: utan behörighet nekas', $denied );
+
+// --- Testinskick -------------------------------------------------------------------------
+xf_wh_reset();
+$GLOBALS['__can'] = true;
+$_GET             = [ 'form' => '12', '_wpnonce' => 'giltig' ];
+add_filter( 'relativt_form_webhook_payload', static function ( $data ) {
+	$data['fran_filtret'] = true;
+	return $data;
+} );
+$redirect = '';
+try {
+	$wh->handle_test();
+} catch ( Xf_Redirect $e ) {
+	$redirect = $e->getMessage();
+}
+remove_all_filters( 'relativt_form_webhook_payload' );
+$data = json_decode( (string) ( $GLOBALS['__safe_calls'][0]['args']['body'] ?? '' ), true );
+check( 'testinskick: skickas till den sparade adressen', 'https://hooks.zapier.com/hooks/catch/1/abc/' === ( $GLOBALS['__safe_calls'][0]['url'] ?? '' ) );
+check( 'testinskick: formulärets riktiga fältnycklar, utan rubriker och bekräftelser', is_array( $data ) && [ 'jagar', 'namn', 'foretag', 'epost', 'telefon', 'behov', 'onskemal', 'meddelande', 'audit', 'intressen', 'nyhetsbrev' ] === array_keys( $data['fields'] ) );
+check( 'testinskick: exempelvärden ur valen, test: true, genom payload-filtret', 'foretag' === $data['fields']['jagar'] && [ 'a' ] === $data['fields']['intressen'] && 'anna@exempel.se' === $data['fields']['epost'] && true === ( $data['test'] ?? null ) && true === ( $data['fran_filtret'] ?? null ) );
+check( 'testinskick: tillbaka till formuläret med besked', str_contains( $redirect, 'post=12' ) && str_contains( $redirect, 'xf_webhook=ok-200' ) );
+check( 'testinskick: inget inskick sparas, inget mail', [] === $GLOBALS['__posts'] && [] === $GLOBALS['__mail'] );
+
+$_GET = [ 'xf_webhook' => 'code-404' ];
+ob_start();
+$wh->admin_notice();
+check( 'besked om misslyckande visar svarskoden', str_contains( (string) ob_get_clean(), 'misslyckades (svarskod 404)' ) );
+$_GET = [];
+$GLOBALS['__can'] = false;
+
+// --- Inställningarna och deras validering ---------------------------------------------------
+$field = xf_settings_field( 'field_xf_webhook' );
+check( 'byggaren: fliken Webhook med reglaget av som standard', null !== xf_settings_field( 'field_xf_tab_webhook' ) && null !== $field && 0 === $field['default_value'] && 'true_false' === $field['type'] );
+check( 'byggaren: adress, huvudets namn och värde (lösenordsfält), testknapp', 'url' === ( xf_settings_field( 'field_xf_webhook_url' )['type'] ?? '' ) && 'text' === ( xf_settings_field( 'field_xf_webhook_header_name' )['type'] ?? '' ) && 'password' === ( xf_settings_field( 'field_xf_webhook_header_value' )['type'] ?? '' ) && 'message' === ( xf_settings_field( 'field_xf_webhook_test' )['type'] ?? '' ) );
+check( 'adressen: http avvisas', is_string( $wh->validate_url( true, 'http://exempel.se/hook' ) ) );
+check( 'adressen: användarnamn i adressen avvisas', is_string( $wh->validate_url( true, 'https://anna:hemligt@exempel.se/hook' ) ) );
+check( 'adressen: https godkänns, tomt godkänns', true === $wh->validate_url( true, 'https://hooks.zapier.com/x' ) && true === $wh->validate_url( true, '' ) );
+check( 'huvudet: X-Webhook-Secret godkänns', true === $wh->validate_header_name( true, 'X-Webhook-Secret' ) );
+check( 'huvudet: Content-Type, Host och mellanslag avvisas', is_string( $wh->validate_header_name( true, 'Content-Type' ) ) && is_string( $wh->validate_header_name( true, 'host' ) ) && is_string( $wh->validate_header_name( true, 'X Secret' ) ) );
+xf_wh_reset( xf_wh_form( [ 'xf_webhook_header_name' => 'Content-Type' ] ) );
+[ , $entry ] = xf_wh_submit( $person );
+xf_wh_cron( $entry );
+check( 'ett reserverat huvud som ändå sparats skickas inte', 'application/json; charset=utf-8' === ( $GLOBALS['__safe_calls'][0]['args']['headers']['Content-Type'] ?? '' ) );
+
+// --- JSON-export och import ----------------------------------------------------------------
+$GLOBALS['__form'] = xf_wh_form();
+$payload           = Relativt_Form_Portability::instance()->build_payload( 12 );
+check( 'export: adressen och huvudets namn följer med', 'https://hooks.zapier.com/hooks/catch/1/abc/' === ( $payload['settings']['xf_webhook_url'] ?? null ) && 'X-Webhook-Secret' === ( $payload['settings']['xf_webhook_header_name'] ?? null ) );
+check( 'export: av/på och hemligheten följer aldrig med', ! array_key_exists( 'xf_webhook', $payload['settings'] ) && ! array_key_exists( 'xf_webhook_header_value', $payload['settings'] ) && ! str_contains( (string) json_encode( $payload ), 'hemligt' ) );
+$top = ( new ReflectionClassConstant( Relativt_Form_Portability::class, 'TOP_FIELDS' ) )->getValue();
+check( 'import: av/på och hemligheten finns inte i vitlistan, så importen slår aldrig på webhooken', ! isset( $top['xf_webhook'] ) && ! isset( $top['xf_webhook_header_value'] ) && isset( $top['xf_webhook_url'] ) );
+$GLOBALS['__form'] = xf_test_form();
+$payload           = Relativt_Form_Portability::instance()->build_payload( 12 );
+check( 'export utan webhook: inga nya nycklar', ! array_key_exists( 'xf_webhook_url', $payload['settings'] ) && ! array_key_exists( 'xf_webhook_header_name', $payload['settings'] ) );
+
+// --- GET /form läcker ingenting -------------------------------------------------------------
+$GLOBALS['__form'] = xf_wh_form();
+Relativt_Form::flush_fields_cache();
+check( '/form: varken adress eller hemlighet i definitionen', ! str_contains( (string) json_encode( $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) ) ), 'zapier' ) && ! str_contains( (string) json_encode( $engine->rest_form( new WP_REST_Request( [ 'id' => 12 ] ) ) ), 'hemligt' ) );
+
+// --- Integritetstexten -------------------------------------------------------------------------
+$GLOBALS['__privacy']   = [];
+$GLOBALS['__get_posts'] = static fn( $args ) => 'xf_webhook' === ( $args['meta_key'] ?? '' ) ? [] : [];
+$wh->privacy_policy();
+check( 'integritetstext: ingen när inget formulär har webhook', [] === $GLOBALS['__privacy'] );
+$GLOBALS['__get_posts'] = static fn( $args ) => 'xf_webhook' === ( $args['meta_key'] ?? '' ) && '1' === ( $args['meta_value'] ?? '' ) ? [ 12 ] : [];
+$wh->privacy_policy();
+check( 'integritetstext: registreras när ett formulär har webhook, med formulärets namn', str_contains( $GLOBALS['__privacy']['Relativt Formulär'] ?? '', 'Kontaktformulär' ) && str_contains( $GLOBALS['__privacy']['Relativt Formulär'], 'webhook' ) );
+unset( $GLOBALS['__get_posts'] );
+
+// --- Uppstart, avaktivering, zip ------------------------------------------------------------
+$main = (string) file_get_contents( __DIR__ . '/../relativt-formular.php' );
+check( 'klassen laddas och startas av huvudfilen', str_contains( $main, "includes/class-relativt-form-webhook.php'" ) && str_contains( $main, 'Relativt_Form_Webhook::instance();' ) );
+check( 'avaktivering tar bort väntande webhookförsök ur WP-Cron', str_contains( $main, 'wp_clear_scheduled_hook( Relativt_Form_Webhook::CRON_HOOK );' ) && str_contains( (string) file_get_contents( __DIR__ . '/../uninstall.php' ), "wp_clear_scheduled_hook( 'relativt_form_webhook' );" ) );
+check( 'WP-Cron-kroken är registrerad', [] !== array_filter( $GLOBALS['__hooks'], static fn( $h ) => Relativt_Form_Webhook::CRON_HOOK === $h['hook'] ) );
+$xf_build = (string) file_get_contents( __DIR__ . '/../build/build.php' );
+check( 'klassen och how-to:n följer med i zip-filen', str_contains( $xf_build, "'includes/class-relativt-form-webhook.php'" ) && str_contains( $xf_build, "'docs/webhook.md'" ) && is_file( __DIR__ . '/../docs/webhook.md' ) );
+
+xf_wh_reset( xf_test_form() );
+$GLOBALS['__postmeta'] = [];
+
+
+/* =============================================================================
+ * Regression mot 1.15.0 (1.16.0)
+ *
+ * Befintliga formulär får inte påverkas av en uppdatering: samma markup,
+ * samma konfiguration till skriptet, samma REST-svar, samma mejl, samma
+ * sparade inskick och samma CSV-rad. Facit genererades av
+ * tests/regression-snapshots.php mot 1.15.0-koden. Båda körningarna sker i
+ * egna processer, som på en sajt där bara pluginet är laddat – längre upp
+ * har testerna definierat konstanter och laddat Polylang-mocken.
+ * ========================================================================== */
+echo "\nRegression mot 1.15.0\n";
+
+$xf_reg_facit = json_decode( (string) file_get_contents( __DIR__ . '/fixtures/regression-1.15.0.json' ), true );
+check( 'facit finns och täcker båda processerna', is_array( $xf_reg_facit ) && isset( $xf_reg_facit['utan-polylang'], $xf_reg_facit['polylang'] ) && count( $xf_reg_facit['utan-polylang'] ) >= 30 );
+
+foreach ( [ 'utan-polylang' => '', 'polylang' => ' polylang' ] as $xf_reg_part => $xf_reg_arg ) {
+	$xf_reg_raw = (string) shell_exec( escapeshellarg( PHP_BINARY ) . ' -d display_errors=stderr ' . escapeshellarg( __DIR__ . '/regression-snapshots.php' ) . $xf_reg_arg );
+	$xf_reg_now = json_decode( $xf_reg_raw, true );
+	check( "regressionsskriptet går att köra ({$xf_reg_part})", is_array( $xf_reg_now ), 'utdata är inte JSON, börjar med: ' . substr( trim( $xf_reg_raw ), 0, 160 ) );
+	$xf_reg_now = is_array( $xf_reg_now ) ? $xf_reg_now : [];
+
+	check( "samma uppsättning fall som i facit ({$xf_reg_part})", array_keys( $xf_reg_now ) === array_keys( (array) $xf_reg_facit[ $xf_reg_part ] ) );
+	foreach ( (array) $xf_reg_facit[ $xf_reg_part ] as $xf_reg_name => $xf_reg_expected ) {
+		$xf_reg_actual = $xf_reg_now[ $xf_reg_name ] ?? null;
+		// Varje del för sig, så att en avvikelse pekar ut vad som ändrats.
+		if ( is_array( $xf_reg_expected ) && isset( $xf_reg_expected['svar'] ) ) {
+			foreach ( [ 'svar', 'mejl', 'inskick', 'csv', 'vy', 'integritet' ] as $xf_reg_part_key ) {
+				check( "{$xf_reg_name} – {$xf_reg_part_key}: identisk med 1.15.0", ( $xf_reg_actual[ $xf_reg_part_key ] ?? null ) === $xf_reg_expected[ $xf_reg_part_key ] );
+			}
+			continue;
+		}
+		check( "{$xf_reg_name}: identisk med 1.15.0", $xf_reg_actual === $xf_reg_expected );
+	}
+}
 
 echo "\n" . str_repeat( '─', 50 ) . "\n";
 printf( "%d godkända, %d underkända\n\n", $passed, $failed );

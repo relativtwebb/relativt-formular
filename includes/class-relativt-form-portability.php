@@ -75,7 +75,27 @@ final class Relativt_Form_Portability {
 		'xf_step_prev_text'   => 'text',
 		'xf_step_next_icon'   => 'key',
 		'xf_step_prev_icon'   => 'key',
+		// Sidkontext (1.16.0). Se OPTIONAL_FIELDS.
+		'xf_post_context'     => 'bool',
+		/*
+		 * Webhook (1.17.0). Adressen och namnet på det egna huvudet följer
+		 * med; av/på och huvudets VÄRDE (hemligheten) gör det aldrig. Ett
+		 * importerat formulär skickar alltså ingenting förrän någon slagit
+		 * på webhooken – ett formulär som flyttas från produktion till
+		 * staging ska inte börja skicka testinskick till kundens riktiga
+		 * system.
+		 */
+		'xf_webhook_url'         => 'text',
+		'xf_webhook_header_name' => 'text',
 	];
+
+	/**
+	 * Inställningar som bara skrivs till exporten när de är satta (1.16.0).
+	 * Inställningar som tillkommer efter 1.15.0 läggs här, så att exporten av
+	 * ett formulär som inte använder dem är oförändrad. Vid import behandlas
+	 * de som alla andra.
+	 */
+	private const OPTIONAL_FIELDS = [ 'xf_post_context', 'xf_webhook_url', 'xf_webhook_header_name' ];
 
 	private const FIELD_ROW = [
 		'type'        => 'type',
@@ -158,7 +178,11 @@ final class Relativt_Form_Portability {
 		$settings = [];
 
 		foreach ( array_keys( self::TOP_FIELDS ) as $name ) {
-			$settings[ $name ] = get_field( $name, $form_id );
+			$value = get_field( $name, $form_id );
+			if ( in_array( $name, self::OPTIONAL_FIELDS, true ) && empty( $value ) ) {
+				continue;
+			}
+			$settings[ $name ] = $value;
 		}
 
 		$settings['xf_fields'] = $this->rows( get_field( 'xf_fields', $form_id ), self::FIELD_ROW );

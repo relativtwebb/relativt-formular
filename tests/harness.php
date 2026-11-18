@@ -189,6 +189,54 @@ function wp_remote_retrieve_response_code( $response ) {
 	return is_array( $response ) ? (int) ( $response['response']['code'] ?? 0 ) : 0;
 }
 
+// --- Webhook (1.17.0) ----------------------------------------------------------
+/*
+ * $GLOBALS['__safe_remote'] styr svaret på wp_safe_remote_post(): [ 'code' => 200 ]
+ * eller ett WP_Error. Anropen spelas in i $GLOBALS['__safe_calls'], schemalagda
+ * WP-Cron-händelser i $GLOBALS['__cron'] och förslagen till integritetspolicy i
+ * $GLOBALS['__privacy']. wp_safe_redirect() kastar Xf_Redirect, så att en test
+ * kan läsa adressen i stället för att processen avslutas av exit.
+ */
+$GLOBALS['__safe_remote'] = [ 'code' => 200, 'body' => '' ];
+$GLOBALS['__safe_calls']  = [];
+$GLOBALS['__cron']        = [];
+$GLOBALS['__privacy']     = [];
+if ( ! function_exists( 'wp_safe_remote_post' ) ) {
+	function wp_safe_remote_post( $url, $args = [] ) {
+		$GLOBALS['__safe_calls'][] = [ 'url' => $url, 'args' => $args ];
+		$r = $GLOBALS['__safe_remote'];
+		if ( $r instanceof WP_Error ) {
+			return $r;
+		}
+		return [ 'response' => [ 'code' => (int) ( $r['code'] ?? 200 ) ], 'body' => (string) ( $r['body'] ?? '' ) ];
+	}
+}
+if ( ! function_exists( 'wp_schedule_single_event' ) ) {
+	function wp_schedule_single_event( $timestamp, $hook, $args = [] ) {
+		$GLOBALS['__cron'][] = [ 'ts' => (int) $timestamp, 'hook' => $hook, 'args' => $args ];
+		return true;
+	}
+}
+if ( ! function_exists( 'wp_date' ) ) {
+	function wp_date( $format, $timestamp = null, $timezone = null ) { return gmdate( $format, $timestamp ?? time() ); }
+}
+if ( ! function_exists( 'wp_nonce_url' ) ) {
+	function wp_nonce_url( $url, $action = -1 ) { return $url . ( str_contains( $url, '?' ) ? '&' : '?' ) . '_wpnonce=giltig'; }
+}
+if ( ! function_exists( 'add_query_arg' ) ) {
+	function add_query_arg( $key, $value, $url ) { return $url . ( str_contains( $url, '?' ) ? '&' : '?' ) . $key . '=' . $value; }
+}
+class Xf_Redirect extends Exception {}
+if ( ! function_exists( 'wp_safe_redirect' ) ) {
+	function wp_safe_redirect( $url, $status = 302 ) { throw new Xf_Redirect( (string) $url ); }
+}
+if ( ! function_exists( 'wp_die' ) ) {
+	function wp_die( $message = '' ) { throw new RuntimeException( 'wp_die: ' . $message ); }
+}
+if ( ! function_exists( 'wp_add_privacy_policy_content' ) ) {
+	function wp_add_privacy_policy_content( $plugin_name, $policy_text ) { $GLOBALS['__privacy'][ $plugin_name ] = $policy_text; }
+}
+
 // --- REST -------------------------------------------------------------------
 /*
  * Minsta möjliga speglingar av WordPress REST-klasser, så att HELA
@@ -316,7 +364,20 @@ $GLOBALS['__post_status'] = [];
 function get_post_status( $id ) {
 	return $GLOBALS['__post_status'][ (int) $id ] ?? ( 12 === (int) $id ? 'publish' : false );
 }
-function get_the_title( $id ) { return 'Kontaktformulär'; }
+// 1.16.0: sidkontexten läser titeln på kurssidan, inte bara formulärets.
+$GLOBALS['__titles'] = [];
+function get_the_title( $id ) { return $GLOBALS['__titles'][ (int) $id ] ?? 'Kontaktformulär'; }
+
+/*
+ * Sidkontext (1.16.0). $GLOBALS['__queried'] är den enskilda post sidan visar
+ * (0 = ingen, t.ex. ett arkiv), $GLOBALS['__public_posts'] de poster vem som
+ * helst kan se. Allt annat – utkast, privata, borttagna – är inte publikt.
+ */
+$GLOBALS['__queried']      = 0;
+$GLOBALS['__public_posts'] = [];
+function is_singular( $post_types = '' ) { return $GLOBALS['__queried'] > 0; }
+function get_queried_object_id() { return (int) $GLOBALS['__queried']; }
+function is_post_publicly_viewable( $post = null ) { return ! empty( $GLOBALS['__public_posts'][ (int) $post ] ); }
 /*
  * Tomt som standard. Statistiktesterna sätter $GLOBALS['__get_posts'] till en
  * funktion som svarar på frågan, så att batchläsningen kan provas.

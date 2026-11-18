@@ -3,6 +3,80 @@
 Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/).
 Versionerna följer [semantisk versionshantering](https://semver.org/lang/sv/).
 
+## [1.17.0] – 2026-11-18
+
+Nytt: **webhook per formulär.** Av som standard. Ett formulär som inte slår på den är oförändrat, och regressionstestet mot 1.15.0 är grönt. How-to: [docs/webhook.md](docs/webhook.md).
+
+### Tillagt
+- **Fliken Webhook** i formuläret: **Skicka inskick till en webhook** (av som standard), **Adress** (bara `https`), ett valfritt **eget huvud** (namn och värde) för en delad hemlighet, och **Skicka testinskick**.
+- **Datan:** `POST` med JSON:
+  - `form_id`, `form_title`
+  - `submission_id` (`null` utan lagring)
+  - `submitted_at` (ISO 8601 med sajtens tidszon)
+  - `fields` (fältnyckel → tekniskt värde, flerval som lista)
+  - `fields_display` (fältnyckel → visningsvärde)
+  - `meta`: `page`, `post_id`, `post_title`, `landing`, `referrer`, `consent`, `utm` (objekt) och `ip` bara om den sparas
+
+  Dolda fält och överhoppade steg tas inte med, som i mejlet.
+- **Ordningen spara → mejl → webhook.** Första försöket görs efter att svaret skickats till besökaren: i `shutdown`, efter `fastcgi_finish_request()` eller `litespeed_finish_request()`, och annars via WP-Cron när inskicket sparas. Timeout 10 sekunder, inga omdirigeringar, `wp_safe_remote_post()`.
+- **Ett omförsök** efter fem minuter via WP-Cron vid nätverksfel eller en svarskod utanför 2xx.
+- **Status på inskicket** (*Skickad*, *Väntar*, *Misslyckades*), med tidpunkt, svarskod, antal försök och fel. Den syns i inskickslistan under Mail och i inskicket, som också har knappen **Skicka om**. Varje försök skickar exakt samma JSON-text, som sparas på inskicket.
+- **Utan lagring:** ett försök, och ett misslyckande loggas till PHP:s fellogg.
+- **Testinskick:** exempeldata med formulärets riktiga fältnycklar och `"test": true`, till den sparade adressen, genom samma filter som ett riktigt inskick.
+- **Filtren `relativt_form_webhook_payload`** (`$data`, `$form_id`, `$values`, `$meta`; `null` = skicka inte) och **`relativt_form_webhook_args`** (`$args`, `$form_id`, `$data`; timeouten hålls inom 1–10 sekunder).
+- **Integritet:** när något formulär har webhooken på får WordPress förslag till integritetspolicy ett avsnitt om det.
+- Klassen `Relativt_Form_Webhook` i `includes/class-relativt-form-webhook.php`. WP-Cron-kroken `relativt_form_webhook`.
+- `docs/webhook.md`, med ett komplett exempel för Zapier, som också följer med i zip-filen.
+- Tester: 92 nya server-assertions, varav körningen med `litespeed_finish_request()` sker i en egen process (`tests/webhook-finish-request.php`), och 4 nya webbläsartester (`tests/webhook.spec.js` mot `demo-webhook.html`): adressen och hemligheten når aldrig webbläsaren.
+
+### Ändrat
+- `rest_submit()` anropar webhooken sist, efter `relativt_form_submitted`. Utan webhook görs ingenting.
+- Inskickslistans Mail-kolumn och inskicksvyn visar webhookens status, men bara för inskick som har en.
+- Avaktivering och avinstallation tar bort väntande webhookförsök ur WP-Cron.
+- JSON-exporten tar med webhookens adress och huvudnamn när de är satta, men aldrig av/på eller hemligheten.
+- Testriggen: `wp_safe_remote_post()`, `wp_schedule_single_event()`, `wp_date()`, `wp_safe_redirect()`, `wp_die()` och `wp_add_privacy_policy_content()`.
+
+### Att veta
+- **WP-Cron behöver trafik.** Med `DISABLE_WP_CRON` krävs ett cron-jobb på servern, annars blir inskicken stående på *Väntar*. Se docs/webhook.md.
+- **Ett importerat formulär har webhooken av.** Slå på den och fyll i hemligheten. En databaskopia tar däremot med allt – stäng av webhooken på staging efter en kopia från produktion.
+- På en server utan finish-funktion och med lagring av görs försöket i slutet av anropet, och besökaren väntar på det i högst 10 sekunder.
+- Det som skickats vidare raderas inte av WordPress integritetsverktyg.
+
+## [1.16.0] – 2026-11-18
+
+Nytt: **dynamiska alternativ och sidkontext.** Sajtens kod kan fylla alternativen i ett val-fält och spärra enskilda alternativ, och formuläret kan veta vilken sida det står på. Båda är **av som standard**. Ett formulär som inte slås på, på en sajt som inte använder filtret, är oförändrat: markup, skriptets konfiguration, REST-svar, mejl, sparat inskick, CSV-rad, inskicksvyn, integritetsexporten och JSON-exporten jämförs mot 1.15.0 i ett nytt regressionstest. How-to: [docs/dynamiska-alternativ.md](docs/dynamiska-alternativ.md).
+
+### Tillagt
+- **Inställningen Koppla inskicket till sidan** (`xf_post_context`) under Inställningar → Lagring, av som standard. När den är på och formuläret står på en publik enskild post:
+  - får formuläret ett dolt fält, `_xf_post`, med post-ID:t och en HMAC-signatur över formulär-ID och post-ID. Signaturen är densamma för alla besökare och tål sidcache.
+  - kontrollerar servern signaturen och att posten fortfarande är publik. Saknas fältet (markup från 1.15.0), är signaturen fel eller posten avpublicerad blir post-ID:t 0. Det blir aldrig ett fel.
+  - får `$body` i `relativt_form_errors` och `relativt_form_values` nyckeln `post_id`.
+  - får `$meta` nycklarna `post_title` (läst på servern) och `post_id`, och de syns i mailet (efter *Skickat från*), i inskicksvyn, i integritetsexporten och som kolumnerna *Sidtitel* och *Post-ID* sist i CSV-exporten.
+- **Filtret `relativt_form_field_choices`** (`$list`, `$field`, `$form_id`, `$context`) för Rullista, Radioknappar, Val-knappar och Flerval. `$list` är fältets alternativ som `[ 'value', 'label', 'disabled' ]`, och `$context` är `[ 'post_id', 'phase' ]`. Filtret körs när formuläret ritas ut (`render`), när ett inskick valideras (`validate`) och när `GET /form` svarar (`definition`, alltid post-ID 0). Ändrar filtret ingenting är fältet orört.
+- **Spärrade alternativ.** `'disabled' => true` ger `disabled` på `<option>`/`<input>` och klassen `is-disabled` på `<option>`, på etiketten (radio, val-knappar) eller på `label.xf-check` (flerval). Ett spärrat alternativ förväljs aldrig, varken av standardvärdet, ett shortcode-attribut eller en URL-parameter. CSS-variabeln `--xf-disabled-opacity` (standard `0.45`).
+- **Servervalidering mot den filtrerade listan**, för posten inskicket kom från. Värden som inte finns ger `choice` som förut. Ett spärrat värde ger det nya felet **`choice_disabled`** (*Alternativet går inte längre att välja.*), som går att byta med `relativt_form_messages` och översätta i Polylang. Flerval rensar okända värden som förut, men ett spärrat värde ger fel.
+- `GET /form/{id}`: fält med spärrade alternativ får nyckeln `disabled_choices`.
+- `Relativt_Form::server_message_defaults()`, `Relativt_Form::POST_FIELD` och `post_context_enabled()`.
+- `docs/dynamiska-alternativ.md`, med ett komplett exempel som läser en ACF-repeater och tömmer LiteSpeed-cachen, och som följer med i zip-filen.
+- Tester: `tests/regression-snapshots.php` och `tests/fixtures/regression-1.15.0.json` (facit från 1.15.0-koden för kontaktformulär, alla fälttyper, villkor, mottagarregler, flersteg, bekräftelsefält, Turnstile, samtyckesruta, kampanjdata med och utan klick-id, utan lagring och Polylang), 89 nya server-assertions för funktionerna, 268 för regressionen mot 1.15.0 och 28 nya webbläsartester (`tests/dynamic.spec.js` mot `demo-dynamic.html`, `demo-dynamic-115.html` med JS:en från 1.15.0 och `demo-dynamic-steps.html`).
+
+### Ändrat
+- `validate()` tar ett tredje, valfritt argument: post-ID:t (standard 0).
+- `messages()` bygger på en ny privat `all_messages()`. Filtret `relativt_form_messages` får därför även nyckeln `choice_disabled`, men `messages()` – och därmed skriptets konfiguration och `GET /form` – har exakt samma nycklar som förut.
+- Polylang: texten för `choice_disabled` registreras sist i gruppen Relativt Formulär.
+- JSON-exporten tar bara med `xf_post_context` när den är på, så att exporten av befintliga formulär är oförändrad.
+- I JS hoppar URL-förvalet (`setValue()`) över spärrade alternativ. Utan spärrade alternativ är beteendet oförändrat.
+- Testriggen: `get_the_title()` kan svara olika per post, och `is_singular()`, `get_queried_object_id()` och `is_post_publicly_viewable()` finns.
+
+### Att veta
+- **Töm sidcachen när du slår på inställningen.** Sidor som cachats innan saknar kontextfältet och skickar in med post-ID 0. För ett formulär med alternativ som beror på sidan betyder det att listan vid validering är tom, och inskicket avvisas med `choice`.
+- **Byts sajtens salter** blir signaturerna i cachade sidor ogiltiga, och inskicken får post-ID 0 tills cachen byggs om.
+- En cachad sida kan visa en inaktuell lista; valideringen avgör. Töm cachen för sidan när underlaget ändras.
+- Använd `$context['post_id']` i filtret, aldrig `get_the_ID()`: vid inskicket finns ingen global post.
+- Headless-frontends får ingen sidkontext; `GET /form` kör filtret med post-ID 0.
+- Fältnyckeln `_xf_post` är reserverad.
+- Ingen ändring av hur formulär lagras och inga migreringar.
+
 ## [1.15.0] – 2026-11-16
 
 Nytt: **stöd för flerspråkiga sajter**, med eller utan Polylang. **Sajter med ett språk och utan Polylang beter sig som i 1.14.0** – samma markup, samma texter och samma REST-svar, vilket ett nytt facit-test bevakar. How-to: [docs/flersprakiga-sajter.md](docs/flersprakiga-sajter.md).
